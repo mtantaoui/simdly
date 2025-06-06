@@ -99,8 +99,11 @@ impl SimdVec<f32> for F32x8 {
     /// Loads a partial vector from a pointer, filling the rest with zeros.
     #[target_feature(enable = "avx")]
     unsafe fn load_partial(ptr: *const f32, size: usize) -> Self {
-        let msg = format!("Size must be < {}", LANE_COUNT);
-        assert!(size < LANE_COUNT, "{}", msg);
+        assert!(
+            size < LANE_COUNT,
+            "{}",
+            format!("Size must be < {}", LANE_COUNT)
+        );
 
         // to avoid unnecessary branching and ensure all elements are set correctly
         assert!(!ptr.is_null(), "Pointer must not be null");
@@ -178,9 +181,11 @@ impl SimdVec<f32> for F32x8 {
     /// Stores the vector elements into a `Vec<f32>`, ensuring the size is exactly 8 elements.
     #[target_feature(enable = "avx")]
     unsafe fn store_in_vec(&self) -> Vec<f32> {
-        let msg = format!("Size must be <= {}", LANE_COUNT);
-
-        assert!(self.size <= LANE_COUNT, "{}", msg);
+        assert!(
+            self.size <= LANE_COUNT,
+            "{}",
+            format!("Size must be <= {}", LANE_COUNT)
+        );
 
         let mut vec = Vec::with_capacity(LANE_COUNT);
 
@@ -189,7 +194,6 @@ impl SimdVec<f32> for F32x8 {
             vec.set_len(LANE_COUNT);
         }
 
-        println!("Vector elements stored in Vec<f32>: {:?}", vec);
         vec
     }
 
@@ -210,9 +214,11 @@ impl SimdVec<f32> for F32x8 {
     /// It uses `_mm256_stream_ps` for aligned storage or `_mm256_storeu_ps` for unaligned storage.
     #[target_feature(enable = "avx")]
     unsafe fn store_at(&self, ptr: *mut f32) {
-        let msg = format!("Size must be <= {}", LANE_COUNT);
-
-        assert!(self.size <= LANE_COUNT, "{}", msg);
+        assert!(
+            self.size <= LANE_COUNT,
+            "{}",
+            format!("Size must be <= {}", LANE_COUNT)
+        );
         assert!(!ptr.is_null(), "Pointer must not be null");
 
         // Check if the pointer is aligned to 32 bytes
@@ -228,9 +234,11 @@ impl SimdVec<f32> for F32x8 {
     /// This method is unsafe because it assumes that the pointer is valid and aligned.     
     #[target_feature(enable = "avx")]
     unsafe fn store_at_partial(&self, ptr: *mut f32) {
-        let msg: String = format!("Size must be < {}", LANE_COUNT);
-
-        assert!(self.size <= LANE_COUNT, "{}", msg);
+        assert!(
+            self.size <= LANE_COUNT,
+            "{}",
+            format!("Size must be < {}", LANE_COUNT)
+        );
         assert!(!ptr.is_null(), "Pointer must not be null");
 
         let mask: __m256i = match self.size {
@@ -253,8 +261,11 @@ impl SimdVec<f32> for F32x8 {
     /// Converts the vector to a `Vec<f32>`, ensuring the size is less than or equal to 8 elements.
     #[inline(always)]
     fn to_vec(self) -> Vec<f32> {
-        let msg = format!("Size must be <= {}", LANE_COUNT);
-        assert!(self.size <= LANE_COUNT, "{}", msg);
+        assert!(
+            self.size <= LANE_COUNT,
+            "{}",
+            format!("Size must be <= {}", LANE_COUNT)
+        );
 
         if self.size == LANE_COUNT {
             unsafe { self.store_in_vec() }
