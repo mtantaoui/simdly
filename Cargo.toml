@@ -16,5 +16,5 @@ name = "add"
 harness = false
 
 [profile.release]
-lto = "fat" # Or "thin"
+lto = "fat" 
 codegen-units = 1
