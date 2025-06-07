@@ -81,19 +81,21 @@ impl SimdVec<f32> for F32x8 {
     }
 
     /// Loads a vector from an aligned pointer, ensuring the size is exactly 8 elements.
-    #[target_feature(enable = "avx")]
+    #[inline(always)]
     unsafe fn load_aligned(ptr: *const f32, size: usize) -> Self {
-        let elements = { unsafe { _mm256_load_ps(ptr) } };
-
-        Self { elements, size }
+        Self {
+            elements: _load_aligned(ptr),
+            size,
+        }
     }
 
     /// Loads a vector from an unaligned pointer, ensuring the size is exactly 8 elements.
-    #[target_feature(enable = "avx")]
+    #[inline(always)]
     unsafe fn load_unaligned(ptr: *const f32, size: usize) -> Self {
-        let elements = unsafe { _mm256_loadu_ps(ptr) };
-
-        Self { elements, size }
+        Self {
+            elements: _load_unaligned(ptr),
+            size,
+        }
     }
 
     /// Loads a partial vector from a pointer, filling the rest with zeros.
@@ -212,7 +214,7 @@ impl SimdVec<f32> for F32x8 {
     /// Stores the vector elements into a memory location pointed to by `ptr`, ensuring the size is exactly 8 elements.
     /// This method is unsafe because it assumes that the pointer is valid and aligned.
     /// It uses `_mm256_stream_ps` for aligned storage or `_mm256_storeu_ps` for unaligned storage.
-    #[target_feature(enable = "avx")]
+    #[inline(always)]
     unsafe fn store_at(&self, ptr: *mut f32) {
         assert!(
             self.size <= LANE_COUNT,
@@ -225,8 +227,8 @@ impl SimdVec<f32> for F32x8 {
         // If it is aligned, use `_mm256_stream_ps` for better performance
         // If it is not aligned, use `_mm256_storeu_ps` for unaligned storage
         match Self::is_aligned(ptr) {
-            true => unsafe { _mm256_stream_ps(ptr, self.elements) },
-            false => unsafe { _mm256_storeu_ps(ptr, self.elements) },
+            true => unsafe { _stream(ptr, self.elements) },
+            false => unsafe { _store_unaligned(ptr, self.elements) },
         }
     }
 
@@ -251,9 +253,6 @@ impl SimdVec<f32> for F32x8 {
             7 => unsafe { _mm256_setr_epi32(-1, -1, -1, -1, -1, -1, -1, 0) },
             _ => unreachable!("Size must be < LANE_COUNT"),
         };
-
-        println!("Mask for storing partial vector: {:?}", mask);
-        println!("storing partial vector: {:?}", self.to_vec());
 
         unsafe { _mm256_maskstore_ps(ptr, mask, self.elements) };
     }
@@ -373,6 +372,29 @@ impl SimdVec<f32> for F32x8 {
             size: self.size,
         }
     }
+}
+
+/// Loads a vector from an aligned pointer, ensuring the size is exactly 8 elements.
+#[target_feature(enable = "avx")]
+unsafe fn _load_aligned(ptr: *const f32) -> __m256 {
+    _mm256_load_ps(ptr)
+}
+
+/// Loads a vector from an unaligned pointer, ensuring the size is exactly 8 elements.
+#[target_feature(enable = "avx")]
+unsafe fn _load_unaligned(ptr: *const f32) -> __m256 {
+    _mm256_loadu_ps(ptr)
+}
+
+/// Stores a __m256.
+#[target_feature(enable = "avx")]
+unsafe fn _store_unaligned(ptr: *mut f32, elements: __m256) {
+    _mm256_storeu_ps(ptr, elements)
+}
+
+#[target_feature(enable = "avx")]
+unsafe fn _stream(ptr: *mut f32, elements: __m256) {
+    _mm256_stream_ps(ptr, elements)
 }
 
 /// Adds two `__m256` vectors elementwise.
@@ -1307,8 +1329,6 @@ mod f32x8_tests {
 
         let u3 = F32x8::new(&[1.0, 10.0, 9.0]);
         let v3 = F32x8::new(&[5.0, 11.0, 7.0]);
-
-        println!("u3: {:?}", u3 < v3);
 
         assert_eq!(
             [1.0 < 5.0, 10.0 < 11.0, 9.0 < 7.0].iter().all(|f| *f),
