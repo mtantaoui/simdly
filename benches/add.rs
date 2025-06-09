@@ -1,5 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use simdly::simd::avx2::add::simd_add_optimized;
+use simdly::simd::avx2::add::simd_add_optimized_store;
+use simdly::simd::avx2::add::simd_add_optimized_stream;
 
 use ndarray::Array1;
 use simdly::simd::traits::SimdAdd;
@@ -8,19 +9,17 @@ use std::hint::black_box;
 // --- Configuration ---
 const VECTOR_LENGTHS: &[usize] = &[
     128, // Small: Test overhead// Medium: Likely L1/L2 cache-resident
-    512,
-    1024,
-    4096, // Medium: Likely L1/L2 cache-resident
-    16_384,
-    65_536,     // Large: Likely L3 cache or memory-bound, good for parallelism
-    262_144,    // Very Large: Definitely memory-bound
-    1_048_576,  // Huge: Stress test for SIMD and parallelism
-    4_194_304,  // Massive: Pushes the limits of SIMD and parallelism
-    16_777_216, // Gigantic: Extreme case for SIMD and parallelism
-    67_108_864, // Extreme: Tests the limits of SIMD and parallelism
-    268_435_456, // Ultra: Tests the limits of SIMD and parallelism
-                // 1_073_741_824, // Mega: Tests the limits of SIMD and parallelism
-                // 4_294_967_296, // Giga: Tests the limits of SIMD and parallelism
+    512, 1024, 4096, // Medium: Likely L1/L2 cache-resident
+    // 16_384,
+    65_536,  // Large: Likely L3 cache or memory-bound, good for parallelism
+    262_144, // Very Large: Definitely memory-bound
+    1_048_576, // Huge: Stress test for SIMD and parallelism
+             // 4_194_304,  // Massive: Pushes the limits of SIMD and parallelism
+             // 16_777_216, // Gigantic: Extreme case for SIMD and parallelism
+             // 67_108_864, // Extreme: Tests the limits of SIMD and parallelism
+             // 268_435_456, // Ultra: Tests the limits of SIMD and parallelism
+             // 1_073_741_824, // Mega: Tests the limits of SIMD and parallelism
+             // 4_294_967_296, // Giga: Tests the limits of SIMD and parallelism
 ];
 
 fn generate_data(len: usize) -> (Vec<f32>, Vec<f32>) {
@@ -32,13 +31,17 @@ fn generate_data(len: usize) -> (Vec<f32>, Vec<f32>) {
 
 #[cfg(avx2)]
 fn bench_vector_addition(c: &mut Criterion) {
+    let lengths = VECTOR_LENGTHS.iter()
+    // .rev()
+    ;
+
     // --- Setup that applies to all benchmarks ---
 
-    for &vector_len in VECTOR_LENGTHS {
+    for &vector_len in lengths {
         // The group name already contains the vector length, providing context.
         let mut group = c.benchmark_group(format!("VectorAddition/{vector_len}"));
 
-        group.sample_size(100);
+        // group.sample_size(100);
 
         // Set throughput so results are reported in terms of elements/sec.
         group.throughput(Throughput::Elements(vector_len as u64));
@@ -56,8 +59,16 @@ fn bench_vector_addition(c: &mut Criterion) {
         });
 
         // --- Benchmark 2: SIMD Addition (AVX2) ---
-        group.bench_function("simd_add (optimized)", |bencher| {
-            bencher.iter(|| simd_add_optimized(&a_vec, &b_vec));
+        group.bench_function("simd_add (store)", |bencher| {
+            bencher
+                .iter(|| unsafe { simd_add_optimized_store(black_box(&a_vec), black_box(&b_vec)) });
+        });
+
+        // --- Benchmark 2: SIMD Addition (AVX2) ---
+        group.bench_function("simd_add (stream)", |bencher| {
+            bencher.iter(|| unsafe {
+                simd_add_optimized_stream(black_box(&a_vec), black_box(&b_vec))
+            });
         });
 
         // --- Benchmark 2: SIMD Addition (AVX2) ---
@@ -65,10 +76,10 @@ fn bench_vector_addition(c: &mut Criterion) {
             bencher.iter(|| black_box(a_vec.simd_add(black_box(&b_vec))));
         });
 
-        // --- Benchmark 3: Parallel SIMD Addition (AVX2) ---
-        group.bench_function("par_simd_add (avx2)", |bencher| {
-            bencher.iter(|| black_box(a_vec.par_simd_add(black_box(&b_vec))));
-        });
+        // // --- Benchmark 3: Parallel SIMD Addition (AVX2) ---
+        // group.bench_function("par_simd_add (avx2)", |bencher| {
+        //     bencher.iter(|| black_box(a_vec.par_simd_add(black_box(&b_vec))));
+        // });
 
         // --- Benchmark 4: ndarray ---
         // ndarray often uses SIMD internally if available, so it's a great baseline.
