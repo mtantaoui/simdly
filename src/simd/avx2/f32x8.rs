@@ -227,7 +227,8 @@ impl SimdVec<f32> for F32x8 {
         // If it is aligned, use `_mm256_stream_ps` for better performance
         // If it is not aligned, use `_mm256_storeu_ps` for unaligned storage
         match Self::is_aligned(ptr) {
-            true => unsafe { _stream(ptr, self.elements) },
+            // true => unsafe { _stream(ptr, self.elements) },
+            true => unsafe { _store_aligned(ptr, self.elements) },
             false => unsafe { _store_unaligned(ptr, self.elements) },
         }
     }
@@ -388,6 +389,12 @@ unsafe fn _load_unaligned(ptr: *const f32) -> __m256 {
 
 /// Stores a __m256.
 #[target_feature(enable = "avx")]
+unsafe fn _store_aligned(ptr: *mut f32, elements: __m256) {
+    _mm256_store_ps(ptr, elements)
+}
+
+/// Stores a __m256.
+#[target_feature(enable = "avx")]
 unsafe fn _store_unaligned(ptr: *mut f32, elements: __m256) {
     _mm256_storeu_ps(ptr, elements)
 }
@@ -398,7 +405,7 @@ unsafe fn _stream(ptr: *mut f32, elements: __m256) {
 }
 
 /// Adds two `__m256` vectors elementwise.
-#[target_feature(enable = "avx")]
+#[target_feature(enable = "avx2")]
 unsafe fn _add(lhs: __m256, rhs: __m256) -> __m256 {
     unsafe { _mm256_add_ps(lhs, rhs) }
 }
