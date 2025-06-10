@@ -49,7 +49,7 @@ impl SimdVec<f32> for F32x8 {
     }
 
     /// Creates a new vector with all elements set to the same value.
-    #[target_feature(enable = "avx")]
+    #[inline(always)]
     unsafe fn splat(value: f32) -> Self {
         Self {
             elements: unsafe { _mm256_set1_ps(value) },
@@ -84,7 +84,7 @@ impl SimdVec<f32> for F32x8 {
     #[inline(always)]
     unsafe fn load_aligned(ptr: *const f32, size: usize) -> Self {
         Self {
-            elements: _load_aligned(ptr),
+            elements: unsafe { _load_aligned(ptr) },
             size,
         }
     }
@@ -93,7 +93,7 @@ impl SimdVec<f32> for F32x8 {
     #[inline(always)]
     unsafe fn load_unaligned(ptr: *const f32, size: usize) -> Self {
         Self {
-            elements: _load_unaligned(ptr),
+            elements: unsafe { _load_unaligned(ptr) },
             size,
         }
     }
@@ -227,8 +227,8 @@ impl SimdVec<f32> for F32x8 {
         // If it is aligned, use `_mm256_stream_ps` for better performance
         // If it is not aligned, use `_mm256_storeu_ps` for unaligned storage
         match Self::is_aligned(ptr) {
-            // true => unsafe { _stream(ptr, self.elements) },
-            true => unsafe { _store_aligned(ptr, self.elements) },
+            true => unsafe { _stream(ptr, self.elements) },
+            // true => unsafe { _store_aligned(ptr, self.elements) },
             false => unsafe { _store_unaligned(ptr, self.elements) },
         }
     }
@@ -376,36 +376,36 @@ impl SimdVec<f32> for F32x8 {
 }
 
 /// Loads a vector from an aligned pointer, ensuring the size is exactly 8 elements.
-#[target_feature(enable = "avx")]
+#[inline(always)]
 unsafe fn _load_aligned(ptr: *const f32) -> __m256 {
-    _mm256_load_ps(ptr)
+    unsafe { _mm256_load_ps(ptr) }
 }
 
 /// Loads a vector from an unaligned pointer, ensuring the size is exactly 8 elements.
-#[target_feature(enable = "avx")]
+#[inline(always)]
 unsafe fn _load_unaligned(ptr: *const f32) -> __m256 {
-    _mm256_loadu_ps(ptr)
+    unsafe { _mm256_loadu_ps(ptr) }
 }
 
 /// Stores a __m256.
-#[target_feature(enable = "avx")]
+#[inline(always)]
 unsafe fn _store_aligned(ptr: *mut f32, elements: __m256) {
-    _mm256_store_ps(ptr, elements)
+    unsafe { _mm256_store_ps(ptr, elements) }
 }
 
 /// Stores a __m256.
-#[target_feature(enable = "avx")]
+#[inline(always)]
 unsafe fn _store_unaligned(ptr: *mut f32, elements: __m256) {
-    _mm256_storeu_ps(ptr, elements)
+    unsafe { _mm256_storeu_ps(ptr, elements) }
 }
 
-#[target_feature(enable = "avx")]
+#[inline(always)]
 unsafe fn _stream(ptr: *mut f32, elements: __m256) {
-    _mm256_stream_ps(ptr, elements)
+    unsafe { _mm256_stream_ps(ptr, elements) }
 }
 
 /// Adds two `__m256` vectors elementwise.
-#[target_feature(enable = "avx2")]
+#[inline(always)]
 unsafe fn _add(lhs: __m256, rhs: __m256) -> __m256 {
     unsafe { _mm256_add_ps(lhs, rhs) }
 }
@@ -461,8 +461,8 @@ unsafe fn _le(lhs: __m256, rhs: __m256) -> bool {
 /// Compares two `__m256` vectors for greater than.
 #[target_feature(enable = "avx")]
 unsafe fn _gt(lhs: __m256, rhs: __m256, size: usize) -> bool {
-    let gt: __m256 = unsafe { _mm256_cmp_ps(lhs, rhs, _CMP_GT_OQ) };
-    let gt_mask = unsafe { _mm256_movemask_ps(gt) };
+    let gt: __m256 = _mm256_cmp_ps(lhs, rhs, _CMP_GT_OQ);
+    let gt_mask = _mm256_movemask_ps(gt);
 
     let mask = (1 << size) - 1; // Create a mask with the first `size` bits set to 1
 
@@ -472,8 +472,8 @@ unsafe fn _gt(lhs: __m256, rhs: __m256, size: usize) -> bool {
 /// Compares two `__m256` vectors for greater than or equal to.
 #[target_feature(enable = "avx")]
 unsafe fn _ge(lhs: __m256, rhs: __m256) -> bool {
-    let ge: __m256 = unsafe { _mm256_cmp_ps(lhs, rhs, _CMP_GE_OQ) };
-    let ge_mask = unsafe { _mm256_movemask_ps(ge) };
+    let ge: __m256 = _mm256_cmp_ps(lhs, rhs, _CMP_GE_OQ);
+    let ge_mask = _mm256_movemask_ps(ge);
 
     ge_mask == 0xFF
 }
