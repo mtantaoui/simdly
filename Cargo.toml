@@ -1,7 +1,16 @@
 [package]
 name = "simdly"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+authors = ["Mahdi Tantaoui <mohamedalmahdi.tantaoui@gmail.com>"]
+description = " 🚀 High-performance Rust library leveraging SIMD and Rayon for fast computations."
+rust-version = "1.63"
+license = "MIT"
+repository = "https://github.com/mtantaoui/simdly"
+documentation = "https://docs.rs/simdly/"
+readme = "README.md"
+keywords = ["math", "SIMD", "concurrency", "performance",  "Numerical"]
 
 [dependencies]
 rayon = "1.10.0"
