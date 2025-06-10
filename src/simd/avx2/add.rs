@@ -1,5 +1,5 @@
 use rayon::prelude::*;
-use std::alloc::{Layout, alloc, handle_alloc_error};
+use std::alloc::{alloc, handle_alloc_error, Layout};
 use std::arch::x86_64::*; // For parallel processing;
 
 use crate::simd::avx2::f32x8::{self, F32x8};

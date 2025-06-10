@@ -1,6 +1,4 @@
-use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use simdly::simd::avx2::add::simd_add_optimized_store;
-use simdly::simd::avx2::add::simd_add_optimized_stream;
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 
 use ndarray::Array1;
 use simdly::simd::traits::SimdAdd;
@@ -32,7 +30,9 @@ fn generate_data(len: usize) -> (Vec<f32>, Vec<f32>) {
     (a, b)
 }
 
-// #[cfg(avx2)]
+fn do_nothing(c: &mut Criterion) {}
+
+#[cfg(avx2)]
 fn bench_vector_addition(c: &mut Criterion) {
     let lengths = VECTOR_LENGTHS.iter()
     // .rev()
@@ -98,5 +98,11 @@ fn bench_vector_addition(c: &mut Criterion) {
     }
 }
 
+#[cfg(avx2)]
 criterion_group!(benches, bench_vector_addition);
+
+#[cfg(not(avx2))]
+criterion_group!(benches, do_nothing);
+
+// #[cfg(avx2)]
 criterion_main!(benches);
