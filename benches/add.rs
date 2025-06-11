@@ -1,26 +1,27 @@
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 
 use ndarray::Array1;
-use simdly::simd::traits::SimdAdd;
+use simdly::simd::{neon::add::parallel_scalar_add, traits::SimdAdd};
 use std::hint::black_box;
 
 // --- Configuration ---
 const VECTOR_LENGTHS: &[usize] = &[
-    30_000, // first threshold scalar -> Simd
-    150_000, // simd to par_simd
-            // 500_000, // simd to par_simd
-            // 128,     // Small: Test overhead// Medium: Likely L1/L2 cache-resident
-            // 512, 1024, 4096, // Medium: Likely L1/L2 cache-resident
-            // // 16_384,
-            // 65_536,  // Large: Likely L3 cache or memory-bound, good for parallelism
-            // 262_144, // Very Large: Definitely memory-bound
-            // 1_048_576, // Huge: Stress test for SIMD and parallelism
-            // 4_194_304,  // Massive: Pushes the limits of SIMD and parallelism
-            // 16_777_216, // Gigantic: Extreme case for SIMD and parallelism
-            // 67_108_864, // Extreme: Tests the limits of SIMD and parallelism
-            // 268_435_456, // Ultra: Tests the limits of SIMD and parallelism
-            // 1_073_741_824, // Mega: Tests the limits of SIMD and parallelism
-            // 4_294_967_296, // Giga: Tests the limits of SIMD and parallelism
+    30_000,
+    // 30_000,  // first threshold scalar -> Simd
+    // 150_000, // simd to par_simd
+    // // 500_000, // simd to par_simd
+    // 128, // Small: Test overhead
+    // // 512, 1024, 4096, // Medium: Likely L1/L2 cache-resident
+    // // // 16_384,
+    // // 65_536,  // Large: Likely L3 cache or memory-bound, good for parallelism
+    // 262_144,   // Very Large: Definitely memory-bound
+    // 1_048_576, // Huge: Stress test for SIMD and parallelism
+    // // 4_194_304,  // Massive: Pushes the limits of SIMD and parallelism
+    // 16_777_216, // Gigantic: Extreme case for SIMD and parallelism
+    // // 67_108_864, // Extreme: Tests the limits of SIMD and parallelism
+    // // 268_435_456, // Ultra: Tests the limits of SIMD and parallelism
+    // 1_073_741_824, // Mega: Tests the limits of SIMD and parallelism
+    //                // 4_294_967_296, // Giga: Tests the limits of SIMD and parallelism
 ];
 
 fn generate_data(len: usize) -> (Vec<f32>, Vec<f32>) {
@@ -30,9 +31,6 @@ fn generate_data(len: usize) -> (Vec<f32>, Vec<f32>) {
     (a, b)
 }
 
-fn do_nothing(c: &mut Criterion) {}
-
-#[cfg(avx2)]
 fn bench_vector_addition(c: &mut Criterion) {
     let lengths = VECTOR_LENGTHS.iter()
     // .rev()
@@ -59,6 +57,11 @@ fn bench_vector_addition(c: &mut Criterion) {
                 // from being optimized away.
                 black_box(a_vec.scalar_add(black_box(&b_vec)))
             });
+        });
+
+        // --- Benchmark 2: SIMD Addition (AVX2) ---
+        group.bench_function("parallel_scalar_add", |bencher| {
+            bencher.iter(|| parallel_scalar_add(black_box(&a_vec), black_box(&b_vec)));
         });
 
         // // --- Benchmark 2: SIMD Addition (AVX2) ---
@@ -98,11 +101,16 @@ fn bench_vector_addition(c: &mut Criterion) {
     }
 }
 
-#[cfg(avx2)]
-criterion_group!(benches, bench_vector_addition);
+fn criterion_config() -> Criterion {
+    Criterion::default().with_plots() // This enables plotting
+}
 
-#[cfg(not(avx2))]
-criterion_group!(benches, do_nothing);
+criterion_group! {
+    name = benches;
+    config = criterion_config();
+    targets = bench_vector_addition
+}
 
-// #[cfg(avx2)]
+// criterion_group!(benches, bench_vector_addition);
+
 criterion_main!(benches);
