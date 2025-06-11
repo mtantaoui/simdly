@@ -62,7 +62,7 @@ impl SimdVec<f32> for F32x8 {
     #[inline(always)]
     fn is_aligned(ptr: *const f32) -> bool {
         let ptr = ptr as usize;
-        ptr % 32 == 0
+        ptr % core::mem::align_of::<__m256>() == 0
     }
 
     /// Loads a vector from a pointer, ensuring the size is exactly 8 elements.
@@ -71,7 +71,7 @@ impl SimdVec<f32> for F32x8 {
         // Asserts that the pointer is not null and the size is exactly 8 elements.
         // If the pointer is null or the size is not 8, it will panic with an error message.
         assert!(!ptr.is_null(), "Pointer must not be null");
-        assert!(size == LANE_COUNT, "Size must be == {}", LANE_COUNT);
+        assert!(size == LANE_COUNT, "Size must be == {LANE_COUNT}");
 
         if Self::is_aligned(ptr) {
             unsafe { Self::load_aligned(ptr, size) }
@@ -104,7 +104,7 @@ impl SimdVec<f32> for F32x8 {
         assert!(
             size < LANE_COUNT,
             "{}",
-            format!("Size must be < {}", LANE_COUNT)
+            format!("Size must be < {LANE_COUNT}")
         );
 
         // to avoid unnecessary branching and ensure all elements are set correctly
@@ -219,7 +219,7 @@ impl SimdVec<f32> for F32x8 {
         assert!(
             self.size <= LANE_COUNT,
             "{}",
-            format!("Size must be <= {}", LANE_COUNT)
+            format!("Size must be <= {LANE_COUNT}")
         );
         assert!(!ptr.is_null(), "Pointer must not be null");
 
@@ -240,7 +240,7 @@ impl SimdVec<f32> for F32x8 {
         assert!(
             self.size <= LANE_COUNT,
             "{}",
-            format!("Size must be < {}", LANE_COUNT)
+            format!("Size must be < {LANE_COUNT}")
         );
         assert!(!ptr.is_null(), "Pointer must not be null");
 
