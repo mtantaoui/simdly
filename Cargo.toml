@@ -20,6 +20,11 @@ criterion = "0.6.0"
 ndarray = "0.16.1"
 
 
+[features]
+bench-avx2 = []
+bench-neon = []
+
+
 [[bench]]
 name = "add"
 harness = false
