@@ -1,6 +1,7 @@
-use rayon::prelude::*;
 use std::alloc::{alloc, handle_alloc_error, Layout};
-use std::arch::x86_64::*; // For parallel processing;
+
+use rayon::iter::{IndexedParallelIterator, ParallelIterator};
+use rayon::slice::ParallelSliceMut;
 
 use crate::simd::avx2::f32x8::{self, F32x8};
 use crate::simd::traits::{SimdAdd, SimdVec};
@@ -39,7 +40,8 @@ fn scalar_add(a: &[f32], b: &[f32]) -> Vec<f32> {
     a.iter().zip(b.iter()).map(|(x, y)| x + y).collect()
 }
 
-#[target_feature(enable = "avx", enable = "avx2")]
+// #[target_feature(enable = "avx", enable = "avx2")]
+#[inline(always)]
 fn simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
     assert_eq!(a.len(), b.len(), "Vectors must be the same length");
 
@@ -49,82 +51,75 @@ fn simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
 
     let step = f32x8::LANE_COUNT;
 
-    let mut i = 0;
-    while i < size {
-        let a_addr = &a[i];
-        let b_addr = &b[i];
+    let nb_lanes = size - (size % step);
+    let rem_lanes = size - nb_lanes;
 
-        let a_chunk = unsafe { F32x8::load(a_addr, step) };
-        let b_chunk = unsafe { F32x8::load(b_addr, step) };
+    for i in (0..nb_lanes).step_by(step) {
+        simd_add_block(&a[i], &b[i], &mut c[i]);
+    }
 
-        let c_addr = &mut c[i];
-        unsafe { (a_chunk + b_chunk).store_at(c_addr) };
-
-        i += step;
+    if rem_lanes > 0 {
+        simd_add_partial_block(
+            &a[nb_lanes],
+            &b[nb_lanes],
+            &mut c[nb_lanes],
+            rem_lanes, // number of remainaing uncomplete lanes
+        );
     }
 
     c
 }
 
-/// Processes a block of f32 data using AVX intrinsics for addition.
-///
-/// This function is designed for high performance on a given chunk of data.
-/// It uses loop unrolling and handles remainders.
-///
-/// # Safety
-///
-/// - The caller must ensure that AVX is supported on the target CPU,
-///   or this function must be compiled with `target-feature=+avx`.
-/// - Pointers `a_ptr`, `b_ptr`, `c_ptr` derived from slices must be valid for `len` elements.
-/// - `c` slice is assumed to contain uninitialized memory and will be fully written.
-/// - For optimal performance with streaming stores, the memory pointed to by `c_ptr`
-///   should be 32-byte aligned.
 #[inline(always)]
-fn simd_add_block(a: &[f32], b: &[f32], c: &mut [f32]) {
-    assert_eq!(
-        a.len(),
-        b.len(),
-        "Input slices 'a' and 'b' must have the same length."
-    );
-    assert_eq!(
-        a.len(),
-        c.len(),
-        "Input and output slices must have the same length."
-    );
+fn simd_add_block(a: *const f32, b: *const f32, c: *mut f32) {
+    // Assumes a and b are aligned to f32x8::AVX_ALIGNMENT
+    let a_chunk_simd = unsafe { F32x8::load(a, f32x8::LANE_COUNT) };
+    let b_chunk_simd = unsafe { F32x8::load(b, f32x8::LANE_COUNT) };
+    unsafe { (a_chunk_simd + b_chunk_simd).store_at(c) };
+}
 
-    let size = a.len();
-
-    let step = f32x8::LANE_COUNT;
-
-    let mut i = 0;
-    while i < size {
-        let a_addr = &a[i];
-        let b_addr = &b[i];
-
-        let a_chunk = unsafe { F32x8::load(a_addr, step) };
-        let b_chunk = unsafe { F32x8::load(b_addr, step) };
-
-        let c_addr = &mut c[i];
-        unsafe { (a_chunk + b_chunk).store_at(c_addr) };
-
-        i += step;
-    }
+#[inline(always)]
+fn simd_add_partial_block(a: *const f32, b: *const f32, c: *mut f32, size: usize) {
+    // Assumes size is less than f32x8::LANE_COUNT
+    let a_chunk_simd = unsafe { F32x8::load_partial(a, size) };
+    let b_chunk_simd = unsafe { F32x8::load_partial(b, size) };
+    unsafe { (a_chunk_simd + b_chunk_simd).store_at_partial(c) };
 }
 
 #[target_feature(enable = "avx", enable = "avx2")]
 fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
+    assert!(
+        !a.is_empty() & !b.is_empty(),
+        "Size can't be empty (size zero)"
+    );
     assert_eq!(a.len(), b.len(), "Vectors must be the same length");
 
     let size = a.len();
 
     let mut c = alloc_uninit_f32_vec(size);
 
-    c.par_chunks_mut(f32x8::AVX_ALIGNMENT)
-        .zip(a.par_chunks(f32x8::AVX_ALIGNMENT))
-        .zip(b.par_chunks(f32x8::AVX_ALIGNMENT))
-        .for_each(|((c_chunk, a_chunk), b_chunk)| {
-            simd_add_block(a_chunk, b_chunk, c_chunk);
+    let step = f32x8::LANE_COUNT;
+
+    let nb_lanes = size - (size % step);
+    let rem_lanes = size - nb_lanes;
+
+    // Use chunks_exact_mut to ensure we process full blocks of size `step`
+    // and handle the remaining elements separately.
+    c.par_chunks_exact_mut(step)
+        .enumerate()
+        .for_each(|(i, c_chunk)| {
+            simd_add_block(&a[i * step], &b[i * step], &mut c_chunk[0]);
         });
+
+    // Handle the remaining elements that do not fit into a full block
+    if rem_lanes > 0 {
+        simd_add_partial_block(
+            &a[nb_lanes],
+            &b[nb_lanes],
+            &mut c[nb_lanes],
+            rem_lanes, // number of reminaing uncomplete lanes
+        );
+    }
 
     c
 }
@@ -146,128 +141,4 @@ impl<'b> SimdAdd<&'b [f32]> for &[f32] {
     fn scalar_add(self, rhs: &'b [f32]) -> Self::Output {
         scalar_add(self, rhs)
     }
-}
-
-#[target_feature(enable = "avx")]
-pub fn simd_add_optimized_store(a: &[f32], b: &[f32]) -> std::vec::Vec<f32> {
-    assert_eq!(a.len(), b.len());
-
-    let size = a.len();
-
-    let mut res = alloc_uninit_f32_vec(size);
-
-    let len = a.len();
-
-    // Use raw pointers for cleaner pointer arithmetic
-    let mut a_ptr = a.as_ptr();
-    let mut b_ptr = b.as_ptr();
-    let mut res_ptr = res.as_mut_ptr();
-
-    // Process the bulk of the data in unrolled chunks of 4 vectors (32 floats)
-    let unroll_factor = 4;
-    let chunk_size = f32x8::LANE_COUNT * unroll_factor; // 32 floats
-
-    // Number of full chunks we can process
-    let num_chunks = len / chunk_size;
-
-    // Use `unsafe` because we are manually managing pointers and using CPU intrinsics.
-    // The assertions at the top provide the safety guarantee.
-    for _ in 0..num_chunks {
-        unsafe {
-            // Load 4 vectors from 'a'
-            let a1 = _mm256_loadu_ps(a_ptr);
-            let a2 = _mm256_loadu_ps(a_ptr.add(f32x8::LANE_COUNT));
-            let a3 = _mm256_loadu_ps(a_ptr.add(f32x8::LANE_COUNT * 2));
-            let a4 = _mm256_loadu_ps(a_ptr.add(f32x8::LANE_COUNT * 3));
-
-            // Load 4 vectors from 'b'
-            let b1 = _mm256_loadu_ps(b_ptr);
-            let b2 = _mm256_loadu_ps(b_ptr.add(f32x8::LANE_COUNT));
-            let b3 = _mm256_loadu_ps(b_ptr.add(f32x8::LANE_COUNT * 2));
-            let b4 = _mm256_loadu_ps(b_ptr.add(f32x8::LANE_COUNT * 3));
-
-            // Perform the additions
-            let r1 = _mm256_add_ps(a1, b1);
-            let r2 = _mm256_add_ps(a2, b2);
-            let r3 = _mm256_add_ps(a3, b3);
-            let r4 = _mm256_add_ps(a4, b4);
-
-            // --- CRITICAL OPTIMIZATION: Non-Temporal (Streaming) Stores ---
-            // This tells the CPU to write directly to memory, bypassing the cache.
-            // This is a huge win for large vector operations.
-            _mm256_store_ps(res_ptr, r1);
-            _mm256_store_ps(res_ptr.add(f32x8::LANE_COUNT), r2);
-            _mm256_store_ps(res_ptr.add(f32x8::LANE_COUNT * 2), r3);
-            _mm256_store_ps(res_ptr.add(f32x8::LANE_COUNT * 3), r4);
-
-            // Advance pointers
-            a_ptr = a_ptr.add(chunk_size);
-            b_ptr = b_ptr.add(chunk_size);
-            res_ptr = res_ptr.add(chunk_size);
-        }
-    }
-
-    res
-}
-
-#[target_feature(enable = "avx")]
-pub fn simd_add_optimized_stream(a: &[f32], b: &[f32]) -> std::vec::Vec<f32> {
-    assert_eq!(a.len(), b.len());
-
-    let size = a.len();
-
-    let mut res = alloc_uninit_f32_vec(size);
-
-    let len = a.len();
-
-    // Use raw pointers for cleaner pointer arithmetic
-    let mut a_ptr = a.as_ptr();
-    let mut b_ptr = b.as_ptr();
-    let mut res_ptr = res.as_mut_ptr();
-
-    // Process the bulk of the data in unrolled chunks of 4 vectors (32 floats)
-    let unroll_factor = 4;
-    let chunk_size = f32x8::LANE_COUNT * unroll_factor; // 32 floats
-
-    // Number of full chunks we can process
-    let num_chunks = len / chunk_size;
-
-    // Use `unsafe` because we are manually managing pointers and using CPU intrinsics.
-    // The assertions at the top provide the safety guarantee.
-    for _ in 0..num_chunks {
-        unsafe {
-            // Load 4 vectors from 'a'
-            let a1 = _mm256_loadu_ps(a_ptr);
-            let a2 = _mm256_loadu_ps(a_ptr.add(f32x8::LANE_COUNT));
-            let a3 = _mm256_loadu_ps(a_ptr.add(f32x8::LANE_COUNT * 2));
-            let a4 = _mm256_loadu_ps(a_ptr.add(f32x8::LANE_COUNT * 3));
-
-            // Load 4 vectors from 'b'
-            let b1 = _mm256_loadu_ps(b_ptr);
-            let b2 = _mm256_loadu_ps(b_ptr.add(f32x8::LANE_COUNT));
-            let b3 = _mm256_loadu_ps(b_ptr.add(f32x8::LANE_COUNT * 2));
-            let b4 = _mm256_loadu_ps(b_ptr.add(f32x8::LANE_COUNT * 3));
-
-            // Perform the additions
-            let r1 = _mm256_add_ps(a1, b1);
-            let r2 = _mm256_add_ps(a2, b2);
-            let r3 = _mm256_add_ps(a3, b3);
-            let r4 = _mm256_add_ps(a4, b4);
-
-            // --- CRITICAL OPTIMIZATION: Non-Temporal (Streaming) Stores ---
-            // This tells the CPU to write directly to memory, bypassing the cache.
-            // This is a huge win for large vector operations.
-            _mm256_stream_ps(res_ptr, r1);
-            _mm256_stream_ps(res_ptr.add(f32x8::LANE_COUNT), r2);
-            _mm256_stream_ps(res_ptr.add(f32x8::LANE_COUNT * 2), r3);
-            _mm256_stream_ps(res_ptr.add(f32x8::LANE_COUNT * 3), r4);
-
-            // Advance pointers
-            a_ptr = a_ptr.add(chunk_size);
-            b_ptr = b_ptr.add(chunk_size);
-            res_ptr = res_ptr.add(chunk_size);
-        }
-    }
-
-    res
 }
