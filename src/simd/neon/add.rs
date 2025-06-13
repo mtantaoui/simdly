@@ -43,6 +43,10 @@ pub fn parallel_scalar_add(a: &[f32], b: &[f32]) -> Vec<f32> {
 
 #[target_feature(enable = "neon")]
 fn simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
+    assert!(
+        !a.is_empty() & !b.is_empty(),
+        "Size can't be empty (size zero)"
+    );
     assert_eq!(a.len(), b.len(), "Vectors must be the same length");
 
     let size = a.len();
@@ -51,14 +55,20 @@ fn simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
 
     let step = f32x4::LANE_COUNT;
 
-    // let mut i = 0;
-    // while i < size {
-    for i in (0..size).step_by(step) {
-        let a_addr = &a[i];
-        let b_addr = &b[i];
-        let c_addr = &mut c[i];
+    let nb_lanes = size - (size % step);
+    let rem_lanes = size - nb_lanes;
 
-        simd_add_block(a_addr, b_addr, c_addr);
+    for i in (0..nb_lanes).step_by(step) {
+        simd_add_block(&a[i], &b[i], &mut c[i]);
+    }
+
+    if rem_lanes > 0 {
+        simd_add_partial_block(
+            &a[nb_lanes],
+            &b[nb_lanes],
+            &mut c[nb_lanes],
+            rem_lanes, // number of reminaing uncomplete lanes
+        );
     }
 
     c
@@ -72,6 +82,14 @@ fn simd_add_block(a: *const f32, b: *const f32, c: *mut f32) {
     unsafe { (a_chunk_simd + b_chunk_simd).store_at(c) };
 }
 
+#[inline(always)]
+fn simd_add_partial_block(a: *const f32, b: *const f32, c: *mut f32, size: usize) {
+    // Assumes lengths are f32x4::LANE_COUNT
+    let a_chunk_simd = unsafe { F32x4::load_partial(a, size) };
+    let b_chunk_simd = unsafe { F32x4::load_partial(b, size) };
+    unsafe { (a_chunk_simd + b_chunk_simd).store_at_partial(c) };
+}
+
 #[target_feature(enable = "neon")]
 fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
     assert_eq!(a.len(), b.len(), "Vectors must be the same length");
@@ -82,9 +100,6 @@ fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
 
     let step = f32x4::LANE_COUNT;
 
-    // let mut i = 0;
-    // while i < size {
-
     c.par_chunks_mut(step).enumerate().for_each(|(i, c)| {
         let a_addr = &a[i];
         let b_addr = &b[i];
@@ -92,7 +107,7 @@ fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
 
         simd_add_block(a_addr, b_addr, c_addr);
     });
-    // (0..size).into_par_iter().step_by(step).for_each();
+
     c
 }
 

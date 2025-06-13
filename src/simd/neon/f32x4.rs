@@ -139,6 +139,27 @@ impl SimdVec<f32> for F32x4 {
             format!("Size must be < {LANE_COUNT}")
         );
         assert!(!ptr.is_null(), "Pointer must not be null");
+
+        match self.size {
+            3 => {
+                let low = vget_low_f32(self.elements); // extract [0, 1]
+                vst1_f32(ptr, low); // store [0, 1]
+
+                let third = vgetq_lane_f32(self.elements, 2); // extract element 2
+                *ptr.add(2) = third; // store element 2
+            }
+            2 => {
+                let low = vget_low_f32(self.elements);
+                vst1_f32(ptr, low);
+            }
+            1 => {
+                let first = vgetq_lane_f32(self.elements, 0);
+                *ptr = first;
+            }
+            _ => {
+                unreachable!("Size must be < {}", LANE_COUNT)
+            }
+        }
     }
 
     fn to_vec(self) -> Vec<f32> {
