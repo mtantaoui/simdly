@@ -129,7 +129,7 @@ impl<'b> SimdAdd<&'b [f32]> for &[f32] {
 
     #[inline(always)]
     fn simd_add(self, rhs: &'b [f32]) -> Self::Output {
-        unsafe { simd_add(self, rhs) }
+        simd_add(self, rhs)
     }
 
     #[inline(always)]
