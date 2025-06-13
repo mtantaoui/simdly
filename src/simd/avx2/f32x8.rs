@@ -99,7 +99,7 @@ impl SimdVec<f32> for F32x8 {
     }
 
     /// Loads a partial vector from a pointer, filling the rest with zeros.
-    #[target_feature(enable = "avx")]
+    #[inline(always)]
     unsafe fn load_partial(ptr: *const f32, size: usize) -> Self {
         assert!(
             size < LANE_COUNT,
@@ -181,7 +181,7 @@ impl SimdVec<f32> for F32x8 {
     }
 
     /// Stores the vector elements into a `Vec<f32>`, ensuring the size is exactly 8 elements.
-    #[target_feature(enable = "avx")]
+    #[inline(always)]
     unsafe fn store_in_vec(&self) -> Vec<f32> {
         assert!(
             self.size <= LANE_COUNT,
@@ -227,15 +227,14 @@ impl SimdVec<f32> for F32x8 {
         // If it is aligned, use `_mm256_stream_ps` for better performance
         // If it is not aligned, use `_mm256_storeu_ps` for unaligned storage
         match Self::is_aligned(ptr) {
-            true => unsafe { _stream(ptr, self.elements) },
-            // true => unsafe { _store_aligned(ptr, self.elements) },
-            false => unsafe { _store_unaligned(ptr, self.elements) },
+            true => unsafe { _mm256_stream_ps(ptr, self.elements) },
+            false => unsafe { _mm256_storeu_ps(ptr, self.elements) },
         }
     }
 
     /// Stores the vector elements into a memory location pointed to by `ptr`, filling only the first `size` elements.
     /// This method is unsafe because it assumes that the pointer is valid and aligned.     
-    #[target_feature(enable = "avx")]
+    #[inline(always)]
     unsafe fn store_at_partial(&self, ptr: *mut f32) {
         assert!(
             self.size <= LANE_COUNT,
@@ -275,7 +274,7 @@ impl SimdVec<f32> for F32x8 {
     }
 
     /// Compares two vectors elementwise for equality.    
-    #[target_feature(enable = "avx")]
+    #[inline(always)]
     unsafe fn eq_elements(&self, rhs: Self) -> Self {
         assert!(
             self.size == rhs.size,
@@ -295,7 +294,7 @@ impl SimdVec<f32> for F32x8 {
     }
 
     /// Compares two vectors elementwise for less than, less than or equal to, greater than, and greater than or equal to.  
-    #[target_feature(enable = "avx")]
+    #[inline(always)]
     unsafe fn lt_elements(&self, rhs: Self) -> Self {
         assert!(
             self.size == rhs.size,
@@ -315,7 +314,7 @@ impl SimdVec<f32> for F32x8 {
     }
 
     /// Compares two vectors elementwise for less than or equal to.
-    #[target_feature(enable = "avx")]
+    #[inline(always)]
     unsafe fn le_elements(&self, rhs: Self) -> Self {
         assert!(
             self.size == rhs.size,
@@ -335,7 +334,7 @@ impl SimdVec<f32> for F32x8 {
     }
 
     /// Compares two vectors elementwise for greater than.
-    #[target_feature(enable = "avx")]
+    #[inline(always)]
     unsafe fn gt_elements(&self, rhs: Self) -> Self {
         assert!(
             self.size == rhs.size,
@@ -355,7 +354,7 @@ impl SimdVec<f32> for F32x8 {
     }
 
     /// Compares two vectors elementwise for greater than or equal to.
-    #[target_feature(enable = "avx")]
+    #[inline(always)]
     unsafe fn ge_elements(&self, rhs: Self) -> Self {
         assert!(
             self.size == rhs.size,
@@ -393,43 +392,8 @@ unsafe fn _store_aligned(ptr: *mut f32, elements: __m256) {
     unsafe { _mm256_store_ps(ptr, elements) }
 }
 
-/// Stores a __m256.
-#[inline(always)]
-unsafe fn _store_unaligned(ptr: *mut f32, elements: __m256) {
-    unsafe { _mm256_storeu_ps(ptr, elements) }
-}
-
-#[inline(always)]
-unsafe fn _stream(ptr: *mut f32, elements: __m256) {
-    unsafe { _mm256_stream_ps(ptr, elements) }
-}
-
-/// Adds two `__m256` vectors elementwise.
-#[inline(always)]
-unsafe fn _add(lhs: __m256, rhs: __m256) -> __m256 {
-    unsafe { _mm256_add_ps(lhs, rhs) }
-}
-
-/// Subtracts two `__m256` vectors elementwise.
-#[target_feature(enable = "avx")]
-unsafe fn _sub(lhs: __m256, rhs: __m256) -> __m256 {
-    unsafe { _mm256_sub_ps(lhs, rhs) }
-}
-
-/// Multiplies two `__m256` vectors elementwise.
-#[target_feature(enable = "avx")]
-unsafe fn _mul(lhs: __m256, rhs: __m256) -> __m256 {
-    unsafe { _mm256_mul_ps(lhs, rhs) }
-}
-
-/// Divides two `__m256` vectors elementwise.
-#[target_feature(enable = "avx")]
-unsafe fn _div(lhs: __m256, rhs: __m256) -> __m256 {
-    unsafe { _mm256_div_ps(lhs, rhs) }
-}
-
 /// Computes the remainder of two `__m256` vectors elementwise.
-#[target_feature(enable = "avx")]
+#[inline(always)]
 unsafe fn _rem(lhs: __m256, rhs: __m256) -> __m256 {
     let div = unsafe { _mm256_div_ps(lhs, rhs) };
     let floor = unsafe { _mm256_floor_ps(div) };
@@ -438,8 +402,8 @@ unsafe fn _rem(lhs: __m256, rhs: __m256) -> __m256 {
     unsafe { _mm256_sub_ps(lhs, prod) }
 }
 
-/// Compares two `__m256` vectors for equality.
-#[target_feature(enable = "avx")]
+// /// Compares two `__m256` vectors for equality.
+#[inline(always)]
 unsafe fn _lt(lhs: __m256, rhs: __m256, size: usize) -> bool {
     let lt: __m256 = unsafe { _mm256_cmp_ps(lhs, rhs, _CMP_LT_OQ) };
     let lt_mask = unsafe { _mm256_movemask_ps(lt) };
@@ -450,7 +414,7 @@ unsafe fn _lt(lhs: __m256, rhs: __m256, size: usize) -> bool {
 }
 
 /// Compares two `__m256` vectors for less than or equal to.
-#[target_feature(enable = "avx")]
+#[inline(always)]
 unsafe fn _le(lhs: __m256, rhs: __m256) -> bool {
     let le: __m256 = unsafe { _mm256_cmp_ps(lhs, rhs, _CMP_LE_OQ) };
     let le_mask = unsafe { _mm256_movemask_ps(le) };
@@ -459,7 +423,7 @@ unsafe fn _le(lhs: __m256, rhs: __m256) -> bool {
 }
 
 /// Compares two `__m256` vectors for greater than.
-#[target_feature(enable = "avx")]
+#[inline(always)]
 unsafe fn _gt(lhs: __m256, rhs: __m256, size: usize) -> bool {
     let gt: __m256 = _mm256_cmp_ps(lhs, rhs, _CMP_GT_OQ);
     let gt_mask = _mm256_movemask_ps(gt);
@@ -470,7 +434,7 @@ unsafe fn _gt(lhs: __m256, rhs: __m256, size: usize) -> bool {
 }
 
 /// Compares two `__m256` vectors for greater than or equal to.
-#[target_feature(enable = "avx")]
+#[inline(always)]
 unsafe fn _ge(lhs: __m256, rhs: __m256) -> bool {
     let ge: __m256 = _mm256_cmp_ps(lhs, rhs, _CMP_GE_OQ);
     let ge_mask = _mm256_movemask_ps(ge);
@@ -479,12 +443,13 @@ unsafe fn _ge(lhs: __m256, rhs: __m256) -> bool {
 }
 
 /// Performs a bitwise AND operation on two `__m256` vectors.
-#[target_feature(enable = "avx")]
+#[inline(always)]
 unsafe fn _and(lhs: __m256, rhs: __m256) -> __m256 {
     unsafe { _mm256_and_ps(lhs, rhs) }
 }
 
-#[target_feature(enable = "avx")]
+/// Performs a bitwise OR operation on two `__m256` vectors.
+#[inline(always)]
 unsafe fn _or(lhs: __m256, rhs: __m256) -> __m256 {
     unsafe { _mm256_or_ps(lhs, rhs) }
 }
@@ -507,7 +472,7 @@ impl Add for F32x8 {
         // Use the add function to perform element-wise addition
         Self {
             size: self.size,
-            elements: unsafe { _add(self.elements, rhs.elements) },
+            elements: unsafe { _mm256_add_ps(self.elements, rhs.elements) },
         }
     }
 }
@@ -537,7 +502,7 @@ impl Sub for F32x8 {
         // Use the sub function to perform element-wise subtraction
         Self {
             size: self.size,
-            elements: unsafe { _sub(self.elements, rhs.elements) },
+            elements: unsafe { _mm256_sub_ps(self.elements, rhs.elements) },
         }
     }
 }
@@ -566,7 +531,7 @@ impl Mul for F32x8 {
 
         Self {
             size: self.size,
-            elements: unsafe { _mul(self.elements, rhs.elements) },
+            elements: unsafe { _mm256_mul_ps(self.elements, rhs.elements) },
         }
     }
 }
@@ -595,7 +560,7 @@ impl Div for F32x8 {
 
         Self {
             size: self.size,
-            elements: unsafe { _div(self.elements, rhs.elements) },
+            elements: unsafe { _mm256_div_ps(self.elements, rhs.elements) },
         }
     }
 }
