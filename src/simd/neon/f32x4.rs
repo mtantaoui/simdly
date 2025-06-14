@@ -1,10 +1,7 @@
 #[cfg(target_arch = "aarch64")]
 use std::arch::aarch64::*;
 
-use std::ops::{
-    Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, Div, DivAssign, Mul, MulAssign, Rem,
-    RemAssign, Sub, SubAssign,
-};
+use std::ops::Add;
 
 use crate::simd::traits::SimdVec;
 
@@ -79,6 +76,7 @@ impl SimdVec<f32> for F32x4 {
         unreachable!()
     }
 
+    #[inline(always)]
     unsafe fn load_partial(ptr: *const f32, size: usize) -> Self {
         assert!(
             size < LANE_COUNT,
@@ -111,12 +109,33 @@ impl SimdVec<f32> for F32x4 {
         Self { elements, size }
     }
 
+    #[inline(always)]
     unsafe fn store_in_vec(&self) -> Vec<f32> {
-        todo!()
+        assert!(
+            self.size <= LANE_COUNT,
+            "{}",
+            format!("Size must be <= {LANE_COUNT}")
+        );
+
+        let mut vec = Vec::with_capacity(LANE_COUNT);
+
+        unsafe {
+            vst1q_f32(vec.as_mut_ptr(), self.elements);
+            vec.set_len(LANE_COUNT);
+        }
+
+        vec
     }
 
+    #[inline(always)]
     unsafe fn store_in_vec_partial(&self) -> Vec<f32> {
-        todo!()
+        match self.size {
+            1..LANE_COUNT => unsafe { self.store_in_vec().into_iter().take(self.size).collect() },
+            _ => {
+                let msg = "Size must be < LANE_COUNT";
+                panic!("{}", msg);
+            }
+        }
     }
 
     #[inline(always)]
@@ -162,28 +181,131 @@ impl SimdVec<f32> for F32x4 {
         }
     }
 
+    #[inline(always)]
     fn to_vec(self) -> Vec<f32> {
-        todo!()
+        assert!(
+            self.size <= LANE_COUNT,
+            "{}",
+            format!("Size must be <= {LANE_COUNT}")
+        );
+
+        if self.size == LANE_COUNT {
+            unsafe { self.store_in_vec() }
+        } else {
+            unsafe { self.store_in_vec_partial() }
+        }
     }
 
+    #[inline(always)]
     unsafe fn eq_elements(&self, rhs: Self) -> Self {
-        todo!()
+        assert!(
+            self.size == rhs.size,
+            "Operands must have the same size (expected {} lanes, got {} and {})",
+            LANE_COUNT,
+            self.size,
+            rhs.size
+        );
+
+        // Compare a == b elementwise
+        let mask = unsafe { vceqq_f32(self.elements, rhs.elements) }; // Result as float mask
+
+        let elements = unsafe { vreinterpretq_f32_u32(mask) };
+
+        Self {
+            elements,
+            size: self.size,
+        }
     }
 
+    #[inline(always)]
     unsafe fn lt_elements(&self, rhs: Self) -> Self {
-        todo!()
+        assert!(
+            self.size == rhs.size,
+            "Operands must have the same size (expected {} lanes, got {} and {})",
+            LANE_COUNT,
+            self.size,
+            rhs.size
+        );
+
+        // Compare a<b elementwise
+        let mask = unsafe { vcltq_f32(self.elements, rhs.elements) }; // Result as float mask
+
+        let elements = unsafe { vreinterpretq_f32_u32(mask) };
+
+        Self {
+            elements,
+            size: self.size,
+        }
     }
 
+    #[inline(always)]
     unsafe fn le_elements(&self, rhs: Self) -> Self {
-        todo!()
+        assert!(
+            self.size == rhs.size,
+            "Operands must have the same size (expected {} lanes, got {} and {})",
+            LANE_COUNT,
+            self.size,
+            rhs.size
+        );
+
+        // Compare a<=b elementwise
+        let mask = unsafe { vcleq_f32(self.elements, rhs.elements) }; // Result as float mask
+
+        let elements = unsafe { vreinterpretq_f32_u32(mask) };
+
+        Self {
+            elements,
+            size: self.size,
+        }
     }
 
+    #[inline(always)]
     unsafe fn gt_elements(&self, rhs: Self) -> Self {
-        todo!()
+        assert!(
+            self.size == rhs.size,
+            "Operands must have the same size (expected {} lanes, got {} and {})",
+            LANE_COUNT,
+            self.size,
+            rhs.size
+        );
+
+        // Compare a>b elementwise
+        let mask = unsafe { vcgtq_f32(self.elements, rhs.elements) }; // Result as float mask
+
+        let elements = unsafe { vreinterpretq_f32_u32(mask) };
+
+        Self {
+            elements,
+            size: self.size,
+        }
     }
 
+    #[inline(always)]
     unsafe fn ge_elements(&self, rhs: Self) -> Self {
-        todo!()
+        assert!(
+            self.size == rhs.size,
+            "Operands must have the same size (expected {} lanes, got {} and {})",
+            LANE_COUNT,
+            self.size,
+            rhs.size
+        );
+
+        // Compare a>=b elementwise
+        let mask = unsafe { vcgeq_f32(self.elements, rhs.elements) }; // Result as float mask
+
+        let elements = unsafe { vreinterpretq_f32_u32(mask) };
+
+        Self {
+            elements,
+            size: self.size,
+        }
+    }
+
+    unsafe fn cos(&self) -> Self {
+        Self {
+            elements: vcosq_f32(self.elements),
+            size: self.size,
+        }
     }
 }
 
@@ -208,4 +330,96 @@ impl Add for F32x4 {
             elements: unsafe { vaddq_f32(self.elements, rhs.elements) },
         }
     }
+}
+
+// --- Constants for f32 (Single Precision) ---
+
+// For range reduction, we use a two-part representation of PI.
+// This is a common technique (Payne-Hanek style) to maintain precision.
+// PI = PI_A + PI_B
+#[allow(clippy::approx_constant)]
+const PI_A_F32: f32 = 3.1415927; // The high part of PI for f32.
+const PI_B_F32: f32 = -8.742278e-8; // The low part (error) of PI for f32.
+
+// Polynomial coefficients for approximating sin(r) for r in [-pi/2, pi/2].
+// The polynomial is in terms of r^2 and approximates (sin(r)/r - 1) / r^2.
+// P(x) = C1 + C2*x + C3*x^2, where x = r^2
+// sin(r) is then reconstructed as: r + r^3 * P(r^2)
+#[allow(clippy::excessive_precision)]
+const SIN_POLY_1_F: f32 = -0.166666546; // -1/3!
+#[allow(clippy::excessive_precision)]
+const SIN_POLY_2_F: f32 = 0.00833216087; //  1/5!
+const SIN_POLY_3_F: f32 = -0.00019515296; // -1/7!
+
+/// Computes the cosine of four `f32` values in a vector.
+///
+/// This function implements `cos(d)` by reducing the argument `d` to a value `r`
+/// in the range `[-π/2, π/2]` and then using the identity:
+///   cos(d) = cos(nπ + r) = (-1)^n * cos(r)
+///
+/// To use a single high-precision sine polynomial, this is further transformed.
+/// The provided f64 implementation uses `cos(d) = sin(π/2 - d)`. This version
+/// follows the same logic, reducing `d` such that `d = (n + 1/2)π + r`.
+/// This gives `cos(d) = (-1)^(n+1) * sin(r)`.
+///
+/// # Safety
+///
+/// This function is safe to call only on AArch64 targets with NEON support.
+#[inline(always)]
+pub unsafe fn vcosq_f32(d: float32x4_t) -> float32x4_t {
+    // --- 1. Range Reduction ---
+    // We want to find an integer `n` and a remainder `r` such that:
+    // d = (n + 0.5) * π + r
+    // `n` is calculated as `round(d/π - 0.5)`.
+    let half = vdupq_n_f32(0.5);
+    let n = vcvtaq_s32_f32(vsubq_f32(vmulq_n_f32(d, std::f32::consts::FRAC_1_PI), half));
+
+    // Now we compute r = d - (n + 0.5) * π.
+    // To maintain precision, we use the two-part PI representation.
+    // r = d - (n+0.5)*PI_A - (n+0.5)*PI_B
+    let n_plus_half = vaddq_f32(vcvtq_f32_s32(n), half);
+
+    // r = d - (n+0.5) * PI_A
+    let mut r = vmlsq_f32(d, n_plus_half, vdupq_n_f32(PI_A_F32));
+    // r = r - (n+0.5) * PI_B
+    r = vmlsq_f32(r, n_plus_half, vdupq_n_f32(PI_B_F32));
+
+    // --- 2. Sign Correction ---
+    // The result is `cos(d) = (-1)^(n+1) * sin(r)`.
+    // The sign depends on `n+1`. The polynomial computes `sin(r)`.
+    // We can fold the sign into `r` before the polynomial evaluation.
+    // If `n+1` is odd, sign is negative. `(n+1) & 1 != 0`.
+    // This is equivalent to `n` being even.
+
+    // Create a sign mask where bits are set if n is even.
+    let n_is_even_mask = vceqq_s32(vandq_s32(n, vdupq_n_s32(1)), vdupq_n_s32(0));
+    // The sign bit for a float is the most significant bit.
+    let sign_bit = vdupq_n_u32(0x80000000);
+    let sign_mask = vandq_u32(n_is_even_mask, sign_bit);
+
+    // Flip the sign of `r` if `n` is even. This computes `±r`.
+    r = vreinterpretq_f32_u32(veorq_u32(vreinterpretq_u32_f32(r), sign_mask));
+
+    // --- 3. Polynomial Evaluation ---
+    // We approximate `sin(r)` using a minimax polynomial for `f32`.
+    // The polynomial approximates `(sin(r)/r - 1) / r^2`.
+    // P(r^2) = C1 + C2*r^2 + C3*r^4
+    // sin(r) ≈ r + r * r^2 * P(r^2) = r + r^3 * P(r^2)
+
+    let x2 = vmulq_f32(r, r); // r^2
+
+    // Evaluate the polynomial P(r^2) using Horner's method.
+    // p = C3
+    let mut p = vdupq_n_f32(SIN_POLY_3_F);
+    // p = C2 + p * x2
+    p = vmlaq_f32(vdupq_n_f32(SIN_POLY_2_F), p, x2);
+    // p = C1 + p * x2
+    p = vmlaq_f32(vdupq_n_f32(SIN_POLY_1_F), p, x2);
+
+    // --- 4. Final Reconstruction ---
+    // res = r + r^3 * p = r + (r * r^2) * p
+    let r_cubed = vmulq_f32(r, x2);
+    let res = vmlaq_f32(r, p, r_cubed);
+
+    res
 }

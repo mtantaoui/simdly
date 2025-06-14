@@ -1,11 +1,15 @@
-use simdly::simd::traits::SimdAdd;
+use simdly::simd::traits::{SimdAdd, SimdCos};
 
 fn main() {
     let n: usize = 10;
 
-    let u: Vec<f32> = vec![1.0; n];
-    let v: Vec<f32> = vec![1.0; n];
+    let u: Vec<f32> = (0..n).map(|i| i as f32).collect();
+    // let v: Vec<f32> = (0..n).map(|i| i as f32).collect();
 
-    let w = u.simd_add(&v);
-    println!("{:?}", w);
+    let w1 = u.simd_cos();
+    let w2 = u.scalar_cos();
+
+    for i in 0..n {
+        println!("{} -- {}", w1[i], w2[i]);
+    }
 }
