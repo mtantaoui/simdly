@@ -1,37 +1,9 @@
-use std::alloc::{alloc, handle_alloc_error, Layout};
-
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::slice::ParallelSliceMut;
 
 use crate::simd::avx2::f32x8::{self, F32x8};
 use crate::simd::traits::{SimdAdd, SimdVec};
-
-/// Allocates a 32-byte aligned `Vec<f32>` with uninitialized contents.
-///
-/// # Safety
-///
-/// The caller must ensure that the elements of the returned vector are
-/// initialized before being read. Reading from uninitialized memory is
-/// undefined behavior.
-#[inline(always)]
-fn alloc_uninit_f32_vec(len: usize) -> Vec<f32> {
-    if len == 0 {
-        return Vec::new();
-    }
-
-    let layout = Layout::from_size_align(len * std::mem::size_of::<f32>(), f32x8::AVX_ALIGNMENT)
-        .expect("Invalid layout");
-
-    let ptr = unsafe { alloc(layout) as *mut f32 };
-
-    if ptr.is_null() {
-        handle_alloc_error(layout);
-    }
-
-    // SAFETY: The pointer is non-null and the layout is valid for `len` elements.
-    // The capacity is set to `len`, so no re-allocation will occur until it's grown.
-    unsafe { Vec::from_raw_parts(ptr, len, len) }
-}
+use crate::simd::utils::alloc_uninit_f32_vec;
 
 #[inline(always)]
 fn scalar_add(a: &[f32], b: &[f32]) -> Vec<f32> {
@@ -40,8 +12,7 @@ fn scalar_add(a: &[f32], b: &[f32]) -> Vec<f32> {
     a.iter().zip(b.iter()).map(|(x, y)| x + y).collect()
 }
 
-// #[target_feature(enable = "avx", enable = "avx2")]
-#[inline(always)]
+#[target_feature(enable = "avx,avx2,fma")]
 fn simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
     assert_eq!(a.len(), b.len(), "Vectors must be the same length");
 
@@ -86,7 +57,7 @@ fn simd_add_partial_block(a: *const f32, b: *const f32, c: *mut f32, size: usize
     unsafe { (a_chunk_simd + b_chunk_simd).store_at_partial(c) };
 }
 
-#[target_feature(enable = "avx", enable = "avx2")]
+#[target_feature(enable = "avx,avx2,fma")]
 fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
     assert!(
         !a.is_empty() & !b.is_empty(),
@@ -129,7 +100,7 @@ impl<'b> SimdAdd<&'b [f32]> for &[f32] {
 
     #[inline(always)]
     fn simd_add(self, rhs: &'b [f32]) -> Self::Output {
-        simd_add(self, rhs)
+        unsafe { simd_add(self, rhs) }
     }
 
     #[inline(always)]

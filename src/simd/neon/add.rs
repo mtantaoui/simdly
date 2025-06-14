@@ -10,23 +10,6 @@ use crate::simd::{
     traits::{SimdAdd, SimdCos, SimdVec},
 };
 
-fn alloc_uninit_f32_vec(len: usize) -> Vec<f32> {
-    if len == 0 {
-        return Vec::new();
-    }
-
-    let layout = Layout::from_size_align(len * mem::size_of::<f32>(), f32x4::NEON_ALIGNMENT)
-        .expect("Invalid layout");
-
-    let ptr = unsafe { alloc(layout) as *mut f32 };
-
-    if ptr.is_null() {
-        handle_alloc_error(layout);
-    }
-
-    unsafe { Vec::from_raw_parts(ptr, len, len) }
-}
-
 #[inline(always)]
 fn scalar_add(a: &[f32], b: &[f32]) -> Vec<f32> {
     assert!(
@@ -237,7 +220,7 @@ fn parallel_simd_cos(a: &[f32]) -> Vec<f32> {
     c
 }
 
-impl<'b> SimdCos<&'b [f32]> for &[f32] {
+impl SimdCos<&[f32]> for &[f32] {
     type Output = Vec<f32>;
 
     #[inline(always)]

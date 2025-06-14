@@ -1,4 +1,4 @@
-use simdly::simd::traits::{SimdAdd, SimdCos};
+use simdly::simd::traits::SimdCos;
 
 fn main() {
     let n: usize = 10;

@@ -5,12 +5,7 @@ use ndarray::Array1;
 use simdly::simd::traits::{SimdAdd, SimdCos};
 
 // --- Configuration ---
-const VECTOR_LENGTHS: &[usize] = &[
-    512,
-    1024,
-    1_048_576,     // Huge: Stress test for SIMD and parallelism
-    1_073_741_824, // Mega: Tests the limits of SIMD and parallelism
-];
+const VECTOR_LENGTHS: &[usize] = &[512, 5_120, 51_200, 512_000, 5_120_000];
 
 fn generate_data(len: usize) -> (Vec<f32>, Vec<f32>) {
     let a: Vec<f32> = vec![1.0; len];
@@ -23,7 +18,7 @@ fn bench_vector_addition(c: &mut Criterion) {
     // --- Setup that applies to all benchmarks ---
     for &vector_len in VECTOR_LENGTHS.iter() {
         // The group name already contains the vector length, providing context.
-        let mut group = c.benchmark_group(format!("VectorAddition/{vector_len}"));
+        let mut group = c.benchmark_group(format!("Adding/{vector_len}"));
 
         // group.sample_size(100);
 
@@ -42,12 +37,12 @@ fn bench_vector_addition(c: &mut Criterion) {
             });
         });
 
-        // --- Benchmark 2: SIMD Addition (AVX2) ---
+        // --- Benchmark 2: SIMD Addition ---
         group.bench_function("simd add (simdly)", |bencher| {
             bencher.iter(|| black_box(a_vec.simd_add(black_box(&b_vec))));
         });
 
-        // --- Benchmark 3: Parallel SIMD Addition (AVX2) ---
+        // --- Benchmark 3: Parallel SIMD Addition ---
         group.bench_function("parallel simd add (simdly)", |bencher| {
             bencher.iter(|| black_box(a_vec.par_simd_add(black_box(&b_vec))));
         });
@@ -71,7 +66,7 @@ fn bench_vector_cos(c: &mut Criterion) {
     // --- Setup that applies to all benchmarks ---
     for &vector_len in VECTOR_LENGTHS.iter() {
         // The group name already contains the vector length, providing context.
-        let mut group = c.benchmark_group(format!("VectorAddition/{vector_len}"));
+        let mut group = c.benchmark_group(format!("Cosine function/{vector_len}"));
 
         // group.sample_size(100);
 
@@ -90,12 +85,12 @@ fn bench_vector_cos(c: &mut Criterion) {
             });
         });
 
-        // --- Benchmark 2: SIMD Addition (AVX2) ---
+        // --- Benchmark 2: SIMD Addition ---
         group.bench_function("simd cos (simdly)", |bencher| {
             bencher.iter(|| black_box(a_vec.simd_cos()));
         });
 
-        // --- Benchmark 3: Parallel SIMD Addition (AVX2) ---
+        // --- Benchmark 3: Parallel SIMD Addition  ---
         group.bench_function("parallel simd cos (simdly)", |bencher| {
             bencher.iter(|| black_box(a_vec.par_simd_cos()));
         });
@@ -114,10 +109,6 @@ fn bench_vector_cos(c: &mut Criterion) {
     }
 }
 
-criterion_group!(
-    benches,
-    // bench_vector_addition,
-    bench_vector_cos
-);
+criterion_group!(benches, bench_vector_addition, bench_vector_cos);
 
 criterion_main!(benches);
