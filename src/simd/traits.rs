@@ -102,6 +102,13 @@ pub trait SimdVec<T> {
     ///
     /// .
     unsafe fn ge_elements(&self, rhs: Self) -> Self;
+
+    /// .
+    ///
+    /// # Safety
+    ///
+    /// .
+    unsafe fn cos(&self) -> Self;
 }
 
 pub trait SimdAdd<Rhs = Self> {
@@ -110,4 +117,12 @@ pub trait SimdAdd<Rhs = Self> {
     fn simd_add(self, rhs: Rhs) -> Self::Output;
     fn par_simd_add(self, rhs: Rhs) -> Self::Output;
     fn scalar_add(self, rhs: Rhs) -> Self::Output;
+}
+
+pub trait SimdCos<Rhs = Self> {
+    type Output;
+
+    fn simd_cos(self) -> Self::Output;
+    fn par_simd_cos(self) -> Self::Output;
+    fn scalar_cos(self) -> Self::Output;
 }
