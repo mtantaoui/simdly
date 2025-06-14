@@ -9,7 +9,7 @@ use std::ops::{
     RemAssign, Sub, SubAssign,
 };
 
-use crate::simd::traits::SimdVec;
+use crate::simd::{avx2::cos::f32::_mm256_cos_ps, traits::SimdVec};
 
 pub const AVX_ALIGNMENT: usize = 32;
 pub const LANE_COUNT: usize = 8;
@@ -84,7 +84,7 @@ impl SimdVec<f32> for F32x8 {
     #[inline(always)]
     unsafe fn load_aligned(ptr: *const f32, size: usize) -> Self {
         Self {
-            elements: unsafe { _load_aligned(ptr) },
+            elements: unsafe { _mm256_load_ps(ptr) },
             size,
         }
     }
@@ -93,7 +93,7 @@ impl SimdVec<f32> for F32x8 {
     #[inline(always)]
     unsafe fn load_unaligned(ptr: *const f32, size: usize) -> Self {
         Self {
-            elements: unsafe { _load_unaligned(ptr) },
+            elements: unsafe { _mm256_loadu_ps(ptr) },
             size,
         }
     }
@@ -372,24 +372,13 @@ impl SimdVec<f32> for F32x8 {
             size: self.size,
         }
     }
-}
 
-/// Loads a vector from an aligned pointer, ensuring the size is exactly 8 elements.
-#[inline(always)]
-unsafe fn _load_aligned(ptr: *const f32) -> __m256 {
-    unsafe { _mm256_load_ps(ptr) }
-}
-
-/// Loads a vector from an unaligned pointer, ensuring the size is exactly 8 elements.
-#[inline(always)]
-unsafe fn _load_unaligned(ptr: *const f32) -> __m256 {
-    unsafe { _mm256_loadu_ps(ptr) }
-}
-
-/// Stores a __m256.
-#[inline(always)]
-unsafe fn _store_aligned(ptr: *mut f32, elements: __m256) {
-    unsafe { _mm256_store_ps(ptr, elements) }
+    unsafe fn cos(&self) -> Self {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_cos_ps(self.elements) },
+        }
+    }
 }
 
 /// Computes the remainder of two `__m256` vectors elementwise.
@@ -440,18 +429,6 @@ unsafe fn _ge(lhs: __m256, rhs: __m256) -> bool {
     let ge_mask = _mm256_movemask_ps(ge);
 
     ge_mask == 0xFF
-}
-
-/// Performs a bitwise AND operation on two `__m256` vectors.
-#[inline(always)]
-unsafe fn _and(lhs: __m256, rhs: __m256) -> __m256 {
-    unsafe { _mm256_and_ps(lhs, rhs) }
-}
-
-/// Performs a bitwise OR operation on two `__m256` vectors.
-#[inline(always)]
-unsafe fn _or(lhs: __m256, rhs: __m256) -> __m256 {
-    unsafe { _mm256_or_ps(lhs, rhs) }
 }
 
 /// Implementing the `Add` and `AddAssign` traits for F32x8
@@ -689,7 +666,7 @@ impl BitAnd for F32x8 {
 
         F32x8 {
             size: self.size,
-            elements: unsafe { _and(self.elements, rhs.elements) },
+            elements: unsafe { _mm256_and_ps(self.elements, rhs.elements) },
         }
     }
 }
@@ -724,7 +701,7 @@ impl BitOr for F32x8 {
 
         F32x8 {
             size: self.size,
-            elements: unsafe { _or(self.elements, rhs.elements) },
+            elements: unsafe { _mm256_or_ps(self.elements, rhs.elements) },
         }
     }
 }

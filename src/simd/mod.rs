@@ -5,3 +5,4 @@ pub mod avx2;
 pub mod neon;
 
 pub mod traits;
+pub mod utils;
