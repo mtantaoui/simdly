@@ -10,7 +10,7 @@ license = "MIT"
 repository = "https://github.com/mtantaoui/simdly"
 documentation = "https://docs.rs/simdly/"
 readme = "README.md"
-keywords = ["math", "SIMD", "concurrency", "performance",  "Numerical"]
+keywords = ["math", "SIMD", "functions", "performance",  "Numerical"]
 
 [dependencies]
 rayon = "1.10.0"
@@ -18,12 +18,7 @@ rayon = "1.10.0"
 [dev-dependencies]
 criterion = "0.6.0"
 ndarray = "0.16.1"
-
-
-[features]
-bench-avx2 = []
-bench-neon = []
-
+rand = "0.9.1"
 
 [[bench]]
 name = "f32"
