@@ -1,7 +1,5 @@
 use std::alloc::{alloc, handle_alloc_error, Layout};
 
-use crate::simd::avx2::f32x8;
-
 /// Allocates a 32-byte aligned `Vec<f32>` with uninitialized contents.
 ///
 /// # Safety
@@ -10,13 +8,13 @@ use crate::simd::avx2::f32x8;
 /// initialized before being read. Reading from uninitialized memory is
 /// undefined behavior.
 #[inline(always)]
-pub fn alloc_uninit_f32_vec(len: usize) -> Vec<f32> {
+pub fn alloc_uninit_f32_vec(len: usize, align: usize) -> Vec<f32> {
     if len == 0 {
         return Vec::new();
     }
 
-    let layout = Layout::from_size_align(len * std::mem::size_of::<f32>(), f32x8::AVX_ALIGNMENT)
-        .expect("Invalid layout");
+    let layout =
+        Layout::from_size_align(len * std::mem::size_of::<f32>(), align).expect("Invalid layout");
 
     let ptr = unsafe { alloc(layout) as *mut f32 };
 

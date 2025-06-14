@@ -43,6 +43,15 @@ pub(crate) mod f32 {
     /// It uses a range reduction to [-π/4, π/4] and a polynomial approximation for sin(r).
     #[target_feature(enable = "avx,avx2,fma")]
     pub(crate) unsafe fn _mm256_cos_ps(s: __m256) -> __m256 {
+        // --- Handle Infinity ---
+        // Create a mask for lanes that are +INF or -INF
+        // 1. Get absolute value of s
+        let abs_s = _mm256_andnot_ps(_mm256_set1_ps(-0.0f32), s); // abs(s) by clearing sign bit
+                                                                  // 2. Compare with +INF
+        let inf_lanes_mask = _mm256_cmp_ps(abs_s, _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
+        // inf_lanes_mask now has 0xFFFFFFFF for lanes that were INF, and 0x00000000 otherwise.
+        // --- Handle Infinity ---
+
         // Step 1: Range Reduction. Find j = round(s / π - 0.5)
         // This calculates j such that s ≈ (j + 0.5) * π.
         let j_float = _mm256_round_ps(
@@ -53,6 +62,9 @@ pub(crate) mod f32 {
             ),
             _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC,
         );
+        // For INF input to round_ps, result is INF. cvtps_epi32(INF) yields 0x80000000 (INT_MIN for signed 32-bit).
+        // For NaN input to round_ps, result is NaN. cvtps_epi32(NaN) yields 0x80000000.
+        // This means the "finite_cos_result" will be garbage for INF/NaN inputs, but we'll mask it out.
         let j = _mm256_cvtps_epi32(j_float);
 
         // Step 2: Calculate q = 2*j + 1. This helps map to the correct sine/cosine quadrant.
@@ -66,31 +78,30 @@ pub(crate) mod f32 {
         let r = _mm256_fmadd_ps(qf, _mm256_set1_ps(-std::f32::consts::FRAC_PI_2), s);
 
         // Step 4: Quadrant Correction.
-        // cos(x) = cos(q*π/2 + r) = sin(π/2 - (q*π/2+r)) = sin((1-q)*π/2 - r)
-        // The identity is cos(j*π + α) = (-1)^j * cos(α).
-        // Our reduction is different: cos( (j+0.5)π + r' ) = (-1)^(j+1) * sin(r')
-        // We check if j is even or odd to determine the sign.
         // `(q & 2) == 0` is a clever way to check if `j` is even.
-        let j_is_even_mask = _mm256_cmpeq_epi32(
+        // (q = 2j+1. If j is even, j=2k -> q=4k+1. q&2 = (4k+1)&2 = 0.
+        //  If j is odd,  j=2k+1 -> q=4k+3. q&2 = (4k+3)&2 = 2.)
+        let j_is_even_mask_i = _mm256_cmpeq_epi32(
             _mm256_and_si256(q, _mm256_set1_epi32(2)),
             _mm256_setzero_si256(),
         );
+        // The mask j_is_even_mask_i is an integer mask (0xFFFFFFFF or 0x0).
+        // _mm256_castsi256_ps converts it bitwise to a float mask.
 
         // The sign of the result depends on `j`.
-        // If j is even, cos(...) = -sin(r). If j is odd, cos(...) = +sin(r).
-        // We can achieve this by computing sin(r) and negating it if j is even.
-        // Or, more efficiently, by computing sin(-r) if j is even and sin(r) if j is odd,
-        // since sin(-r) = -sin(r).
-        // We use a blend to select `r` or `-r` based on the mask.
+        // cos( (j+0.5)π + r' ) = (-1)^(j+1) * sin(r')
+        // If j is even (j_is_even_mask is true), we need (-1)^(even+1) * sin(r') = -sin(r') = sin(-r').
+        // If j is odd  (j_is_even_mask is false), we need (-1)^(odd+1) * sin(r') = +sin(r').
         let r_neg = _mm256_xor_ps(r, _mm256_set1_ps(-0.0f32)); // Negate r by flipping sign bit
-        let r_signed = _mm256_blendv_ps(r, r_neg, _mm256_castsi256_ps(j_is_even_mask));
+        let r_signed = _mm256_blendv_ps(r, r_neg, _mm256_castsi256_ps(j_is_even_mask_i));
 
         // Step 5: Polynomial Approximation for sin(r_signed).
-        // The polynomial approximates sin(x) ≈ x * (1 + c2*x^2 + c3*x^4 + ...)
-        // We use Horner's method for efficient evaluation.
+        // sin(x) ≈ x * (1 + C2*x^2 + C3*x^4 + C4*x^6 + C5*x^8 + C6*x^10 + C7*x^12)
+        // Polynomial P(y) = C2 + C3*y + C4*y^2 + C5*y^3 + C6*y^4 + C7*y^5 where y = r_signed^2
+        // Evaluated using Horner's method:
+        // P(y) = ((((C7*y + C6)*y + C5)*y + C4)*y + C3)*y + C2
         let r2 = _mm256_mul_ps(r_signed, r_signed); // r_signed^2
 
-        // Evaluate the polynomial P(r2) = c7*r2^5 + c6*r2^4 + ... + c2
         let mut poly = _mm256_set1_ps(SIN_POLY_7_S);
         poly = _mm256_fmadd_ps(poly, r2, _mm256_set1_ps(SIN_POLY_6_S));
         poly = _mm256_fmadd_ps(poly, r2, _mm256_set1_ps(SIN_POLY_5_S));
@@ -98,13 +109,16 @@ pub(crate) mod f32 {
         poly = _mm256_fmadd_ps(poly, r2, _mm256_set1_ps(SIN_POLY_3_S));
         poly = _mm256_fmadd_ps(poly, r2, _mm256_set1_ps(SIN_POLY_2_S));
 
-        // Final step of Horner's method: sin(x) ≈ x + x * r2 * P(r2)
-        // which is equivalent to x * (1 + r2 * P(r2))
-        let r2_poly = _mm256_mul_ps(poly, r2);
+        // Final result: sin(x) ≈ x + x * x^2 * P(x^2)  (using fmadd: x*x^2 * P(x^2) + x)
+        // which is r_signed + r_signed * r2 * poly
+        let finite_cos_result = _mm256_fmadd_ps(_mm256_mul_ps(r_signed, r2), poly, r_signed);
 
-        _mm256_fmadd_ps(r2_poly, r_signed, r_signed)
+        // --- Blend with NaN for Infinity inputs ---
+        let nan_vals = _mm256_set1_ps(f32::NAN);
+
+        // --- Blend with NaN for Infinity inputs ---
+        _mm256_blendv_ps(finite_cos_result, nan_vals, inf_lanes_mask)
     }
-
     #[inline(always)]
     fn scalar_cos(a: &[f32]) -> Vec<f32> {
         assert!(!a.is_empty(), "Size can't be empty (size zero)");
@@ -118,7 +132,7 @@ pub(crate) mod f32 {
 
         let size = a.len();
 
-        let mut c = alloc_uninit_f32_vec(size);
+        let mut c = alloc_uninit_f32_vec(size, f32x8::AVX_ALIGNMENT);
 
         let step = f32x8::LANE_COUNT;
 
@@ -160,7 +174,7 @@ pub(crate) mod f32 {
 
         let size = a.len();
 
-        let mut c = alloc_uninit_f32_vec(size);
+        let mut c = alloc_uninit_f32_vec(size, f32x8::AVX_ALIGNMENT);
 
         let step = f32x8::LANE_COUNT;
 

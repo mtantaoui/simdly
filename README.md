@@ -92,6 +92,14 @@ Once you are in the project directory, you can build the project using Cargo:
 cargo build
 ```
 
+### Running Miri Tests (explicitly enabling AVX2)
+
+To run Miri tests and explicitly enable AVX2 features, use:
+
+```bash
+RUSTFLAGS="--cfg avx2 -C target-cpu=native" cargo +nightly miri test
+```
+
 ## Usage
 
 Currently, Simdly primarily serves as a demonstration and benchmarking platform for SIMD and parallel computation techniques in Rust. The core logic for these demonstrations can be found within the benchmark files (e.g., `benches/add.rs`).

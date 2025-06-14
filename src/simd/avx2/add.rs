@@ -18,7 +18,7 @@ fn simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
 
     let size = a.len();
 
-    let mut c = alloc_uninit_f32_vec(size);
+    let mut c = alloc_uninit_f32_vec(size, f32x8::AVX_ALIGNMENT);
 
     let step = f32x8::LANE_COUNT;
 
@@ -67,7 +67,7 @@ fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
 
     let size = a.len();
 
-    let mut c = alloc_uninit_f32_vec(size);
+    let mut c = alloc_uninit_f32_vec(size, f32x8::AVX_ALIGNMENT);
 
     let step = f32x8::LANE_COUNT;
 

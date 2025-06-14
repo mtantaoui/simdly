@@ -227,7 +227,10 @@ impl SimdVec<f32> for F32x8 {
         // If it is aligned, use `_mm256_stream_ps` for better performance
         // If it is not aligned, use `_mm256_storeu_ps` for unaligned storage
         match Self::is_aligned(ptr) {
+            #[cfg(not(miri))]
             true => unsafe { _mm256_stream_ps(ptr, self.elements) },
+            #[cfg(miri)]
+            true => unsafe { _mm256_store_ps(ptr, self.elements) },
             false => unsafe { _mm256_storeu_ps(ptr, self.elements) },
         }
     }
@@ -1528,5 +1531,948 @@ mod f32x8_tests {
                 .map(|f| *f != 0.0)
                 .collect::<Vec<bool>>()
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*; // Imports F32x8, LANE_COUNT, AVX_ALIGNMENT, etc.
+    use crate::simd::traits::SimdVec; // To call methods from the trait implementation
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::ptr;
+
+    // Helper for creating aligned data arrays
+    #[repr(align(32))] // AVX_ALIGNMENT is 32
+    struct AlignedData<const N: usize>([f32; N]);
+
+    impl<const N: usize> AlignedData<N> {
+        fn new(val: [f32; N]) -> Self {
+            Self(val)
+        }
+    }
+
+    // Helper to get all 8 f32 elements from F32x8.elements
+    // This bypasses F32x8::size and F32x8::to_vec() logic.
+    fn get_all_elements(v: F32x8) -> [f32; LANE_COUNT] {
+        let mut arr = [0.0f32; LANE_COUNT];
+        unsafe {
+            // Unaligned store is fine for testing purposes
+            _mm256_storeu_ps(arr.as_mut_ptr(), v.elements);
+        }
+        arr
+    }
+
+    // Helper for precise f32 slice comparison (bitwise for NaNs)
+    fn assert_f32_slice_eq_bitwise(a: &[f32], b: &[f32]) {
+        assert_eq!(
+            a.len(),
+            b.len(),
+            "Slice lengths differ (left: {}, right: {})",
+            a.len(),
+            b.len()
+        );
+        for i in 0..a.len() {
+            assert_eq!(
+                a[i].to_bits(),
+                b[i].to_bits(),
+                "Elements at index {} differ: left={}({:08x}), right={}({:08x})",
+                i,
+                a[i],
+                a[i].to_bits(),
+                b[i],
+                b[i].to_bits()
+            );
+        }
+    }
+
+    // Helper for f32 slice comparison with epsilon
+    fn assert_f32_slice_eq_epsilon(a: &[f32], b: &[f32], epsilon: f32) {
+        assert_eq!(
+            a.len(),
+            b.len(),
+            "Slice lengths differ (left: {}, right: {})",
+            a.len(),
+            b.len()
+        );
+        for i in 0..a.len() {
+            if a[i].is_nan() && b[i].is_nan() {
+                // Allow different NaN bit patterns if just checking for NaN property
+                // For specific NaN patterns (like masks), use assert_f32_slice_eq_bitwise
+                continue;
+            }
+            assert!(
+                (a[i] - b[i]).abs() <= epsilon,
+                "Elements at index {} differ: left={}, right={}, diff={}",
+                i,
+                a[i],
+                b[i],
+                (a[i] - b[i]).abs()
+            );
+        }
+    }
+
+    const TRUE_MASK_F32: f32 = f32::from_bits(0xFFFFFFFFu32); // Expected -NaN for true in masks
+    const FALSE_MASK_F32: f32 = 0.0f32;
+
+    mod simd_vec_impl {
+        use super::*;
+
+        #[test]
+        fn test_new_full_slice() {
+            let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+            let v = F32x8::new(&data);
+            assert_eq!(v.size, LANE_COUNT);
+            assert_f32_slice_eq_bitwise(&get_all_elements(v), &data);
+            assert_f32_slice_eq_bitwise(&v.to_vec(), &data);
+        }
+
+        #[test]
+        fn test_new_larger_slice() {
+            let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+            let v = F32x8::new(&data);
+            assert_eq!(v.size, LANE_COUNT);
+            let expected = &data[0..LANE_COUNT];
+            assert_f32_slice_eq_bitwise(&get_all_elements(v), expected);
+            assert_f32_slice_eq_bitwise(&v.to_vec(), expected);
+        }
+
+        #[test]
+        fn test_new_partial_slice() {
+            let data = [1.0, 2.0, 3.0];
+            let v = F32x8::new(&data);
+            assert_eq!(v.size, data.len());
+
+            let mut expected_raw = [0.0f32; LANE_COUNT];
+            expected_raw[0..data.len()].copy_from_slice(&data);
+            assert_f32_slice_eq_bitwise(&get_all_elements(v), &expected_raw);
+            assert_f32_slice_eq_bitwise(&v.to_vec(), &data);
+        }
+
+        #[test]
+        fn test_new_partial_slice_len_1() {
+            let data = [1.0];
+            let v = F32x8::new(&data);
+            assert_eq!(v.size, 1);
+            let mut expected_raw = [0.0f32; LANE_COUNT];
+            expected_raw[0] = 1.0;
+            assert_f32_slice_eq_bitwise(&get_all_elements(v), &expected_raw);
+            assert_f32_slice_eq_bitwise(&v.to_vec(), &data);
+        }
+
+        #[test]
+        fn test_new_partial_slice_len_7() {
+            let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
+            let v = F32x8::new(&data);
+            assert_eq!(v.size, 7);
+            let mut expected_raw = [0.0f32; LANE_COUNT];
+            expected_raw[0..7].copy_from_slice(&data);
+            assert_f32_slice_eq_bitwise(&get_all_elements(v), &expected_raw);
+            assert_f32_slice_eq_bitwise(&v.to_vec(), &data);
+        }
+
+        #[test]
+        #[should_panic(expected = "Size can't be empty (size zero)")]
+        fn test_new_empty_slice_panics() {
+            F32x8::new(&[]);
+        }
+
+        #[test]
+        fn test_splat() {
+            let val = std::f32::consts::PI;
+            let v = unsafe { F32x8::splat(val) };
+            assert_eq!(v.size, LANE_COUNT);
+            let expected = [val; LANE_COUNT];
+            assert_f32_slice_eq_bitwise(&get_all_elements(v), &expected);
+            assert_f32_slice_eq_bitwise(&v.to_vec(), &expected);
+        }
+
+        #[allow(clippy::needless_range_loop)]
+        #[test]
+        fn test_splat_nan() {
+            let val = f32::NAN;
+            let v = unsafe { F32x8::splat(val) };
+            assert_eq!(v.size, LANE_COUNT);
+            let elements = get_all_elements(v);
+            for i in 0..LANE_COUNT {
+                assert!(elements[i].is_nan());
+            }
+        }
+
+        #[test]
+        fn test_is_aligned() {
+            let aligned_arr = AlignedData::new([0.0f32; LANE_COUNT]);
+            let unaligned_arr = [0.0f32; LANE_COUNT + 1]; // Make it > LANE_COUNT to get an unaligned slice easily
+
+            assert!(
+                F32x8::is_aligned(aligned_arr.0.as_ptr()),
+                "Aligned pointer reported as unaligned."
+            );
+
+            // Ensure we test an actually unaligned pointer if possible.
+            // Most basic allocations might be aligned to 8 or 16 bytes.
+            // We need to force non-32-byte alignment.
+            let ptr_usize = unaligned_arr.as_ptr() as usize;
+            if ptr_usize % AVX_ALIGNMENT != 0 {
+                assert!(
+                    !F32x8::is_aligned(unaligned_arr.as_ptr()),
+                    "Unaligned pointer reported as aligned."
+                );
+            } else {
+                // If base pointer is 32-byte aligned, try offset pointer
+                if (ptr_usize + std::mem::size_of::<f32>()) % AVX_ALIGNMENT != 0 {
+                    assert!(
+                        !F32x8::is_aligned(unaligned_arr.as_ptr().wrapping_add(1)),
+                        "Offset unaligned pointer reported as aligned."
+                    );
+                } else {
+                    // This case is unlikely but possible if base is aligned and offset keeps it aligned.
+                    // To be robust, one might allocate a larger buffer and find an unaligned spot.
+                    // For now, this is a best-effort check for unaligned.
+                    eprintln!("Warning: Could not reliably test F32x8::is_aligned for unaligned case. Pointer was unexpectedly aligned.");
+                }
+            }
+        }
+
+        #[test]
+        fn test_load_aligned() {
+            let data = AlignedData::new([1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8]);
+            let v = unsafe { F32x8::load(data.0.as_ptr(), LANE_COUNT) };
+            assert_eq!(v.size, LANE_COUNT);
+            assert_f32_slice_eq_bitwise(&get_all_elements(v), &data.0);
+        }
+
+        #[test]
+        fn test_load_unaligned() {
+            // Create data that's likely unaligned (slice from a Vec often works)
+            let data_vec: Vec<f32> = vec![0.0, 1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8];
+            // Take a slice starting at index 1 to increase chance of unalignment wrt 32 bytes
+            let data_slice = &data_vec[1..LANE_COUNT + 1];
+            assert_eq!(data_slice.len(), LANE_COUNT);
+
+            let v = unsafe { F32x8::load(data_slice.as_ptr(), LANE_COUNT) };
+            assert_eq!(v.size, LANE_COUNT);
+            assert_f32_slice_eq_bitwise(&get_all_elements(v), data_slice);
+        }
+
+        #[test]
+        #[should_panic(expected = "Pointer must not be null")]
+        fn test_load_null_ptr_panics() {
+            unsafe {
+                F32x8::load(ptr::null(), LANE_COUNT);
+            }
+        }
+
+        #[test]
+        #[should_panic(expected = "Size must be == 8")]
+        fn test_load_incorrect_size_panics() {
+            let data = [0.0f32; LANE_COUNT];
+            unsafe {
+                F32x8::load(data.as_ptr(), LANE_COUNT - 1);
+            }
+        }
+
+        #[test]
+        fn test_load_partial_various_sizes() {
+            let data_full = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+            for len in 1..LANE_COUNT {
+                let data_slice = &data_full[0..len];
+                let v = unsafe { F32x8::load_partial(data_slice.as_ptr(), len) };
+                assert_eq!(v.size, len, "Size mismatch for len={}", len);
+
+                let mut expected_raw = [0.0f32; LANE_COUNT];
+                expected_raw[0..len].copy_from_slice(data_slice);
+
+                assert_f32_slice_eq_bitwise(&get_all_elements(v), &expected_raw);
+                assert_f32_slice_eq_bitwise(&v.to_vec(), data_slice);
+            }
+        }
+
+        #[test]
+        #[should_panic(expected = "Size must be < 8")]
+        fn test_load_partial_size_too_large_panics() {
+            let data = [0.0f32; LANE_COUNT];
+            unsafe {
+                F32x8::load_partial(data.as_ptr(), LANE_COUNT);
+            }
+        }
+
+        #[test]
+        #[should_panic(expected = "Size must be < 8")]
+        fn test_load_partial_size_zero_panics_due_to_unreachable() {
+            // The assertion is "Size must be < 8". 0 < 8 is true.
+            // So it passes the assert, then hits `_ => unreachable!("Size must be < {}", LANE_COUNT)`.
+            // The unreachable message is identical to the assertion message.
+            let data = [0.0f32; 1]; // Dummy pointer, content doesn't matter for size 0
+            unsafe {
+                F32x8::load_partial(data.as_ptr(), 0);
+            }
+        }
+
+        #[test]
+        #[should_panic(expected = "Pointer must not be null")]
+        fn test_load_partial_null_ptr_panics() {
+            unsafe {
+                F32x8::load_partial(ptr::null(), 1);
+            }
+        }
+
+        #[test]
+        fn test_store_in_vec_full() {
+            let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+            let v = F32x8::new(&data);
+            let stored_vec = unsafe { v.store_in_vec() };
+            assert_eq!(stored_vec.len(), LANE_COUNT);
+            assert_f32_slice_eq_bitwise(&stored_vec, &data);
+        }
+
+        #[test]
+        fn test_store_in_vec_partial_source_size() {
+            // store_in_vec itself always stores LANE_COUNT elements from __m256
+            // The F32x8.size doesn't change what store_in_vec does,
+            // but it influences to_vec.
+            let data_partial = [1.0, 2.0, 3.0];
+            let v = F32x8::new(&data_partial); // size = 3
+
+            let mut expected_full_from_m256 = [0.0f32; LANE_COUNT];
+            expected_full_from_m256[0..3].copy_from_slice(&data_partial);
+
+            let stored_vec = unsafe { v.store_in_vec() };
+            assert_eq!(stored_vec.len(), LANE_COUNT);
+            assert_f32_slice_eq_bitwise(&stored_vec, &expected_full_from_m256);
+        }
+
+        #[test]
+        #[should_panic(expected = "Size must be <= 8")]
+        fn test_store_in_vec_invalid_size_panics() {
+            let mut v = unsafe { F32x8::splat(1.0) };
+            v.size = LANE_COUNT + 1; // Manually set invalid size
+            let _ = unsafe { v.store_in_vec() };
+        }
+
+        #[test]
+        fn test_store_in_vec_partial_method() {
+            let data_full = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+            for len in 1..LANE_COUNT {
+                let data_slice = &data_full[0..len];
+                let v = F32x8::new(data_slice); // size will be `len`
+                assert_eq!(v.size, len);
+
+                let stored_vec = unsafe { v.store_in_vec_partial() };
+                assert_eq!(stored_vec.len(), len);
+                assert_f32_slice_eq_bitwise(&stored_vec, data_slice);
+            }
+        }
+
+        #[test]
+        #[should_panic(expected = "Size must be < LANE_COUNT")]
+        fn test_store_in_vec_partial_method_size_lane_count_panics() {
+            let data = [1.0; LANE_COUNT];
+            let v = F32x8::new(&data); // size = LANE_COUNT
+            assert_eq!(v.size, LANE_COUNT);
+            unsafe { v.store_in_vec_partial() };
+        }
+
+        #[test]
+        fn test_store_at_aligned_and_unaligned() {
+            let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+            let v = F32x8::new(&data);
+
+            // Test aligned store
+            let mut aligned_storage: [f32; 8] = [0.0; 8];
+            unsafe {
+                v.store_at(aligned_storage.as_mut_ptr());
+            }
+            assert_f32_slice_eq_bitwise(&aligned_storage, &data);
+
+            // Test unaligned store
+            let mut unaligned_storage_vec: Vec<f32> = vec![0.0f32; LANE_COUNT + 1];
+            let ptr_unaligned: *mut f32 = unsafe { unaligned_storage_vec.as_mut_ptr().add(1) };
+
+            // Perform the store operation using the raw pointer.
+            unsafe {
+                v.store_at(ptr_unaligned);
+            }
+
+            // This slice is created *after* the raw pointer write in `v.store_at()`.
+            let slice_for_assertion: &[f32] =
+                unsafe { std::slice::from_raw_parts(ptr_unaligned as *const f32, LANE_COUNT) };
+            // Use this newly created slice for the assertion.
+            assert_f32_slice_eq_bitwise(slice_for_assertion, &data); // <-- Use the correct slice here
+        }
+
+        #[test]
+        #[should_panic(expected = "Pointer must not be null")]
+        fn test_store_at_null_ptr_panics() {
+            let v = unsafe { F32x8::splat(1.0) };
+            unsafe {
+                v.store_at(ptr::null_mut());
+            }
+        }
+
+        #[allow(clippy::manual_memcpy)]
+        #[test]
+        fn test_store_at_partial() {
+            let data_full = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+            for len in 1..LANE_COUNT {
+                let data_slice_source = &data_full[0..len];
+                let v = F32x8::new(data_slice_source); // Creates F32x8 with .size = len
+                                                       // and elements [data_slice_source..., 0.0s...]
+                assert_eq!(v.size, len);
+
+                let mut storage = [f32::NAN; LANE_COUNT]; // Fill with NANs to check masking
+                unsafe {
+                    v.store_at_partial(storage.as_mut_ptr());
+                }
+
+                // Expected: first `len` elements from v, rest are original NANs
+                let mut expected_storage = [f32::NAN; LANE_COUNT];
+                for i in 0..len {
+                    expected_storage[i] = data_slice_source[i];
+                }
+                assert_f32_slice_eq_bitwise(&storage, &expected_storage);
+            }
+        }
+
+        #[test]
+        #[should_panic(expected = "Size must be < LANE_COUNT")]
+        fn test_store_at_partial_size_lane_count_panics() {
+            let data = [1.0; LANE_COUNT];
+            let v = F32x8::new(&data); // .size = LANE_COUNT
+            let mut storage = [0.0; LANE_COUNT];
+            unsafe {
+                v.store_at_partial(storage.as_mut_ptr());
+            }
+        }
+
+        #[test]
+        fn test_to_vec() {
+            // Full vector
+            let data_full = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+            let v_full = F32x8::new(&data_full);
+            assert_f32_slice_eq_bitwise(&v_full.to_vec(), &data_full);
+
+            // Partial vector
+            let data_partial = [1.0, 2.0, 3.0];
+            let v_partial = F32x8::new(&data_partial);
+            assert_f32_slice_eq_bitwise(&v_partial.to_vec(), &data_partial);
+        }
+
+        #[test]
+        fn test_comparison_elements() {
+            let d1 = [1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0];
+            let d2 = [1.0, 3.0, 2.0, 4.0, 0.0, 3.0, 2.0, 5.0];
+            let v1 = F32x8::new(&d1);
+            let v2 = F32x8::new(&d2);
+
+            let t = TRUE_MASK_F32;
+            let f = FALSE_MASK_F32;
+
+            // eq_elements
+            let eq_res_v = unsafe { v1.eq_elements(v2) };
+            assert_eq!(eq_res_v.size, LANE_COUNT);
+            let expected_eq = [t, f, f, t, f, f, f, f];
+            assert_f32_slice_eq_bitwise(&eq_res_v.to_vec(), &expected_eq);
+
+            // lt_elements
+            let lt_res_v = unsafe { v1.lt_elements(v2) };
+            let expected_lt = [f, t, f, f, f, t, f, t];
+            assert_f32_slice_eq_bitwise(&lt_res_v.to_vec(), &expected_lt);
+
+            // le_elements
+            let le_res_v = unsafe { v1.le_elements(v2) };
+            let expected_le = [t, t, f, t, f, t, f, t];
+            assert_f32_slice_eq_bitwise(&le_res_v.to_vec(), &expected_le);
+
+            // gt_elements
+            let gt_res_v = unsafe { v1.gt_elements(v2) };
+            let expected_gt = [f, f, t, f, t, f, t, f];
+            assert_f32_slice_eq_bitwise(&gt_res_v.to_vec(), &expected_gt);
+
+            // ge_elements
+            let ge_res_v = unsafe { v1.ge_elements(v2) };
+            let expected_ge = [t, f, t, t, t, f, t, f];
+            assert_f32_slice_eq_bitwise(&ge_res_v.to_vec(), &expected_ge);
+        }
+
+        #[test]
+        #[should_panic(expected = "Operands must have the same size")]
+        fn test_comparison_elements_panic_on_diff_size() {
+            let v1 = F32x8::new(&[1.0; LANE_COUNT]);
+            let mut v2 = F32x8::new(&[2.0; LANE_COUNT]);
+            v2.size = LANE_COUNT - 1; // Manually set different size
+            let _ = unsafe { v1.eq_elements(v2) };
+        }
+
+        #[test]
+        fn test_cos() {
+            use std::f32::consts::{FRAC_PI_2, PI};
+            let inputs = [
+                0.0,
+                FRAC_PI_2,
+                PI,
+                3.0 * FRAC_PI_2,
+                2.0 * PI,
+                f32::NAN,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+            ];
+            // Pad to LANE_COUNT
+            let mut data_in = [0.0f32; LANE_COUNT];
+            data_in[0..inputs.len()].copy_from_slice(&inputs);
+
+            let v_in = F32x8::new(&data_in);
+            let v_out = unsafe { v_in.cos() };
+
+            let mut expected_outputs_approx = [0.0f32; LANE_COUNT];
+            expected_outputs_approx[0] = 1.0; // cos(0)
+            expected_outputs_approx[1] = 0.0; // cos(PI/2)
+            expected_outputs_approx[2] = -1.0; // cos(PI)
+            expected_outputs_approx[3] = 0.0; // cos(3PI/2)
+            expected_outputs_approx[4] = 1.0; // cos(2PI)
+                                              // For NaN and Inf, cos behavior can be platform/implementation specific.
+                                              // _mm256_cos_ps might produce NaN for NaN/Inf.
+                                              // Let's assume NaN for these specific inputs.
+            expected_outputs_approx[5] = f32::NAN; // cos(NaN)
+            expected_outputs_approx[6] = f32::NAN; // cos(Inf)
+            expected_outputs_approx[7] = f32::NAN; // cos(-Inf)
+
+            let out_vec = v_out.to_vec();
+
+            // For cos, use epsilon comparison due to precision of approximations
+            // The first 5 values are standard angles
+            assert_f32_slice_eq_epsilon(&out_vec[0..5], &expected_outputs_approx[0..5], 1e-6);
+            // For NaN/Inf, check if they are NaN
+            for i in 5..inputs.len() {
+                assert!(
+                    out_vec[i].is_nan(),
+                    "cos({}) expected NaN, got {}",
+                    data_in[i],
+                    out_vec[i]
+                );
+            }
+        }
+    }
+
+    mod operator_overloads {
+        use super::*;
+
+        fn setup_vecs() -> (F32x8, F32x8, F32x8) {
+            let d1 = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+            let d2 = [8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
+            let d3 = [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]; // For division/modulo
+            (F32x8::new(&d1), F32x8::new(&d2), F32x8::new(&d3))
+        }
+
+        #[test]
+        fn test_add_sub_mul_div_rem() {
+            let (v1, v2, v_div) = setup_vecs();
+
+            // Add
+            let add_res = v1 + v2;
+            let expected_add = [9.0; LANE_COUNT];
+            assert_f32_slice_eq_bitwise(&add_res.to_vec(), &expected_add);
+
+            // Sub
+            let sub_res = v1 - v_div;
+            let expected_sub = [-1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+            assert_f32_slice_eq_bitwise(&sub_res.to_vec(), &expected_sub);
+
+            // Mul
+            let mul_res = v1 * v_div;
+            let expected_mul = [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0];
+            assert_f32_slice_eq_bitwise(&mul_res.to_vec(), &expected_mul);
+
+            // Div
+            let div_res = v1 / v_div;
+            let expected_div = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0];
+            assert_f32_slice_eq_bitwise(&div_res.to_vec(), &expected_div);
+
+            // Rem
+            // v1: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+            // v_div: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0];
+            let rem_res = v1 % v_div;
+            let expected_rem = [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0];
+            assert_f32_slice_eq_bitwise(&rem_res.to_vec(), &expected_rem);
+        }
+
+        #[test]
+        fn test_assign_ops() {
+            let (_v1_orig, v2, _v_div_orig) = setup_vecs();
+            let (v1_add, _, _) = setup_vecs(); // v1 for add test
+            let (mut v1_sub, _, v_div_sub) = setup_vecs();
+            let (mut v1_mul, _, v_div_mul) = setup_vecs();
+            let (mut v1_div, _, v_div_div) = setup_vecs();
+            let (mut v1_rem, _, v_div_rem) = setup_vecs();
+
+            let mut v1 = v1_add; // Use a copy for each assign op
+            v1 += v2;
+            let expected_add = [9.0; LANE_COUNT];
+            assert_f32_slice_eq_bitwise(&v1.to_vec(), &expected_add);
+
+            v1_sub -= v_div_sub;
+            let expected_sub = [-1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+            assert_f32_slice_eq_bitwise(&v1_sub.to_vec(), &expected_sub);
+
+            v1_mul *= v_div_mul;
+            let expected_mul = [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0];
+            assert_f32_slice_eq_bitwise(&v1_mul.to_vec(), &expected_mul);
+
+            v1_div /= v_div_div;
+            let expected_div = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0];
+            assert_f32_slice_eq_bitwise(&v1_div.to_vec(), &expected_div);
+
+            v1_rem %= v_div_rem;
+            let expected_rem = [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0];
+            assert_f32_slice_eq_bitwise(&v1_rem.to_vec(), &expected_rem);
+        }
+
+        #[test]
+        fn test_div_by_zero() {
+            let data_ones = [1.0; LANE_COUNT];
+            let data_zeros = [0.0; LANE_COUNT];
+            let v_ones = F32x8::new(&data_ones);
+            let v_zeros = F32x8::new(&data_zeros);
+
+            let res = v_ones / v_zeros;
+            let elements = res.to_vec();
+            for &x in &elements {
+                assert!(
+                    x.is_infinite() && x.is_sign_positive(),
+                    "Expected positive infinity from 1.0/0.0"
+                );
+            }
+        }
+
+        #[test]
+        fn test_rem_by_zero() {
+            let data_ones = [1.0; LANE_COUNT];
+            let data_zeros = [0.0; LANE_COUNT];
+            let v_ones = F32x8::new(&data_ones);
+            let v_zeros = F32x8::new(&data_zeros);
+
+            let res = v_ones % v_zeros; // x % 0 should be NaN
+            let elements = res.to_vec();
+            for &x in &elements {
+                assert!(x.is_nan(), "Expected NaN from x % 0.0");
+            }
+        }
+
+        #[test]
+        fn test_partial_eq() {
+            let (v1, v2, _) = setup_vecs();
+            let v1_clone = v1; // F32x8 is Copy
+
+            assert_eq!(v1, v1_clone); // Should be true (all 8 lanes equal)
+            assert_ne!(v1, v2); // Should be false (lanes differ)
+
+            // Test with partial vectors (size < LANE_COUNT)
+            // Note: PartialEq checks all 8 underlying floats if sizes are equal.
+            // If F32x8 has size=3, and raw elements are [1,2,3,0,0,0,0,0] for both,
+            // they will be equal.
+            let p_data1 = [1.0, 2.0, 3.0];
+            let vp1 = F32x8::new(&p_data1); // size=3, raw=[1,2,3,0,0,0,0,0]
+            let vp2 = F32x8::new(&p_data1); // size=3, raw=[1,2,3,0,0,0,0,0]
+            assert_eq!(vp1, vp2);
+
+            let p_data2 = [1.0, 2.0, 4.0];
+            let vp3 = F32x8::new(&p_data2); // size=3, raw=[1,2,4,0,0,0,0,0]
+            assert_ne!(vp1, vp3);
+
+            // Test edge case: values in padded area differ, but size-defined areas are same.
+            // Example: vA size=3, raw=[1,2,3, 9,9,0,0,0]
+            //          vB size=3, raw=[1,2,3, 8,8,0,0,0]
+            // Current `eq` checks all 8 floats, so vA != vB.
+            let mut v_pad_diff1 = vp1; // raw=[1,2,3,0,0,0,0,0], size=3
+            let mut v_pad_diff2 = vp2; // raw=[1,2,3,0,0,0,0,0], size=3
+
+            unsafe {
+                // Manually alter padding area (highly unsafe, just for test)
+                // This simulates if load_partial was implemented differently or state got corrupted
+                // Or if two vectors were constructed from different full arrays but with same partial size.
+                let mut raw1 = get_all_elements(v_pad_diff1);
+                raw1[LANE_COUNT - 1] = 99.0;
+                v_pad_diff1.elements = _mm256_loadu_ps(raw1.as_ptr());
+
+                let mut raw2 = get_all_elements(v_pad_diff2);
+                raw2[LANE_COUNT - 1] = 88.0;
+                v_pad_diff2.elements = _mm256_loadu_ps(raw2.as_ptr());
+            }
+            // v_pad_diff1.size and v_pad_diff2.size are still 3.
+            // First 3 elements are [1,2,3] for both.
+            // Padded areas differ.
+            // Current `eq` will find them not equal because it checks all 8 lanes.
+            assert_ne!(v_pad_diff1, v_pad_diff2);
+        }
+
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
+        #[test]
+        fn test_partial_ord_full_lanes() {
+            // Test lt, le, gt, ge which use self.size or 0xFF mask
+            // Here self.size = LANE_COUNT (8)
+            let v_small = unsafe { F32x8::splat(1.0) }; // size=8
+            let v_large = unsafe { F32x8::splat(2.0) }; // size=8
+            let v_equal = unsafe { F32x8::splat(1.0) }; // size=8
+
+            // lt: uses mask (1 << size) - 1. For size=8, this is 0xFF.
+            assert!(v_small < v_large);
+            assert!(!(v_large < v_small));
+            assert!(!(v_small < v_equal));
+
+            // le: uses mask 0xFF.
+            assert!(v_small <= v_large);
+            assert!(v_small <= v_equal);
+            assert!(!(v_large <= v_small));
+
+            // gt: uses mask (1 << size) - 1. For size=8, this is 0xFF.
+            assert!(v_large > v_small);
+            assert!(!(v_small > v_large));
+            assert!(!(v_small > v_equal));
+
+            // ge: uses mask 0xFF.
+            assert!(v_large >= v_small);
+            assert!(v_small >= v_equal);
+            assert!(!(v_small >= v_large));
+        }
+
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
+        #[test]
+        fn test_partial_ord_partial_lanes_size_matters() {
+            // Test lt, le, gt, ge with self.size < LANE_COUNT
+            // lt/gt use size-dependent mask. le/ge use fixed 0xFF mask.
+            let data_s = [1.0, 1.0, 1.0, 1.0]; // first 4 elements for size=4
+            let data_l = [2.0, 2.0, 2.0, 2.0];
+            let data_e = [1.0, 1.0, 1.0, 1.0];
+
+            // Create F32x8 vectors with size=4. Raw vectors will be zero-padded.
+            // v_s_p = [1,1,1,1, 0,0,0,0], size=4
+            // v_l_p = [2,2,2,2, 0,0,0,0], size=4
+            // v_e_p = [1,1,1,1, 0,0,0,0], size=4
+            let v_s_p = F32x8::new(&data_s);
+            let v_l_p = F32x8::new(&data_l);
+            let v_e_p = F32x8::new(&data_e);
+
+            // lt: uses mask (1 << 4) - 1 = 0xF. Compares first 4 elements of raw __m256.
+            // v_s_p.elements[0..4] < v_l_p.elements[0..4] is true.
+            // Padded elements are 0.0 == 0.0, so they are not <.
+            // The comparison _mm256_cmp_ps(v_s_p.elements, v_l_p.elements, _CMP_LT_OQ)
+            // will result in [T,T,T,T, F,F,F,F] (represented as mask values).
+            // _mm256_movemask_ps will give 0x0F.
+            // (0x0F == ((1 << 4) - 1)) is true.
+            assert!(v_s_p < v_l_p, "v_s_p < v_l_p should be true for size=4");
+            assert!(!(v_l_p < v_s_p));
+            assert!(!(v_s_p < v_e_p));
+
+            // le: uses mask 0xFF. Compares all 8 elements of raw __m256.
+            // For v_s_p <= v_l_p:
+            // First 4: 1.0 <= 2.0 (True)
+            // Padded:  0.0 <= 0.0 (True)
+            // So all 8 are LE. _mm256_movemask_ps gives 0xFF.
+            // (0xFF == 0xFF) is true.
+            assert!(
+                v_s_p <= v_l_p,
+                "v_s_p <= v_l_p should be true for size=4 if padding matches"
+            );
+            assert!(
+                v_s_p <= v_e_p,
+                "v_s_p <= v_e_p should be true for size=4 if padding matches"
+            );
+            assert!(!(v_l_p <= v_s_p));
+
+            // gt: analogous to lt
+            assert!(v_l_p > v_s_p, "v_l_p > v_s_p should be true for size=4");
+            assert!(!(v_s_p > v_l_p));
+            assert!(!(v_s_p > v_e_p));
+
+            // ge: analogous to le
+            assert!(
+                v_l_p >= v_s_p,
+                "v_l_p >= v_s_p should be true for size=4 if padding matches"
+            );
+            assert!(
+                v_s_p >= v_e_p,
+                "v_s_p >= v_e_p should be true for size=4 if padding matches"
+            );
+            assert!(!(v_s_p >= v_l_p));
+
+            // Create a case where le/ge is false due to padding
+            // v_mixed_s = [1,1,1,1, 9,9,9,9], size=4
+            // v_mixed_l = [2,2,2,2, 0,0,0,0], size=4
+            let mut raw_mixed_s_arr = [0.0; LANE_COUNT];
+            raw_mixed_s_arr[0..4].copy_from_slice(&[1.0, 1.0, 1.0, 1.0]);
+            raw_mixed_s_arr[4..8].copy_from_slice(&[9.0, 9.0, 9.0, 9.0]);
+            let mut v_mixed_s = F32x8::new(&raw_mixed_s_arr[0..4]); // Initialized with [1,1,1,1,0,0,0,0], size=4
+            v_mixed_s.elements = unsafe { _mm256_loadu_ps(raw_mixed_s_arr.as_ptr()) }; // Force raw elements
+
+            // v_mixed_s <= v_l_p should be FALSE for le (due to 0xFF mask) because 9.0 !<= 0.0
+            assert!(
+                !(v_mixed_s <= v_l_p),
+                "v_mixed_s <= v_l_p should be false due to padding"
+            );
+            // v_mixed_s < v_l_p should be TRUE for lt (due to 0x0F mask for size=4)
+            assert!(
+                v_mixed_s < v_l_p,
+                "v_mixed_s < v_l_p should be true based on first 4 elements"
+            );
+        }
+
+        #[test]
+        fn test_partial_cmp_specific_0xf_mask_behavior() {
+            // Test partial_cmp's specific behavior with 0xF masks.
+            // For Ordering::Less, it needs lt_mask=0xF, gt_mask=0x0.
+            // This means first 4 lanes are <, next 4 lanes are == (not < and not >).
+            let mut arr_a = [0.0f32; LANE_COUNT];
+            let mut arr_b = [0.0f32; LANE_COUNT];
+
+            // Case 1: a[0..4] < b[0..4], a[4..8] == b[4..8] -> Ordering::Less
+            for i in 0..4 {
+                arr_a[i] = 1.0;
+                arr_b[i] = 2.0;
+            } // a < b
+            for i in 4..8 {
+                arr_a[i] = 3.0;
+                arr_b[i] = 3.0;
+            } // a == b
+            let va = F32x8::new(&arr_a);
+            let vb = F32x8::new(&arr_b);
+            assert_eq!(va.partial_cmp(&vb), Some(std::cmp::Ordering::Less));
+
+            // Case 2: a[0..4] > b[0..4], a[4..8] == b[4..8] -> Ordering::Greater
+            for i in 0..4 {
+                arr_a[i] = 2.0;
+                arr_b[i] = 1.0;
+            } // a > b
+            for i in 4..8 {
+                arr_a[i] = 3.0;
+                arr_b[i] = 3.0;
+            } // a == b
+            let va = F32x8::new(&arr_a);
+            let vb = F32x8::new(&arr_b);
+            assert_eq!(va.partial_cmp(&vb), Some(std::cmp::Ordering::Greater));
+
+            // Case 3: a[0..4] == b[0..4], a[4..8] are mixed (e.g. a < b) -> Ordering::Equal
+            // This happens because eq_mask is 0xF, and lt_mask/gt_mask for remaining are not 0xF.
+            // The condition is (lt_mask=0, gt_mask=0, eq_mask=0xF)
+            // This means a[0..4] == b[0..4].
+            // And for a[4..8], they are NOT all <, NOT all >, NOT all ==.
+            // This means for a[4..8], they are not compared for equality for this branch.
+            // The definition of `eq_elements` provides an `F32x8` mask.
+            // `eq_mask = _mm256_movemask_ps(eq_elements.elements)`
+            // If `eq_mask == 0xF`, then only first 4 elements of `eq_elements` are true.
+            // The other elements of `eq_elements` must be false.
+            // So: a[0..4] == b[0..4], and a[4..8] != b[4..8].
+            for i in 0..4 {
+                arr_a[i] = 1.0;
+                arr_b[i] = 1.0;
+            } // a == b
+            for i in 4..8 {
+                arr_a[i] = 1.0;
+                arr_b[i] = 2.0;
+            } // a < b (makes a[4..8] != b[4..8])
+            let va = F32x8::new(&arr_a);
+            let vb = F32x8::new(&arr_b);
+            assert_eq!(va.partial_cmp(&vb), None);
+
+            // Case 4: All elements equal (all 8) -> None, because eq_mask will be 0xFF, not 0xF.
+            let v_all_eq1 = unsafe { F32x8::splat(1.0) };
+            let v_all_eq2 = unsafe { F32x8::splat(1.0) };
+            assert_eq!(v_all_eq1.partial_cmp(&v_all_eq2), None);
+
+            // Case 5: All elements less (all 8) -> None, because lt_mask will be 0xFF, not 0xF.
+            let v_all_lt1 = unsafe { F32x8::splat(1.0) };
+            let v_all_lt2 = unsafe { F32x8::splat(2.0) };
+            assert_eq!(v_all_lt1.partial_cmp(&v_all_lt2), None);
+        }
+
+        #[test]
+        fn test_bitwise_ops() {
+            // Bitwise ops on floats are uncommon unless using their bit patterns as masks.
+            // Values are typically all-bits-one (like TRUE_MASK_F32) or all-bits-zero.
+            let v_true = unsafe { F32x8::splat(TRUE_MASK_F32) };
+            let v_false = unsafe { F32x8::splat(FALSE_MASK_F32) };
+
+            let data_pattern_arr = [
+                TRUE_MASK_F32,
+                FALSE_MASK_F32,
+                TRUE_MASK_F32,
+                FALSE_MASK_F32,
+                TRUE_MASK_F32,
+                FALSE_MASK_F32,
+                TRUE_MASK_F32,
+                FALSE_MASK_F32,
+            ];
+            let v_pattern = F32x8::new(&data_pattern_arr); // 10101010 pattern
+
+            // BitAnd
+            let and_res1 = v_true & v_pattern; // T & P = P
+            assert_f32_slice_eq_bitwise(&and_res1.to_vec(), &data_pattern_arr);
+            let and_res2 = v_false & v_pattern; // F & P = F
+            assert_f32_slice_eq_bitwise(&and_res2.to_vec(), &[FALSE_MASK_F32; LANE_COUNT]);
+
+            // BitOr
+            let or_res1 = v_true | v_pattern; // T | P = T
+            assert_f32_slice_eq_bitwise(&or_res1.to_vec(), &[TRUE_MASK_F32; LANE_COUNT]);
+            let or_res2 = v_false | v_pattern; // F | P = P
+            assert_f32_slice_eq_bitwise(&or_res2.to_vec(), &data_pattern_arr);
+
+            // BitAndAssign
+            let mut v_pat_copy = v_pattern;
+            v_pat_copy &= v_true;
+            assert_f32_slice_eq_bitwise(&v_pat_copy.to_vec(), &data_pattern_arr);
+
+            // BitOrAssign
+            v_pat_copy |= v_false; // P |= F is still P
+            assert_f32_slice_eq_bitwise(&v_pat_copy.to_vec(), &data_pattern_arr);
+        }
+
+        #[test]
+        fn test_operator_panics_on_diff_size() {
+            let v1 = F32x8::new(&[1.0; LANE_COUNT]);
+            let mut v2 = F32x8::new(&[2.0; LANE_COUNT]);
+            v2.size = LANE_COUNT - 1; // Manually make size different
+
+            macro_rules! check_panic {
+                ($op:expr) => {
+                    let result = catch_unwind(AssertUnwindSafe(|| $op));
+                    assert!(
+                        result.is_err(),
+                        "Operation did not panic with different sizes"
+                    );
+                    // Can also check panic message if it's consistent
+                    // let panic_payload = result.err().unwrap();
+                    // if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    //     assert!(s.contains("Operands must have the same size"));
+                    // } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    //     assert!(s.contains("Operands must have the same size"));
+                    // }
+                };
+            }
+
+            check_panic!(v1 + v2);
+            check_panic!(v1 - v2);
+            check_panic!(v1 * v2);
+            check_panic!(v1 / v2);
+            check_panic!(v1 % v2);
+            check_panic!(v1 == v2); // PartialEq panics due to assert
+            check_panic!(v1.partial_cmp(&v2)); // PartialOrd panics due to assert
+                                               // Bitwise ops
+            check_panic!(v1 & v2);
+            check_panic!(v1 | v2);
+
+            // Assign ops need mutable v1
+            let mut vm = v1;
+            check_panic!(vm += v2);
+            vm = v1;
+            check_panic!(vm -= v2);
+            vm = v1;
+            check_panic!(vm *= v2);
+            vm = v1;
+            check_panic!(vm /= v2);
+            vm = v1;
+            check_panic!(vm %= v2);
+            vm = v1;
+            check_panic!(vm &= v2);
+            vm = v1;
+            check_panic!(vm |= v2);
+        }
     }
 }
