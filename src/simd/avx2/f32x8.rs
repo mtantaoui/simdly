@@ -1124,7 +1124,7 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(expected = "Size must be < LANE_COUNT")]
+        #[should_panic(expected = "Size must be < 8")]
         fn test_store_at_partial_size_lane_count_panics() {
             let data = [1.0; LANE_COUNT];
             let v = F32x8::new(&data); // .size = LANE_COUNT
