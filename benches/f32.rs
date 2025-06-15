@@ -26,7 +26,9 @@ const VECTOR_SIZES: &[usize] = &[
     256 * 1024,       // 1 MiB
     4 * 1024 * 1024,  // 16 MiB
     16 * 1024 * 1024, // 64 MiB
+    32 * 1024 * 1024, // 128 MiB
 ];
+const PARALLEL_SIZE_THRESHOLD: usize = 4 * 1024 * 1024;
 
 /// Generates pseudo-random f32 vectors. Using a fixed seed ensures that the "random"
 /// data is the same for every benchmark run, making results comparable over time.
@@ -57,8 +59,8 @@ fn all_benchmarks(c: &mut Criterion) {
         let b_arr = Array1::from_vec(b_vec.clone());
 
         // For each implementation, we create a benchmark that will be plotted
-        // against the input size (`size`).
         group.bench_with_input(BenchmarkId::new("scalar", size), &a_vec, |b, v| {
+            // against the input size (`size`).
             b.iter(|| black_box(v.scalar_add(black_box(&b_vec))))
         });
 
@@ -66,11 +68,13 @@ fn all_benchmarks(c: &mut Criterion) {
             b.iter(|| black_box(v.simd_add(black_box(&b_vec))))
         });
 
-        group.bench_with_input(
-            BenchmarkId::new("parallel simd (simdly)", size),
-            &a_vec,
-            |b, v| b.iter(|| black_box(v.par_simd_add(black_box(&b_vec)))),
-        );
+        if size >= PARALLEL_SIZE_THRESHOLD {
+            group.bench_with_input(
+                BenchmarkId::new("parallel simd (simdly)", size),
+                &a_vec,
+                |b, v| b.iter(|| black_box(v.par_simd_add(black_box(&b_vec)))),
+            );
+        }
 
         // Corrected ndarray benchmark for addition
         group.bench_with_input(
@@ -103,11 +107,13 @@ fn all_benchmarks(c: &mut Criterion) {
             b.iter(|| black_box(v.simd_cos()))
         });
 
-        group.bench_with_input(
-            BenchmarkId::new("parallel simd (simdly)", size),
-            &a_vec,
-            |b, v| b.iter(|| black_box(v.par_simd_cos())),
-        );
+        if size >= PARALLEL_SIZE_THRESHOLD {
+            group.bench_with_input(
+                BenchmarkId::new("parallel simd (simdly)", size),
+                &a_vec,
+                |b, v| b.iter(|| black_box(v.par_simd_cos())),
+            );
+        }
 
         group.bench_with_input(BenchmarkId::new("ndarray", size), &a_arr, |b, v| {
             b.iter(|| black_box(v.cos()))
