@@ -9,7 +9,7 @@ use std::ops::{
     RemAssign, Sub, SubAssign,
 };
 
-use crate::simd::{avx2::cos::f32::_mm256_cos_ps, traits::SimdVec};
+use crate::simd::{avx2::cos::_mm256_cos_ps, traits::SimdVec};
 
 pub const AVX_ALIGNMENT: usize = 32;
 pub const LANE_COUNT: usize = 8;
@@ -1233,7 +1233,7 @@ mod tests {
 
             // For cos, use epsilon comparison due to precision of approximations
             // The first 5 values are standard angles
-            assert_f32_slice_eq_epsilon(&out_vec[0..5], &expected_outputs_approx[0..5], 1e-6);
+            assert_f32_slice_eq_epsilon(&out_vec[0..5], &expected_outputs_approx[0..5], 1.8e-7);
             // For NaN/Inf, check if they are NaN
             for i in 5..inputs.len() {
                 debug_assert!(
@@ -1511,12 +1511,11 @@ mod tests {
         #[test]
         fn test_partial_cmp_specific_0xf_mask_behavior() {
             // Test partial_cmp's specific behavior with 0xF masks.
-            // For Ordering::Less, it needs lt_mask=0xF, gt_mask=0x0.
             // This means first 4 lanes are <, next 4 lanes are == (not < and not >).
             let mut arr_a = [0.0f32; LANE_COUNT];
             let mut arr_b = [0.0f32; LANE_COUNT];
 
-            // Case 1: a[0..4] < b[0..4], a[4..8] == b[4..8] -> Ordering::Less
+            // Case 1: a[0..4] < b[0..4], a[4..8] == b[4..8] -> None
             for i in 0..4 {
                 arr_a[i] = 1.0;
                 arr_b[i] = 2.0;
@@ -1527,9 +1526,9 @@ mod tests {
             } // a == b
             let va = F32x8::new(&arr_a);
             let vb = F32x8::new(&arr_b);
-            assert_eq!(va.partial_cmp(&vb), Some(std::cmp::Ordering::Less));
+            assert_eq!(va.partial_cmp(&vb), None);
 
-            // Case 2: a[0..4] > b[0..4], a[4..8] == b[4..8] -> Ordering::Greater
+            // Case 2: a[0..4] > b[0..4], a[4..8] == b[4..8] -> None
             for i in 0..4 {
                 arr_a[i] = 2.0;
                 arr_b[i] = 1.0;
@@ -1540,7 +1539,7 @@ mod tests {
             } // a == b
             let va = F32x8::new(&arr_a);
             let vb = F32x8::new(&arr_b);
-            assert_eq!(va.partial_cmp(&vb), Some(std::cmp::Ordering::Greater));
+            assert_eq!(va.partial_cmp(&vb), None);
 
             // Case 3: a[0..4] == b[0..4], a[4..8] are mixed (e.g. a < b) -> Ordering::Equal
             // This happens because eq_mask is 0xF, and lt_mask/gt_mask for remaining are not 0xF.
@@ -1565,15 +1564,28 @@ mod tests {
             let vb = F32x8::new(&arr_b);
             assert_eq!(va.partial_cmp(&vb), None);
 
-            // Case 4: All elements equal (all 8) -> None, because eq_mask will be 0xFF, not 0xF.
+            // Case 4: All elements equal (all 8)
             let v_all_eq1 = unsafe { F32x8::splat(1.0) };
             let v_all_eq2 = unsafe { F32x8::splat(1.0) };
-            assert_eq!(v_all_eq1.partial_cmp(&v_all_eq2), None);
+            assert_eq!(
+                v_all_eq1.partial_cmp(&v_all_eq2),
+                Some(std::cmp::Ordering::Equal)
+            );
 
             // Case 5: All elements less (all 8) -> None, because lt_mask will be 0xFF, not 0xF.
             let v_all_lt1 = unsafe { F32x8::splat(1.0) };
             let v_all_lt2 = unsafe { F32x8::splat(2.0) };
-            assert_eq!(v_all_lt1.partial_cmp(&v_all_lt2), None);
+            assert_eq!(
+                v_all_lt1.partial_cmp(&v_all_lt2),
+                Some(std::cmp::Ordering::Less)
+            );
+
+            let v_all_lt1 = unsafe { F32x8::splat(1.0) };
+            let v_all_lt2 = unsafe { F32x8::splat(2.0) };
+            assert_eq!(
+                v_all_lt2.partial_cmp(&v_all_lt1),
+                Some(std::cmp::Ordering::Greater)
+            );
         }
 
         #[test]
