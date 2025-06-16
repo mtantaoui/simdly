@@ -32,7 +32,7 @@ impl SimdVec<f32> for F32x8 {
     /// The number of lanes in the vector
     #[inline(always)]
     fn new(slice: &[f32]) -> Self {
-        assert!(!slice.is_empty(), "Size can't be empty (size zero)");
+        debug_assert!(!slice.is_empty(), "Size can't be empty (size zero)");
 
         // If the slice length is less than LANE_COUNT, load a partial vector
         // Otherwise, load a full vector
@@ -70,8 +70,8 @@ impl SimdVec<f32> for F32x8 {
     unsafe fn load(ptr: *const f32, size: usize) -> Self {
         // Asserts that the pointer is not null and the size is exactly 8 elements.
         // If the pointer is null or the size is not 8, it will panic with an error message.
-        assert!(!ptr.is_null(), "Pointer must not be null");
-        assert!(size == LANE_COUNT, "Size must be == {LANE_COUNT}");
+        debug_assert!(!ptr.is_null(), "Pointer must not be null");
+        debug_assert!(size == LANE_COUNT, "Size must be == {LANE_COUNT}");
 
         if Self::is_aligned(ptr) {
             unsafe { Self::load_aligned(ptr, size) }
@@ -101,14 +101,14 @@ impl SimdVec<f32> for F32x8 {
     /// Loads a partial vector from a pointer, filling the rest with zeros.
     #[inline(always)]
     unsafe fn load_partial(ptr: *const f32, size: usize) -> Self {
-        assert!(
+        debug_assert!(
             size < LANE_COUNT,
             "{}",
             format!("Size must be < {LANE_COUNT}")
         );
 
         // to avoid unnecessary branching and ensure all elements are set correctly
-        assert!(!ptr.is_null(), "Pointer must not be null");
+        debug_assert!(!ptr.is_null(), "Pointer must not be null");
 
         // setting elements directly using match statement
         let elements = match size {
@@ -183,7 +183,7 @@ impl SimdVec<f32> for F32x8 {
     /// Stores the vector elements into a `Vec<f32>`, ensuring the size is exactly 8 elements.
     #[inline(always)]
     unsafe fn store_in_vec(&self) -> Vec<f32> {
-        assert!(
+        debug_assert!(
             self.size <= LANE_COUNT,
             "{}",
             format!("Size must be <= {}", LANE_COUNT)
@@ -216,12 +216,12 @@ impl SimdVec<f32> for F32x8 {
     /// It uses `_mm256_stream_ps` for aligned storage or `_mm256_storeu_ps` for unaligned storage.
     #[inline(always)]
     unsafe fn store_at(&self, ptr: *mut f32) {
-        assert!(
+        debug_assert!(
             self.size <= LANE_COUNT,
             "{}",
             format!("Size must be <= {LANE_COUNT}")
         );
-        assert!(!ptr.is_null(), "Pointer must not be null");
+        debug_assert!(!ptr.is_null(), "Pointer must not be null");
 
         // Check if the pointer is aligned to 32 bytes
         // If it is aligned, use `_mm256_stream_ps` for better performance
@@ -239,12 +239,12 @@ impl SimdVec<f32> for F32x8 {
     /// This method is unsafe because it assumes that the pointer is valid and aligned.     
     #[inline(always)]
     unsafe fn store_at_partial(&self, ptr: *mut f32) {
-        assert!(
+        debug_assert!(
             self.size < LANE_COUNT,
             "{}",
             format!("Size must be < {LANE_COUNT}")
         );
-        assert!(!ptr.is_null(), "Pointer must not be null");
+        debug_assert!(!ptr.is_null(), "Pointer must not be null");
 
         let mask: __m256i = match self.size {
             1 => unsafe { _mm256_setr_epi32(-1, 0, 0, 0, 0, 0, 0, 0) },
@@ -263,10 +263,10 @@ impl SimdVec<f32> for F32x8 {
     /// Converts the vector to a `Vec<f32>`, ensuring the size is less than or equal to 8 elements.
     #[inline(always)]
     fn to_vec(self) -> Vec<f32> {
-        assert!(
+        debug_assert!(
             self.size <= LANE_COUNT,
             "{}",
-            format!("Size must be <= {}", LANE_COUNT)
+            format!("Size must be <= {LANE_COUNT}")
         );
 
         if self.size == LANE_COUNT {
@@ -279,7 +279,7 @@ impl SimdVec<f32> for F32x8 {
     /// Compares two vectors elementwise for equality.    
     #[inline(always)]
     unsafe fn eq_elements(&self, rhs: Self) -> Self {
-        assert!(
+        debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -299,7 +299,7 @@ impl SimdVec<f32> for F32x8 {
     /// Compares two vectors elementwise for less than, less than or equal to, greater than, and greater than or equal to.  
     #[inline(always)]
     unsafe fn lt_elements(&self, rhs: Self) -> Self {
-        assert!(
+        debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -319,7 +319,7 @@ impl SimdVec<f32> for F32x8 {
     /// Compares two vectors elementwise for less than or equal to.
     #[inline(always)]
     unsafe fn le_elements(&self, rhs: Self) -> Self {
-        assert!(
+        debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -339,7 +339,7 @@ impl SimdVec<f32> for F32x8 {
     /// Compares two vectors elementwise for greater than.
     #[inline(always)]
     unsafe fn gt_elements(&self, rhs: Self) -> Self {
-        assert!(
+        debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -359,7 +359,7 @@ impl SimdVec<f32> for F32x8 {
     /// Compares two vectors elementwise for greater than or equal to.
     #[inline(always)]
     unsafe fn ge_elements(&self, rhs: Self) -> Self {
-        assert!(
+        debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -441,7 +441,7 @@ impl Add for F32x8 {
 
     #[inline(always)]
     fn add(self, rhs: Self) -> Self::Output {
-        assert!(
+        debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -471,7 +471,7 @@ impl Sub for F32x8 {
 
     #[inline(always)]
     fn sub(self, rhs: Self) -> Self::Output {
-        assert!(
+        debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -501,7 +501,7 @@ impl Mul for F32x8 {
 
     #[inline(always)]
     fn mul(self, rhs: Self) -> Self::Output {
-        assert!(
+        debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -530,7 +530,7 @@ impl Div for F32x8 {
 
     #[inline(always)]
     fn div(self, rhs: Self) -> Self::Output {
-        assert!(
+        debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -557,7 +557,7 @@ impl Rem for F32x8 {
 
     #[inline(always)]
     fn rem(self, rhs: Self) -> Self::Output {
-        assert!(
+        debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -584,7 +584,7 @@ impl Eq for F32x8 {}
 impl PartialEq for F32x8 {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
-        assert!(
+        debug_assert!(
             self.size == other.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -607,7 +607,7 @@ impl PartialEq for F32x8 {
 impl PartialOrd for F32x8 {
     #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        assert!(
+        debug_assert!(
             self.size == other.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -615,21 +615,24 @@ impl PartialOrd for F32x8 {
             other.size
         );
 
-        unsafe {
-            let lt = self.lt_elements(*other).elements;
-            let gt = self.gt_elements(*other).elements;
-            let eq = self.eq_elements(*other).elements;
+        // Pre-calculate the boolean conditions using the correct helper methods.
+        let all_eq = self.eq(other);
+        let all_lt = self.lt(other);
+        let all_gt = self.gt(other);
 
-            let lt_mask = _mm256_movemask_ps(lt);
-            let gt_mask = _mm256_movemask_ps(gt);
-            let eq_mask = _mm256_movemask_ps(eq);
+        // Use a match statement on the tuple of conditions to determine the ordering.
+        match (all_eq, all_lt, all_gt) {
+            // Case 1: All elements are equal. This is the highest priority check.
+            (true, _, _) => Some(std::cmp::Ordering::Equal),
 
-            match (lt_mask, gt_mask, eq_mask) {
-                (0xF, 0x0, _) => Some(std::cmp::Ordering::Less), // all lanes less
-                (0x0, 0xF, _) => Some(std::cmp::Ordering::Greater), // all lanes greater
-                (0x0, 0x0, 0xF) => Some(std::cmp::Ordering::Equal), // all lanes equal
-                _ => None,                                       // mixed
-            }
+            // Case 2: Not all equal, but all are less than.
+            (false, true, false) => Some(std::cmp::Ordering::Less),
+
+            // Case 3: Not all equal or less than, but all are greater than.
+            (false, false, true) => Some(std::cmp::Ordering::Greater),
+
+            // All other combinations imply a mixed ordering.
+            _ => None,
         }
     }
 
@@ -659,7 +662,7 @@ impl BitAnd for F32x8 {
 
     #[inline(always)]
     fn bitand(self, rhs: Self) -> Self::Output {
-        assert!(
+        debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -677,7 +680,7 @@ impl BitAnd for F32x8 {
 impl BitAndAssign for F32x8 {
     #[inline(always)]
     fn bitand_assign(&mut self, rhs: Self) {
-        assert!(
+        debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -694,7 +697,7 @@ impl BitOr for F32x8 {
 
     #[inline(always)]
     fn bitor(self, rhs: Self) -> Self::Output {
-        assert!(
+        debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -712,7 +715,7 @@ impl BitOr for F32x8 {
 impl BitOrAssign for F32x8 {
     #[inline(always)]
     fn bitor_assign(&mut self, rhs: Self) {
-        assert!(
+        debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
             LANE_COUNT,
@@ -790,7 +793,7 @@ mod tests {
                 // For specific NaN patterns (like masks), use assert_f32_slice_eq_bitwise
                 continue;
             }
-            assert!(
+            debug_assert!(
                 (a[i] - b[i]).abs() <= epsilon,
                 "Elements at index {} differ: left={}, right={}, diff={}",
                 i,
@@ -884,7 +887,7 @@ mod tests {
             assert_eq!(v.size, LANE_COUNT);
             let elements = get_all_elements(v);
             for i in 0..LANE_COUNT {
-                assert!(elements[i].is_nan());
+                debug_assert!(elements[i].is_nan());
             }
         }
 
@@ -893,7 +896,7 @@ mod tests {
             let aligned_arr = AlignedData::new([0.0f32; LANE_COUNT]);
             let unaligned_arr = [0.0f32; LANE_COUNT + 1]; // Make it > LANE_COUNT to get an unaligned slice easily
 
-            assert!(
+            debug_assert!(
                 F32x8::is_aligned(aligned_arr.0.as_ptr()),
                 "Aligned pointer reported as unaligned."
             );
@@ -903,14 +906,14 @@ mod tests {
             // We need to force non-32-byte alignment.
             let ptr_usize = unaligned_arr.as_ptr() as usize;
             if ptr_usize % AVX_ALIGNMENT != 0 {
-                assert!(
+                debug_assert!(
                     !F32x8::is_aligned(unaligned_arr.as_ptr()),
                     "Unaligned pointer reported as aligned."
                 );
             } else {
                 // If base pointer is 32-byte aligned, try offset pointer
                 if (ptr_usize + std::mem::size_of::<f32>()) % AVX_ALIGNMENT != 0 {
-                    assert!(
+                    debug_assert!(
                         !F32x8::is_aligned(unaligned_arr.as_ptr().wrapping_add(1)),
                         "Offset unaligned pointer reported as aligned."
                     );
@@ -1233,7 +1236,7 @@ mod tests {
             assert_f32_slice_eq_epsilon(&out_vec[0..5], &expected_outputs_approx[0..5], 1e-6);
             // For NaN/Inf, check if they are NaN
             for i in 5..inputs.len() {
-                assert!(
+                debug_assert!(
                     out_vec[i].is_nan(),
                     "cos({}) expected NaN, got {}",
                     data_in[i],
@@ -1326,7 +1329,7 @@ mod tests {
             let res = v_ones / v_zeros;
             let elements = res.to_vec();
             for &x in &elements {
-                assert!(
+                debug_assert!(
                     x.is_infinite() && x.is_sign_positive(),
                     "Expected positive infinity from 1.0/0.0"
                 );
@@ -1343,7 +1346,7 @@ mod tests {
             let res = v_ones % v_zeros; // x % 0 should be NaN
             let elements = res.to_vec();
             for &x in &elements {
-                assert!(x.is_nan(), "Expected NaN from x % 0.0");
+                debug_assert!(x.is_nan(), "Expected NaN from x % 0.0");
             }
         }
 
@@ -1404,24 +1407,24 @@ mod tests {
             let v_equal = unsafe { F32x8::splat(1.0) }; // size=8
 
             // lt: uses mask (1 << size) - 1. For size=8, this is 0xFF.
-            assert!(v_small < v_large);
-            assert!(!(v_large < v_small));
-            assert!(!(v_small < v_equal));
+            debug_assert!(v_small < v_large);
+            debug_assert!(!(v_large < v_small));
+            debug_assert!(!(v_small < v_equal));
 
             // le: uses mask 0xFF.
-            assert!(v_small <= v_large);
-            assert!(v_small <= v_equal);
-            assert!(!(v_large <= v_small));
+            debug_assert!(v_small <= v_large);
+            debug_assert!(v_small <= v_equal);
+            debug_assert!(!(v_large <= v_small));
 
             // gt: uses mask (1 << size) - 1. For size=8, this is 0xFF.
-            assert!(v_large > v_small);
-            assert!(!(v_small > v_large));
-            assert!(!(v_small > v_equal));
+            debug_assert!(v_large > v_small);
+            debug_assert!(!(v_small > v_large));
+            debug_assert!(!(v_small > v_equal));
 
             // ge: uses mask 0xFF.
-            assert!(v_large >= v_small);
-            assert!(v_small >= v_equal);
-            assert!(!(v_small >= v_large));
+            debug_assert!(v_large >= v_small);
+            debug_assert!(v_small >= v_equal);
+            debug_assert!(!(v_small >= v_large));
         }
 
         #[allow(clippy::neg_cmp_op_on_partial_ord)]
@@ -1448,9 +1451,9 @@ mod tests {
             // will result in [T,T,T,T, F,F,F,F] (represented as mask values).
             // _mm256_movemask_ps will give 0x0F.
             // (0x0F == ((1 << 4) - 1)) is true.
-            assert!(v_s_p < v_l_p, "v_s_p < v_l_p should be true for size=4");
-            assert!(!(v_l_p < v_s_p));
-            assert!(!(v_s_p < v_e_p));
+            debug_assert!(v_s_p < v_l_p, "v_s_p < v_l_p should be true for size=4");
+            debug_assert!(!(v_l_p < v_s_p));
+            debug_assert!(!(v_s_p < v_e_p));
 
             // le: uses mask 0xFF. Compares all 8 elements of raw __m256.
             // For v_s_p <= v_l_p:
@@ -1458,31 +1461,31 @@ mod tests {
             // Padded:  0.0 <= 0.0 (True)
             // So all 8 are LE. _mm256_movemask_ps gives 0xFF.
             // (0xFF == 0xFF) is true.
-            assert!(
+            debug_assert!(
                 v_s_p <= v_l_p,
                 "v_s_p <= v_l_p should be true for size=4 if padding matches"
             );
-            assert!(
+            debug_assert!(
                 v_s_p <= v_e_p,
                 "v_s_p <= v_e_p should be true for size=4 if padding matches"
             );
-            assert!(!(v_l_p <= v_s_p));
+            debug_assert!(!(v_l_p <= v_s_p));
 
             // gt: analogous to lt
-            assert!(v_l_p > v_s_p, "v_l_p > v_s_p should be true for size=4");
-            assert!(!(v_s_p > v_l_p));
-            assert!(!(v_s_p > v_e_p));
+            debug_assert!(v_l_p > v_s_p, "v_l_p > v_s_p should be true for size=4");
+            debug_assert!(!(v_s_p > v_l_p));
+            debug_assert!(!(v_s_p > v_e_p));
 
             // ge: analogous to le
-            assert!(
+            debug_assert!(
                 v_l_p >= v_s_p,
                 "v_l_p >= v_s_p should be true for size=4 if padding matches"
             );
-            assert!(
+            debug_assert!(
                 v_s_p >= v_e_p,
                 "v_s_p >= v_e_p should be true for size=4 if padding matches"
             );
-            assert!(!(v_s_p >= v_l_p));
+            debug_assert!(!(v_s_p >= v_l_p));
 
             // Create a case where le/ge is false due to padding
             // v_mixed_s = [1,1,1,1, 9,9,9,9], size=4
@@ -1494,12 +1497,12 @@ mod tests {
             v_mixed_s.elements = unsafe { _mm256_loadu_ps(raw_mixed_s_arr.as_ptr()) }; // Force raw elements
 
             // v_mixed_s <= v_l_p should be FALSE for le (due to 0xFF mask) because 9.0 !<= 0.0
-            assert!(
+            debug_assert!(
                 !(v_mixed_s <= v_l_p),
                 "v_mixed_s <= v_l_p should be false due to padding"
             );
             // v_mixed_s < v_l_p should be TRUE for lt (due to 0x0F mask for size=4)
-            assert!(
+            debug_assert!(
                 v_mixed_s < v_l_p,
                 "v_mixed_s < v_l_p should be true based on first 4 elements"
             );
@@ -1623,16 +1626,16 @@ mod tests {
             macro_rules! check_panic {
                 ($op:expr) => {
                     let result = catch_unwind(AssertUnwindSafe(|| $op));
-                    assert!(
+                    debug_assert!(
                         result.is_err(),
                         "Operation did not panic with different sizes"
                     );
                     // Can also check panic message if it's consistent
                     // let panic_payload = result.err().unwrap();
                     // if let Some(s) = panic_payload.downcast_ref::<&str>() {
-                    //     assert!(s.contains("Operands must have the same size"));
+                    //     debug_assert!(s.contains("Operands must have the same size"));
                     // } else if let Some(s) = panic_payload.downcast_ref::<String>() {
-                    //     assert!(s.contains("Operands must have the same size"));
+                    //     debug_assert!(s.contains("Operands must have the same size"));
                     // }
                 };
             }

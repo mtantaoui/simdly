@@ -1,3 +1,6 @@
+#[cfg(all(avx512, rustc_channel = "nightly"))]
+pub mod avx512;
+
 #[cfg(avx2)]
 pub mod avx2;
 
