@@ -9,7 +9,13 @@ use std::ops::{
     RemAssign, Sub, SubAssign,
 };
 
-use crate::simd::{avx2::cos::_mm256_cos_ps, traits::SimdVec};
+use crate::simd::{
+    avx2::{
+        abs::float32::_mm256_abs_ps, acos::float32::_mm256_acos_ps, asin::float32::_mm256_asin_ps,
+        cos::float32::_mm256_cos_ps,
+    },
+    traits::SimdVec,
+};
 
 pub const AVX_ALIGNMENT: usize = 32;
 pub const LANE_COUNT: usize = 8;
@@ -376,6 +382,34 @@ impl SimdVec<f32> for F32x8 {
         }
     }
 
+    /// Computes the absolute value of each element in the vector.
+    #[inline(always)]
+    unsafe fn abs(&self) -> Self {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_abs_ps(self.elements) },
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn acos(&self) -> Self {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_acos_ps(self.elements) },
+        }
+    }
+
+    /// Computes the absolute value of each element in the vector.
+    #[inline(always)]
+    unsafe fn asin(&self) -> Self {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_asin_ps(self.elements) },
+        }
+    }
+
+    /// Computes the cosine of each element in the vector.
+    #[inline(always)]
     unsafe fn cos(&self) -> Self {
         Self {
             size: self.size,
@@ -808,6 +842,7 @@ mod tests {
     const FALSE_MASK_F32: f32 = 0.0f32;
 
     mod simd_vec_impl {
+
         use super::*;
 
         #[test]
@@ -1241,6 +1276,170 @@ mod tests {
                     "cos({}) expected NaN, got {}",
                     data_in[i],
                     out_vec[i]
+                );
+            }
+        }
+
+        #[allow(clippy::needless_range_loop)]
+        #[test]
+        fn test_abs() {
+            // Define inputs that are good test cases for `abs`
+            let inputs = [
+                0.0,
+                -0.0,
+                1.0,
+                -1.0,
+                -123.456,
+                f32::NAN,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+            ];
+
+            // Pad to LANE_COUNT. The rest will be 0.0, which is also a valid test case.
+            let mut data_in = [0.0f32; LANE_COUNT];
+            data_in[0..inputs.len()].copy_from_slice(&inputs);
+
+            let v_in = F32x8::new(&data_in);
+            let v_out = unsafe { v_in.abs() };
+
+            let mut expected_outputs = [0.0f32; LANE_COUNT];
+            expected_outputs[0] = 0.0; // abs(0.0)
+            expected_outputs[1] = 0.0; // abs(-0.0)
+            expected_outputs[2] = 1.0; // abs(1.0)
+            expected_outputs[3] = 1.0; // abs(-1.0)
+            expected_outputs[4] = 123.456; // abs(-123.456)
+            expected_outputs[5] = f32::NAN; // abs(NaN)
+            expected_outputs[6] = f32::INFINITY; // abs(Inf)
+            expected_outputs[7] = f32::INFINITY; // abs(-Inf)
+
+            let out_vec = v_out.to_vec();
+
+            // The `abs` operation is exact, so we can check for equality.
+            // We must handle NaN separately because NaN != NaN.
+            for i in 0..inputs.len() {
+                let received = out_vec[i];
+                let expected = expected_outputs[i];
+
+                if expected.is_nan() {
+                    assert!(
+                        received.is_nan(),
+                        "abs({}) expected NaN, got {}",
+                        data_in[i],
+                        received
+                    );
+                } else {
+                    assert_eq!(
+                        received, expected,
+                        "abs({}) expected {}, got {}",
+                        data_in[i], expected, received
+                    );
+                }
+            }
+
+            // Check that the padded elements were also processed correctly (abs(0.0) -> 0.0)
+            for i in inputs.len()..LANE_COUNT {
+                assert_eq!(
+                    out_vec[i], 0.0,
+                    "padded value at index {} should be 0.0 after abs, but got {}",
+                    i, out_vec[i]
+                );
+            }
+        }
+
+        #[test]
+        fn test_asin() {
+            // A __m256 vector holds 8 f32 values.
+            const LANE_COUNT: usize = 8;
+
+            // Key input values for asin. Domain is [-1, 1].
+            let inputs = [
+                0.0f32,
+                1.0f32,
+                -1.0f32,
+                0.5f32,
+                1.0f32 / std::f32::consts::SQRT_2,
+                // Out of domain / special values
+                1.1f32,
+                f32::NAN,
+                f32::INFINITY,
+            ];
+
+            // Pad the input array to the full lane count.
+            let mut data_in = [0.0f32; LANE_COUNT];
+            data_in[0..inputs.len()].copy_from_slice(&inputs);
+
+            // Load, compute, and store results.
+            let v_in = F32x8::new(&data_in);
+            let v_out = unsafe { v_in.asin() };
+            let results = v_out.to_vec();
+
+            // Define expected outputs for valid inputs using std::f32::asin.
+            let mut expected_outputs_approx = [0.0f32; LANE_COUNT];
+            expected_outputs_approx[0] = data_in[0].asin(); // asin(0.0)  -> 0.0
+            expected_outputs_approx[1] = data_in[1].asin(); // asin(1.0)  -> PI/2
+            expected_outputs_approx[2] = data_in[2].asin(); // asin(-1.0) -> -PI/2
+            expected_outputs_approx[3] = data_in[3].asin(); // asin(0.5)  -> PI/6
+            expected_outputs_approx[4] = data_in[4].asin(); // asin(1/sqrt(2)) -> PI/4
+
+            // Compare the valid results with an epsilon.
+            assert_f32_slice_eq_epsilon(&results[0..5], &expected_outputs_approx[0..5], 3e-7);
+
+            // For out-of-domain and special values, expect NaN.
+            for i in 5..inputs.len() {
+                assert!(
+                    results[i].is_nan(),
+                    "asin({}) expected NaN, got {}",
+                    data_in[i],
+                    results[i]
+                );
+            }
+        }
+
+        #[test]
+        fn test_acos() {
+            // A __m256 vector holds 8 f32 values.
+            const LANE_COUNT: usize = 8;
+
+            // Key input values for acos. Domain is [-1, 1].
+            let inputs = [
+                // Standard values
+                0.0f32,                            // acos(0) -> PI/2
+                1.0f32,                            // acos(1) -> 0
+                -1.0f32,                           // acos(-1) -> PI
+                0.5f32,                            // acos(0.5) -> PI/3
+                1.0f32 / std::f32::consts::SQRT_2, // acos(1/sqrt(2)) -> PI/4
+                // Out of domain / special values
+                1.1f32,
+                f32::NAN,
+                f32::NEG_INFINITY,
+            ];
+
+            // Pad the input array to the full lane count.
+            let mut data_in = [0.0f32; LANE_COUNT];
+            data_in[0..inputs.len()].copy_from_slice(&inputs);
+
+            // Load, compute, and store results.
+            let v_in = F32x8::new(&data_in);
+            let v_out = unsafe { v_in.acos() };
+            let results = v_out.to_vec();
+            // Define expected outputs for valid inputs using std::f32::acos as ground truth.
+            let mut expected_outputs_approx = [0.0f32; LANE_COUNT];
+            expected_outputs_approx[0] = data_in[0].acos();
+            expected_outputs_approx[1] = data_in[1].acos();
+            expected_outputs_approx[2] = data_in[2].acos();
+            expected_outputs_approx[3] = data_in[3].acos();
+            expected_outputs_approx[4] = data_in[4].acos();
+
+            // Compare the valid results with an epsilon. An epsilon of 1e-7 is reasonable for f32.
+            assert_f32_slice_eq_epsilon(&results[0..5], &expected_outputs_approx[0..5], 3e-7);
+
+            // For out-of-domain and special values, expect NaN.
+            for i in 5..inputs.len() {
+                assert!(
+                    results[i].is_nan(),
+                    "acos({}) expected NaN, got {}",
+                    data_in[i],
+                    results[i]
                 );
             }
         }

@@ -108,6 +108,27 @@ pub trait SimdVec<T> {
     /// # Safety
     ///
     /// .
+    unsafe fn abs(&self) -> Self;
+
+    /// .
+    ///
+    /// # Safety
+    ///
+    /// .
+    unsafe fn acos(&self) -> Self;
+
+    /// .
+    ///
+    /// # Safety
+    ///
+    /// .
+    unsafe fn asin(&self) -> Self;
+
+    /// .
+    ///
+    /// # Safety
+    ///
+    /// .
     unsafe fn cos(&self) -> Self;
 }
 
@@ -125,4 +146,28 @@ pub trait SimdCos<Rhs = Self> {
     fn simd_cos(self) -> Self::Output;
     fn par_simd_cos(self) -> Self::Output;
     fn scalar_cos(self) -> Self::Output;
+}
+
+pub trait SimdAbs<Rhs = Self> {
+    type Output;
+
+    fn simd_abs(self) -> Self::Output;
+    fn par_simd_abs(self) -> Self::Output;
+    fn scalar_abs(self) -> Self::Output;
+}
+
+pub trait SimdAsin<Rhs = Self> {
+    type Output;
+
+    fn simd_asin(self) -> Self::Output;
+    fn par_simd_asin(self) -> Self::Output;
+    fn scalar_asin(self) -> Self::Output;
+}
+
+pub trait SimdAcos<Rhs = Self> {
+    type Output;
+
+    fn simd_acos(self) -> Self::Output;
+    fn par_simd_acos(self) -> Self::Output;
+    fn scalar_acos(self) -> Self::Output;
 }
