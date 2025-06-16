@@ -4,7 +4,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use ndarray::Array1;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use simdly::simd::traits::{SimdAdd, SimdCos};
+use simdly::simd::traits::{SimdAbs, SimdAcos, SimdAdd, SimdAsin, SimdCos};
 
 // ====================================================================================
 // --- Configuration: A good strategy covers different memory/cache hierarchies ---
@@ -21,12 +21,12 @@ use simdly::simd::traits::{SimdAdd, SimdCos};
 ///
 /// An f32 is 4 bytes. `(1024 * 1024 * 4) / 4 = 1_048_576` elements is 4 MiB.
 const VECTOR_SIZES: &[usize] = &[
-    1024,             // 4 KiB
-    16 * 1024,        // 64 KiB
-    256 * 1024,       // 1 MiB
-    4 * 1024 * 1024,  // 16 MiB
-    16 * 1024 * 1024, // 64 MiB
-    32 * 1024 * 1024, // 128 MiB
+    1024,      // 4 KiB
+    16 * 1024, // 64 KiB
+    256 * 1024, // 1 MiB
+               // 4 * 1024 * 1024,  // 16 MiB
+               // 16 * 1024 * 1024, // 64 MiB
+               // 32 * 1024 * 1024, // 128 MiB
 ];
 const PARALLEL_SIZE_THRESHOLD: usize = 4 * 1024 * 1024;
 
@@ -118,6 +118,94 @@ fn all_benchmarks(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("ndarray", size), &a_arr, |b, v| {
             b.iter(|| black_box(v.cos()))
         });
+        group.finish();
+    }
+
+    // --- Benchmark Suite 3: Vector Absolute values ---
+    for &size in VECTOR_SIZES {
+        let mut group = c.benchmark_group("Absolute value".to_string());
+        group.throughput(Throughput::Bytes(
+            size as u64 * std::mem::size_of::<f32>() as u64,
+        ));
+
+        let (a_vec, _) = generate_random_data(size);
+        let a_arr = Array1::from_vec(a_vec.clone());
+
+        group.bench_with_input(BenchmarkId::new("scalar", size), &a_vec, |b, v| {
+            b.iter(|| black_box(v.scalar_abs()))
+        });
+
+        group.bench_with_input(BenchmarkId::new("simd (simdly)", size), &a_vec, |b, v| {
+            b.iter(|| black_box(v.simd_abs()))
+        });
+
+        if size >= PARALLEL_SIZE_THRESHOLD {
+            group.bench_with_input(
+                BenchmarkId::new("parallel simd (simdly)", size),
+                &a_vec,
+                |b, v| b.iter(|| black_box(v.par_simd_abs())),
+            );
+        }
+
+        group.bench_with_input(BenchmarkId::new("ndarray", size), &a_arr, |b, v| {
+            b.iter(|| black_box(v.abs()))
+        });
+        group.finish();
+    }
+
+    // --- Benchmark Suite 4: Vector ArcSine ---
+    for &size in VECTOR_SIZES {
+        let mut group = c.benchmark_group("ArcSine".to_string());
+        group.throughput(Throughput::Bytes(
+            size as u64 * std::mem::size_of::<f32>() as u64,
+        ));
+
+        let (a_vec, _) = generate_random_data(size);
+
+        group.bench_with_input(BenchmarkId::new("scalar", size), &a_vec, |b, v| {
+            b.iter(|| black_box(v.scalar_asin()))
+        });
+
+        group.bench_with_input(BenchmarkId::new("simd (simdly)", size), &a_vec, |b, v| {
+            b.iter(|| black_box(v.simd_asin()))
+        });
+
+        if size >= PARALLEL_SIZE_THRESHOLD {
+            group.bench_with_input(
+                BenchmarkId::new("parallel simd (simdly)", size),
+                &a_vec,
+                |b, v| b.iter(|| black_box(v.par_simd_asin())),
+            );
+        }
+
+        group.finish();
+    }
+
+    // --- Benchmark Suite 4: Vector ArcCosine ---
+    for &size in VECTOR_SIZES {
+        let mut group = c.benchmark_group("ArcCosine".to_string());
+        group.throughput(Throughput::Bytes(
+            size as u64 * std::mem::size_of::<f32>() as u64,
+        ));
+
+        let (a_vec, _) = generate_random_data(size);
+
+        group.bench_with_input(BenchmarkId::new("scalar", size), &a_vec, |b, v| {
+            b.iter(|| black_box(v.scalar_acos()))
+        });
+
+        group.bench_with_input(BenchmarkId::new("simd (simdly)", size), &a_vec, |b, v| {
+            b.iter(|| black_box(v.simd_acos()))
+        });
+
+        if size >= PARALLEL_SIZE_THRESHOLD {
+            group.bench_with_input(
+                BenchmarkId::new("parallel simd (simdly)", size),
+                &a_vec,
+                |b, v| b.iter(|| black_box(v.par_simd_acos())),
+            );
+        }
+
         group.finish();
     }
 }
