@@ -21,12 +21,12 @@ use simdly::simd::traits::{SimdAbs, SimdAcos, SimdAdd, SimdAsin, SimdCos};
 ///
 /// An f32 is 4 bytes. `(1024 * 1024 * 4) / 4 = 1_048_576` elements is 4 MiB.
 const VECTOR_SIZES: &[usize] = &[
-    1024,      // 4 KiB
+    1024, // 4 KiB
     16 * 1024, // 64 KiB
-    256 * 1024, // 1 MiB
-               // 4 * 1024 * 1024,  // 16 MiB
-               // 16 * 1024 * 1024, // 64 MiB
-               // 32 * 1024 * 1024, // 128 MiB
+          // 256 * 1024, // 1 MiB
+          // 4 * 1024 * 1024,  // 16 MiB
+          // 16 * 1024 * 1024, // 64 MiB
+          // 32 * 1024 * 1024, // 128 MiB
 ];
 const PARALLEL_SIZE_THRESHOLD: usize = 4 * 1024 * 1024;
 
@@ -117,6 +117,10 @@ fn all_benchmarks(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("ndarray", size), &a_arr, |b, v| {
             b.iter(|| black_box(v.cos()))
+        });
+
+        group.bench_with_input(BenchmarkId::new("ndarray-stats", size), &a_arr, |b, v| {
+            b.iter(|| black_box(v.mapv(|x| x.cos())))
         });
         group.finish();
     }
