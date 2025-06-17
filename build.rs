@@ -134,7 +134,7 @@ impl CpuFeatureDetector for MacOSDetector {
             for feature in features.iter_mut() {
                 match feature.name {
                     "avx512f" => feature.detected = contents.contains("hw.optional.avx512f: 1"),
-                    "avx2" => feature.detected = contents.contains("hw.optional.avx2: 1"),
+                    "avx2" => feature.detected = contents.contains("hw.optional.avx2_0: 1"),
                     "sse4_1" => feature.detected = contents.contains("hw.optional.sse4_1: 1"),
                     "neon" => feature.detected = contents.contains("hw.optional.neon: 1"),
                     _ => {}
