@@ -307,6 +307,18 @@ impl SimdVec<f32> for F32x4 {
             size: self.size,
         }
     }
+
+    unsafe fn abs(&self) -> Self {
+        todo!()
+    }
+
+    unsafe fn acos(&self) -> Self {
+        todo!()
+    }
+
+    unsafe fn asin(&self) -> Self {
+        todo!()
+    }
 }
 
 /// Implementing the `Add` and `AddAssign` traits for F32x4
