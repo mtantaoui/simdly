@@ -13,6 +13,7 @@ readme = "README.md"
 keywords = ["math", "SIMD", "functions", "performance",  "Numerical"]
 
 [dependencies]
+chrono = "0.4.41"
 rayon = "1.10.0"
 
 [dev-dependencies]
@@ -20,6 +21,7 @@ criterion = "0.6.0"
 ndarray = "0.16.1"
 ndarray-stats = "0.6.0"
 rand = "0.9.1"
+statrs = "0.18.0"
 
 [[bench]]
 name = "f32"

@@ -6,4 +6,5 @@
     feature(stdsimd, avx512_target_feature)
 )]
 
+pub mod linalg;
 pub mod simd;
