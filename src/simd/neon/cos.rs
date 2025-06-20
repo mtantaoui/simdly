@@ -56,7 +56,7 @@ pub(crate) mod f32 {
     ///
     /// This function is safe to call only on AArch64 targets with NEON support.
     #[inline(always)]
-    pub unsafe fn vcosq_f32(d: float32x4_t) -> float32x4_t {
+    pub(crate) unsafe fn vcosq_f32(d: float32x4_t) -> float32x4_t {
         // --- 1. Range Reduction ---
         // We want to find an integer `n` and a remainder `r` such that:
         // d = (n + 0.5) * π + r

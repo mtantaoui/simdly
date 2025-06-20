@@ -7,7 +7,7 @@ use rand::{Rng, SeedableRng};
 use simdly::simd::traits::{SimdAbs, SimdAcos, SimdAdd, SimdAsin, SimdCos};
 
 // ====================================================================================
-// --- Configuration: A good strategy covers different memory/cache hierarchies ---
+// --- Configuration: covers different memory/cache hierarchies ---
 // ====================================================================================
 
 /// Vector sizes chosen to test performance across different CPU cache levels.
@@ -21,12 +21,12 @@ use simdly::simd::traits::{SimdAbs, SimdAcos, SimdAdd, SimdAsin, SimdCos};
 ///
 /// An f32 is 4 bytes. `(1024 * 1024 * 4) / 4 = 1_048_576` elements is 4 MiB.
 const VECTOR_SIZES: &[usize] = &[
-    1024, // 4 KiB
-    16 * 1024, // 64 KiB
-          // 256 * 1024, // 1 MiB
-          // 4 * 1024 * 1024,  // 16 MiB
-          // 16 * 1024 * 1024, // 64 MiB
-          // 32 * 1024 * 1024, // 128 MiB
+    1024,             // 4 KiB
+    16 * 1024,        // 64 KiB
+    256 * 1024,       // 1 MiB
+    4 * 1024 * 1024,  // 16 MiB
+    16 * 1024 * 1024, // 64 MiB
+    32 * 1024 * 1024, // 128 MiB
 ];
 const PARALLEL_SIZE_THRESHOLD: usize = 4 * 1024 * 1024;
 

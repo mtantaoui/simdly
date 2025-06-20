@@ -1,7 +1,10 @@
 #[cfg(target_arch = "aarch64")]
 use std::arch::aarch64::*;
 
-use crate::simd::{neon::cos::f32::vcosq_f32, traits::SimdVec};
+use crate::simd::{
+    neon::{acos::float32::vacosq_f32, asin::float32::vasinq_f32, cos::f32::vcosq_f32},
+    traits::SimdVec,
+};
 use std::ops::{
     Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, Div, DivAssign, Mul, MulAssign, Rem,
     RemAssign, Sub, SubAssign,
@@ -309,15 +312,24 @@ impl SimdVec<f32> for F32x4 {
     }
 
     unsafe fn abs(&self) -> Self {
-        todo!()
+        Self {
+            elements: vabsq_f32(self.elements),
+            size: self.size,
+        }
     }
 
     unsafe fn acos(&self) -> Self {
-        todo!()
+        Self {
+            elements: vacosq_f32(self.elements),
+            size: self.size,
+        }
     }
 
     unsafe fn asin(&self) -> Self {
-        todo!()
+        Self {
+            elements: vasinq_f32(self.elements),
+            size: self.size,
+        }
     }
 }
 

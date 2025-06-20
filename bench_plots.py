@@ -14,7 +14,7 @@ from bokeh.transform import factor_cmap
 # --- Configuration ---
 CRITERION_BASE_DIR = os.path.join("target", "criterion")
 PLOT_OUTPUT_DIR = "benchmark_plots_bokeh"
-BENCHMARK_GROUPS = ["Addition", "Cosine"]
+BENCHMARK_GROUPS = ["Addition", "Cosine", "ArcSine", "ArcCosine", "Absolute value"]
 GIB_CONVERSION_FACTOR = 1024 * 1024 * 1024
 
 os.makedirs(PLOT_OUTPUT_DIR, exist_ok=True)
@@ -264,30 +264,6 @@ def main():
             )
 
 
-import numpy as np
-
-
-def qr():
-    # Define matrix A and vector b
-    # A = np.array([[1.0, 1.0], [1.0, 2.0]])
-    # b = np.array([3.0, 5.0])
-
-    A = np.array([[1.0000, 0.0000], [0.0000, 1.0000], [1.0000, 1.0000]])
-    b = np.array([1.0000, 2.0000, 4.0000])
-
-    # QR decomposition
-    Q, R = np.linalg.qr(A)
-
-    # Compute Q^T * b
-    Qt_b = np.dot(Q.T, b)
-
-    # Solve R * x = Q^T * b using back substitution
-    x = np.linalg.solve(R, Qt_b)
-
-    print("Solution x:", x)
-    print("A@x:", A @ x)
-
-
 if __name__ == "__main__":
-    qr()
-    # main()
+
+    main()
