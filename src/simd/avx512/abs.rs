@@ -1,9 +1,3 @@
-#[cfg(target_arch = "x86")]
-use std::arch::x86::*;
-
-#[cfg(target_arch = "x86_64")]
-use std::arch::x86_64::*;
-
 pub(crate) mod float32 {
     use rayon::{
         iter::{IndexedParallelIterator, ParallelIterator},
@@ -15,20 +9,6 @@ pub(crate) mod float32 {
         traits::{SimdAbs, SimdVec},
         utils::alloc_uninit_f32_vec,
     };
-
-    use super::*;
-
-    /// Computes the absolute value of 16 packed f32 values using a dedicated AVX-512 intrinsic.
-    ///
-    /// This is the recommended approach for its clarity and directness.
-    // This function requires both AVX-512F and the Vector Length (VL) extensions.
-    #[inline(always)]
-    pub(crate) unsafe fn _mm512_abs_ps(f: __m512) -> __m512 {
-        // The `_mm512_abs_ps` intrinsic directly computes the absolute value.
-        // The compiler will generate the most efficient instruction, which is often
-        // the same bitmasking operation under the hood.
-        core::arch::x86_64::_mm512_abs_ps(f)
-    }
 
     #[inline(always)]
     fn scalar_abs(a: &[f32]) -> Vec<f32> {

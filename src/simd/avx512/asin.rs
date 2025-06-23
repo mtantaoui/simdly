@@ -19,12 +19,19 @@ pub(crate) mod float32 {
     };
 
     // The polynomial coefficients remain the same.
+    #[allow(clippy::excessive_precision)]
     const P0: f32 = 0.16666666666666666_f32;
+    #[allow(clippy::excessive_precision)]
     const P1: f32 = 0.07500000000000000_f32;
+    #[allow(clippy::excessive_precision)]
     const P2: f32 = 0.04464285714285714_f32;
+    #[allow(clippy::excessive_precision)]
     const P3: f32 = 0.03038181818181818_f32;
+    #[allow(clippy::excessive_precision)]
     const P4: f32 = 0.02237216981132075_f32;
+    #[allow(clippy::excessive_precision)]
     const P5: f32 = 0.01735973154362416_f32;
+    #[allow(clippy::excessive_precision)]
     const P6: f32 = 0.01339831339831340_f32;
 
     /// Computes `asin(d)` for 16 floats using AVX-512F and FMA intrinsics.

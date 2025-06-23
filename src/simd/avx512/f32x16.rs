@@ -951,54 +951,6 @@ mod tests {
         }
 
         #[test]
-        fn test_asin() {
-            const LANE_COUNT: usize = 16;
-
-            // Key input values for asin. Domain is [-1, 1].
-            let inputs = [
-                0.0f32,
-                1.0f32,
-                -1.0f32,
-                0.5f32,
-                1.0f32 / std::f32::consts::SQRT_2,
-                // Out of domain / special values
-                1.1f32,
-                f32::NAN,
-                f32::INFINITY,
-            ];
-
-            // Pad the input array to the full lane count.
-            let mut data_in = [0.0f32; LANE_COUNT];
-            data_in[0..inputs.len()].copy_from_slice(&inputs);
-
-            // Load, compute, and store results.
-            let v_in = F32x16::new(&data_in);
-            let v_out = unsafe { v_in.asin() };
-            let results = v_out.to_vec();
-
-            // Define expected outputs for valid inputs using std::f32::asin.
-            let mut expected_outputs_approx = [0.0f32; LANE_COUNT];
-            expected_outputs_approx[0] = data_in[0].asin(); // asin(0.0)  -> 0.0
-            expected_outputs_approx[1] = data_in[1].asin(); // asin(1.0)  -> PI/2
-            expected_outputs_approx[2] = data_in[2].asin(); // asin(-1.0) -> -PI/2
-            expected_outputs_approx[3] = data_in[3].asin(); // asin(0.5)  -> PI/6
-            expected_outputs_approx[4] = data_in[4].asin(); // asin(1/sqrt(2)) -> PI/4
-
-            // Compare the valid results with an epsilon.
-            assert_f32_slice_eq_epsilon(&results[0..5], &expected_outputs_approx[0..5], 3e-7);
-
-            // For out-of-domain and special values, expect NaN.
-            for i in 5..inputs.len() {
-                assert!(
-                    results[i].is_nan(),
-                    "asin({}) expected NaN, got {}",
-                    data_in[i],
-                    results[i]
-                );
-            }
-        }
-
-        #[test]
         fn test_acos() {
             const LANE_COUNT: usize = 16;
 
@@ -1040,6 +992,54 @@ mod tests {
                 assert!(
                     results[i].is_nan(),
                     "acos({}) expected NaN, got {}",
+                    data_in[i],
+                    results[i]
+                );
+            }
+        }
+
+        #[test]
+        fn test_asin() {
+            const LANE_COUNT: usize = 16;
+
+            // Key input values for asin. Domain is [-1, 1].
+            let inputs = [
+                0.0f32,
+                1.0f32,
+                -1.0f32,
+                0.5f32,
+                1.0f32 / std::f32::consts::SQRT_2,
+                // Out of domain / special values
+                1.1f32,
+                f32::NAN,
+                f32::INFINITY,
+            ];
+
+            // Pad the input array to the full lane count.
+            let mut data_in = [0.0f32; LANE_COUNT];
+            data_in[0..inputs.len()].copy_from_slice(&inputs);
+
+            // Load, compute, and store results.
+            let v_in = F32x16::new(&data_in);
+            let v_out = unsafe { v_in.asin() };
+            let results = v_out.to_vec();
+
+            // Define expected outputs for valid inputs using std::f32::asin.
+            let mut expected_outputs_approx = [0.0f32; LANE_COUNT];
+            expected_outputs_approx[0] = data_in[0].asin(); // asin(0.0)  -> 0.0
+            expected_outputs_approx[1] = data_in[1].asin(); // asin(1.0)  -> PI/2
+            expected_outputs_approx[2] = data_in[2].asin(); // asin(-1.0) -> -PI/2
+            expected_outputs_approx[3] = data_in[3].asin(); // asin(0.5)  -> PI/6
+            expected_outputs_approx[4] = data_in[4].asin(); // asin(1/sqrt(2)) -> PI/4
+
+            // Compare the valid results with an epsilon.
+            assert_f32_slice_eq_epsilon(&results[0..5], &expected_outputs_approx[0..5], 3e-7);
+
+            // For out-of-domain and special values, expect NaN.
+            for i in 5..inputs.len() {
+                assert!(
+                    results[i].is_nan(),
+                    "asin({}) expected NaN, got {}",
                     data_in[i],
                     results[i]
                 );
