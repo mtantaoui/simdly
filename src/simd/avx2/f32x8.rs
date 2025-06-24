@@ -30,8 +30,8 @@ pub const LANE_COUNT: usize = 8;
 /// The struct implements the `SimdVec` trait, which defines the necessary methods for SIMD operations.     
 #[derive(Copy, Clone, Debug)]
 pub struct F32x8 {
-    size: usize,
-    elements: __m256,
+    pub(crate) size: usize,
+    pub(crate) elements: __m256,
 }
 
 impl SimdVec<f32> for F32x8 {
@@ -414,6 +414,14 @@ impl SimdVec<f32> for F32x8 {
         Self {
             size: self.size,
             elements: unsafe { _mm256_cos_ps(self.elements) },
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn fmadd(&self, a: Self, b: Self) -> Self {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_fmadd_ps(a.elements, b.elements, self.elements) },
         }
     }
 }

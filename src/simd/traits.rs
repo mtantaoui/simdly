@@ -130,6 +130,13 @@ pub trait SimdVec<T> {
     ///
     /// .
     unsafe fn cos(&self) -> Self;
+
+    /// .
+    ///
+    /// # Safety
+    ///
+    /// .
+    unsafe fn fmadd(&self, a: Self, b: Self) -> Self;
 }
 
 pub trait SimdAdd<Rhs = Self> {

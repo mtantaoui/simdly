@@ -70,10 +70,15 @@ impl SimdVec<f32> for F32x16 {
     /// This function uses an unaligned load for better general-purpose performance.
     #[inline(always)]
     unsafe fn load(ptr: *const f32, size: usize) -> Self {
-        debug_assert_eq!(size, LANE_COUNT, "Size must be exactly {LANE_COUNT}");
-        // SAFETY: The caller must ensure `ptr` is valid for reading `LANE_COUNT` f32 values.
-        let elements = _mm512_loadu_ps(ptr);
-        Self { elements, size }
+        // Asserts that the pointer is not null and the size is exactly 8 elements.
+        // If the pointer is null or the size is not 8, it will panic with an error message.
+        debug_assert!(!ptr.is_null(), "Pointer must not be null");
+        debug_assert!(size == LANE_COUNT, "Size must be exactly {LANE_COUNT}");
+
+        match Self::is_aligned(ptr) {
+            true => unsafe { Self::load_aligned(ptr, size) },
+            false => unsafe { Self::load_unaligned(ptr, size) },
+        }
     }
 
     /// Loads `size` elements from a pointer into a vector, zeroing the remaining lanes.
@@ -99,9 +104,23 @@ impl SimdVec<f32> for F32x16 {
     /// Stores all 16 vector lanes to the memory location pointed to by `ptr`.
     #[inline(always)]
     unsafe fn store_at(&self, ptr: *mut f32) {
-        debug_assert!(self.size <= LANE_COUNT, "Size must be <= {LANE_COUNT}");
-        // SAFETY: The caller must ensure `ptr` is valid for writing `LANE_COUNT` f32 values.
-        _mm512_storeu_ps(ptr, self.elements);
+        debug_assert!(
+            self.size <= LANE_COUNT,
+            "{}",
+            format!("Size must be <= {LANE_COUNT}")
+        );
+        debug_assert!(!ptr.is_null(), "Pointer must not be null");
+
+        // Check if the pointer is aligned to 32 bytes
+        // If it is aligned, use `_mm256_stream_ps` for better performance
+        // If it is not aligned, use `_mm256_storeu_ps` for unaligned storage
+        match Self::is_aligned(ptr) {
+            // #[cfg(not(miri))]
+            // true => unsafe { _mm512_stream_ps(ptr, self.elements) },
+            // #[cfg(miri)]
+            true => unsafe { _mm512_store_ps(ptr, self.elements) },
+            false => unsafe { _mm512_storeu_ps(ptr, self.elements) },
+        }
     }
 
     /// Stores the active `self.size` lanes to the memory location pointed to by `ptr`.
@@ -303,6 +322,14 @@ impl SimdVec<f32> for F32x16 {
         Self {
             size: self.size,
             elements: unsafe { _mm512_cos_ps(self.elements) },
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn fmadd(&self, a: Self, b: Self) -> Self {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm512_fmadd_ps(a.elements, b.elements, self.elements) },
         }
     }
 }

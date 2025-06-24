@@ -7,3 +7,10 @@
 )]
 
 pub mod simd;
+
+pub const MR: usize = 16;
+pub const NR: usize = 4;
+
+pub const MC: usize = MR * 8;
+pub const NC: usize = NR * 32;
+pub const KC: usize = 1024;

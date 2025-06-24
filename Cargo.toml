@@ -14,6 +14,8 @@ keywords = ["math", "SIMD", "functions", "performance",  "Numerical"]
 
 [dependencies]
 chrono = "0.4.41"
+ndarray = "0.16.1"
+rand = "0.9.1"
 rayon = "1.10.0"
 
 [dev-dependencies]
@@ -26,6 +28,11 @@ statrs = "0.18.0"
 [[bench]]
 name = "f32"
 harness = false
+
+[[bench]]
+name = "dot"
+harness = false
+
 
 [profile.release]
 lto = "fat" 

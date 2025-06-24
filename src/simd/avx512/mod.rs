@@ -4,3 +4,4 @@ pub(crate) mod add;
 pub(crate) mod asin;
 pub(crate) mod cos;
 pub mod f32x16;
+pub mod matmul;
