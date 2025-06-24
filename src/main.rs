@@ -5,9 +5,9 @@ use std::cmp::min;
 // For f32 on AVX-512, a common choice for MR is around 12-16.
 // NR is often a multiple of SIMD width (16 floats for __m512).
 // Let's pick some representative values. These are the hardest to derive purely from cache sizes.
-const TARGET_MR_F32: usize = 16; // Micro-kernel rows (e.g., for F32x16 SIMD type)
-const TARGET_NR_F32: usize = 16; // Micro-kernel columns (e.g., 1 vector wide for F32x16)
-                                 // Or NR could be 32 (2 vectors wide). Let's start with 16.
+const TARGET_MR_F32: usize = 8; // Micro-kernel rows (e.g., for F32x16 SIMD type)
+const TARGET_NR_F32: usize = 4; // Micro-kernel columns (e.g., 1 vector wide for F32x16)
+                                // Or NR could be 32 (2 vectors wide). Let's start with 16.
 
 const BYTES_PER_ELEMENT_F32: usize = 4; // sizeof(f32)
 
@@ -40,9 +40,9 @@ pub struct BlasParams {
 /// # Returns
 /// A `BlasParams` struct with estimated MR, NR, MC, KC, NC.
 pub fn calculate_f32_blas_params(
-    l1d_cache_size_bytes: usize,
-    l2_cache_size_bytes: usize,
-    l3_cache_size_bytes: usize,
+    l1d_cache_size_bytes: f64,
+    l2_cache_size_bytes: f64,
+    l3_cache_size_bytes: f64,
 ) -> BlasParams {
     // 1. Determine MR and NR (Micro-kernel dimensions - Register blocking)
     // These are heavily architecture-dependent and less directly derived from cache sizes alone.
@@ -53,7 +53,7 @@ pub fn calculate_f32_blas_params(
     let nr = TARGET_NR_F32; // e.g., 16 (1 F32x16 vector wide)
 
     // --- Sanity checks for cache sizes ---
-    if l1d_cache_size_bytes == 0 || l2_cache_size_bytes == 0 {
+    if l1d_cache_size_bytes == 0.0 || l2_cache_size_bytes == 0.0 {
         // l3_cache_size_bytes can be 0 if no L3
         panic!("L1D and L2 cache sizes must be greater than 0.");
     }
@@ -107,7 +107,7 @@ pub fn calculate_f32_blas_params(
     let mut nc_from_b_packed = 0;
     let mut nc_from_c_panel = 0;
 
-    if l3_cache_size_bytes > 0 {
+    if l3_cache_size_bytes > 0.0 {
         let target_b_packed_l3_size =
             (l3_cache_size_bytes as f64 * L3_UTILIZATION_FOR_B_PACKED) as usize;
         nc_from_b_packed = target_b_packed_l3_size / (kc * BYTES_PER_ELEMENT_F32);
@@ -117,7 +117,7 @@ pub fn calculate_f32_blas_params(
         nc_from_c_panel = target_c_panel_l3_size / (mc * BYTES_PER_ELEMENT_F32);
     }
 
-    let mut nc = if l3_cache_size_bytes == 0 {
+    let mut nc = if l3_cache_size_bytes == 0.0 {
         // No L3, NC might be smaller, targeting L2 for B or just streaming.
         // For simplicity, let's make it some multiple of MC or a fixed large value for streaming.
         // This part is highly heuristic without L3.
@@ -145,14 +145,14 @@ fn main() {
     // L3: 32 MiB per socket/CCD (let's assume a portion available, e.g., 4-8MB if it's per CCX/CCD of 8 cores)
     // For this heuristic, let's assume a single core has good access to a portion of L3.
     // If L3 is shared by many cores, effective L3 per core is smaller.
-    let l1d_kib = 32;
-    let l2_mib = 1;
-    let l3_mib_effective_per_core = 4; // Assume 4MiB of the L3 is effectively usable by one core's stream
+    let l1d_kib = 32.0;
+    let l2_mib = 0.25;
+    let l3_mib_effective_per_core = 1.0; // Assume 4MiB of the L3 is effectively usable by one core's stream
 
     let params = calculate_f32_blas_params(
-        l1d_kib * 1024,
-        l2_mib * 1024 * 1024,
-        l3_mib_effective_per_core * 1024 * 1024,
+        l1d_kib * 1024.0,
+        l2_mib * 1024.0 * 1024.0,
+        l3_mib_effective_per_core * 1024.0 * 1024.0,
     );
     println!("Calculated BLAS params for f32:");
     println!(
@@ -163,13 +163,13 @@ fn main() {
 
     // Example: Typical Zen 4 (desktop/server grade) might be closer to:
     // L1d: 48KiB, L2: 1MiB, L3: 32MiB (per CCD of 8 cores, so ~4MiB/core effective for some workloads)
-    let l1d_zen4_desktop = 48;
-    let l2_zen4_desktop = 1;
-    let l3_zen4_ccd_slice = 4; // Assuming one core targets a slice of a larger CCD L3
+    let l1d_zen4_desktop = 48.0;
+    let l2_zen4_desktop = 1.0;
+    let l3_zen4_ccd_slice = 4.0; // Assuming one core targets a slice of a larger CCD L3
     let params_zen4_like = calculate_f32_blas_params(
-        l1d_zen4_desktop * 1024,
-        l2_zen4_desktop * 1024 * 1024,
-        l3_zen4_ccd_slice * 1024 * 1024,
+        l1d_zen4_desktop * 1024.0,
+        l2_zen4_desktop * 1024.0 * 1024.0,
+        l3_zen4_ccd_slice * 1024.0 * 1024.0,
     );
     println!("\nCalculated BLAS params for f32 (Zen4-like desktop):");
     println!(

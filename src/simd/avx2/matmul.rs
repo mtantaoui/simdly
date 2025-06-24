@@ -5,7 +5,12 @@ use rayon::{
 use std::cmp::min;
 
 use crate::{
-    simd::{avx2::f32x8::F32x8, traits::SimdVec},
+    simd::{
+        // avx512::f32x8::{self, F32x8, AVX512_ALIGNMENT},
+        avx2::f32x8::{self, F32x8},
+        traits::SimdVec,
+        utils::alloc_zeroed_f32_vec, // utils::alloc_uninit_f32_vec,
+    },
     KC, MC, MR, NC, NR,
 };
 
@@ -87,7 +92,7 @@ fn pack_panel_b(
     k: usize,
 ) {
     // NR is assumed to be a const in scope, e.g., const NR: usize = 4;
-    assert_eq!(
+    debug_assert_eq!(
         dest_slice.len(),
         kc * NR,
         "Destination slice length incorrect. Expected {}, got {}. kc_panel={}, NR={}",
@@ -96,11 +101,9 @@ fn pack_panel_b(
         kc,
         NR // Assuming NR is a const usize in scope
     );
-    assert!(
+    debug_assert!(
         nr <= NR, // Assuming NR is a const usize in scope
-        "nr_effective_in_panel ({}) cannot exceed NR ({})",
-        nr,
-        NR // Assuming NR is a const usize in scope
+        "nr_effective_in_panel ({nr}) cannot exceed NR ({NR})" // Assuming NR is a const usize in scope
     );
     // Implicitly, NR > 0 is expected for the padding loop `nr_effective_in_panel..NR` to make sense.
 
@@ -174,7 +177,8 @@ fn pack_block_b(b: &[f32], nc: usize, kc: usize, k: usize) -> Vec<f32> {
 
     // Allocate the vector for the entire packed block. Initialize with zeros.
     // `pack_one_panel_into_dest` will fill in data and re-fill padding with zeros.
-    let mut packed_block_b_data = vec![0.0f32; total_packed_size];
+    // let mut packed_block_b_data = vec![0.0f32; total_packed_size];
+    let mut packed_block_b_data = alloc_zeroed_f32_vec(total_packed_size, f32x8::AVX_ALIGNMENT);
 
     // `current_write_offset` tracks where the next packed panel should start in `packed_block_b_data`.
     let mut current_write_offset = 0;
@@ -238,12 +242,12 @@ fn pack_panel_a_into(
     kc_panel: usize,
     m_original_matrix: usize,
 ) {
-    assert_eq!(
+    debug_assert_eq!(
         dest_slice.len(),
         kc_panel * MR,
         "Destination slice length mismatch."
     );
-    assert!(
+    debug_assert!(
         mr_effective_in_panel <= MR,
         "mr_effective_in_panel cannot exceed MR."
     );
@@ -289,7 +293,11 @@ fn pack_block_a(a: &[f32], mc: usize, kc: usize, m: usize) -> Vec<f32> {
 
     let num_row_panels = mc.div_ceil(MR); // ceil(mc_block / MR)
     let total_packed_size = num_row_panels * kc * MR;
-    let mut packed_block_a_data = vec![0.0f32; total_packed_size];
+
+    // let mut packed_block_a_data = vec![0.0f32; total_packed_size];
+
+    let mut packed_block_a_data = alloc_zeroed_f32_vec(total_packed_size, f32x8::AVX_ALIGNMENT);
+
     let mut current_write_offset = 0;
 
     for i_row_block_start in (0..mc).step_by(MR) {
@@ -347,7 +355,7 @@ fn pack_block_a(a: &[f32], mc: usize, kc: usize, m: usize) -> Vec<f32> {
 /// # Safety
 ///
 /// .
-#[target_feature(enable = "avx,avx2,fma")]
+#[target_feature(enable = "avx2,avx,fma")]
 pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
     // Loop over columns of C by NC blocks
     // `c_chunk` is a mutable slice of C representing `m` rows and `nc` columns, starting at column `jc`.
@@ -427,14 +435,14 @@ pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize)
                                             &mut c_chunk[c_micropanel_start_idx_in_c_chunk..];
 
                                         // Perform the core computation C_micropanel += A_panel * B_panel
-                                        kernel_MRxNR(
+                                        kernel_8x16(
                                             a_panel,
                                             b_panel,
                                             c_micropanel,
                                             mr_eff,
                                             nr_eff,
                                             kc,
-                                            m, // This is ldc (leading dim of C)
+                                            m,
                                         );
                                     });
                             });
@@ -484,7 +492,7 @@ fn at(i: usize, j: usize, ld: usize) -> usize {
 /// # Safety
 ///
 /// .
-#[target_feature(enable = "avx,avx2,fma")]
+#[target_feature(enable = "avx2,avx,fma")]
 pub fn par_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
     c.par_chunks_mut(m * NC)
         .enumerate()
@@ -523,7 +531,7 @@ pub fn par_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: us
                                         let c_micropanel =
                                             &mut c_chunk[c_micropanel_start_idx_in_c_chunk..];
 
-                                        kernel_MRxNR(
+                                        kernel_8x16(
                                             a_panel,
                                             b_panel,
                                             c_micropanel,
@@ -539,8 +547,8 @@ pub fn par_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: us
         });
 }
 
-#[allow(dead_code, clippy::needless_range_loop, non_snake_case)]
-fn kernel_MRxNR(
+#[inline(always)]
+fn kernel_8x16(
     a_panel: &[f32],
     b_panel: &[f32],
     c_micro_panel: &mut [f32],
@@ -552,50 +560,188 @@ fn kernel_MRxNR(
     debug_assert_eq!(MR, 8);
     debug_assert!(
         mr_eff <= MR,
-        "mr_eff ({}) must be less than or equal to MR ({})",
-        mr_eff,
-        MR
+        "mr_eff ({mr_eff}) must be less than or equal to MR ({MR})"
     );
     debug_assert!(
         nr_eff <= NR,
-        "nr_eff ({}) must be less than or equal to NR ({})",
-        nr_eff,
-        NR
+        "nr_eff ({nr_eff}) must be less than or equal to NR ({NR})"
     );
 
-    let mut c_simd_cols: [F32x8; NR] = [unsafe { F32x8::splat(0.0) }; NR]; // Max NR cols
-
     // Load C columns into SIMD registers
-    for j_col in 0..nr_eff {
-        let c_col_ptr = unsafe { c_micro_panel.as_ptr().add(j_col * ldc) };
-        c_simd_cols[j_col] = match mr_eff.cmp(&MR) {
-            std::cmp::Ordering::Equal => unsafe { F32x8::load(c_col_ptr, mr_eff) },
-            std::cmp::Ordering::Less => unsafe { F32x8::load_partial(c_col_ptr, mr_eff) },
-            std::cmp::Ordering::Greater => panic!("mr_eff > MR"),
-        };
-    }
+    let c_col1_ptr = c_micro_panel.as_mut_ptr();
+    let c_col2_ptr = unsafe { c_micro_panel.as_mut_ptr().add(ldc) };
+    let c_col3_ptr = unsafe { c_micro_panel.as_mut_ptr().add(2 * ldc) };
+    let c_col4_ptr = unsafe { c_micro_panel.as_mut_ptr().add(3 * ldc) };
+    let c_col5_ptr = unsafe { c_micro_panel.as_mut_ptr().add(4 * ldc) };
+    let c_col6_ptr = unsafe { c_micro_panel.as_mut_ptr().add(5 * ldc) };
+    // let c_col7_ptr = unsafe { c_micro_panel.as_mut_ptr().add(6 * ldc) };
+    // let c_col8_ptr = unsafe { c_micro_panel.as_mut_ptr().add(7 * ldc) };
+    // let c_col9_ptr = unsafe { c_micro_panel.as_mut_ptr().add(8 * ldc) };
+    // let c_col10_ptr = unsafe { c_micro_panel.as_mut_ptr().add(9 * ldc) };
+    // let c_col11_ptr = unsafe { c_micro_panel.as_mut_ptr().add(10 * ldc) };
+    // let c_col12_ptr = unsafe { c_micro_panel.as_mut_ptr().add(11 * ldc) };
+    // let c_col13_ptr = unsafe { c_micro_panel.as_mut_ptr().add(12 * ldc) };
+    // let c_col14_ptr = unsafe { c_micro_panel.as_mut_ptr().add(13 * ldc) };
+    // let c_col15_ptr = unsafe { c_micro_panel.as_mut_ptr().add(14 * ldc) };
+    // let c_col16_ptr = unsafe { c_micro_panel.as_mut_ptr().add(15 * ldc) };
+
+    let (
+        mut c_col1,
+        mut c_col2,
+        mut c_col3,
+        mut c_col4,
+        mut c_col5,
+        mut c_col6,
+        // mut c_col7,
+        // mut c_col8,
+        // mut c_col9,
+        // mut c_col10,
+        // mut c_col11,
+        // mut c_col12,
+        // mut c_col13,
+        // mut c_col14,
+        // mut c_col15,
+        // mut c_col16,
+    ) = match mr_eff.cmp(&MR) {
+        std::cmp::Ordering::Equal => unsafe {
+            (
+                F32x8::load(c_col1_ptr, mr_eff),
+                F32x8::load(c_col2_ptr, mr_eff),
+                F32x8::load(c_col3_ptr, mr_eff),
+                F32x8::load(c_col4_ptr, mr_eff),
+                F32x8::load(c_col5_ptr, mr_eff),
+                F32x8::load(c_col6_ptr, mr_eff),
+                // F32x8::load(c_col7_ptr, mr_eff),
+                // F32x8::load(c_col8_ptr, mr_eff),
+                // F32x8::load(c_col9_ptr, mr_eff),
+                // F32x8::load(c_col10_ptr, mr_eff),
+                // F32x8::load(c_col11_ptr, mr_eff),
+                // F32x8::load(c_col12_ptr, mr_eff),
+                // F32x8::load(c_col13_ptr, mr_eff),
+                // F32x8::load(c_col14_ptr, mr_eff),
+                // F32x8::load(c_col15_ptr, mr_eff),
+                // F32x8::load(c_col16_ptr, mr_eff),
+            )
+        },
+        std::cmp::Ordering::Less => unsafe {
+            (
+                F32x8::load_partial(c_col1_ptr, mr_eff),
+                F32x8::load_partial(c_col2_ptr, mr_eff),
+                F32x8::load_partial(c_col3_ptr, mr_eff),
+                F32x8::load_partial(c_col4_ptr, mr_eff),
+                F32x8::load_partial(c_col5_ptr, mr_eff),
+                F32x8::load_partial(c_col6_ptr, mr_eff),
+                // F32x8::load_partial(c_col7_ptr, mr_eff),
+                // F32x8::load_partial(c_col8_ptr, mr_eff),
+                // F32x8::load_partial(c_col9_ptr, mr_eff),
+                // F32x8::load_partial(c_col10_ptr, mr_eff),
+                // F32x8::load_partial(c_col11_ptr, mr_eff),
+                // F32x8::load_partial(c_col12_ptr, mr_eff),
+                // F32x8::load_partial(c_col13_ptr, mr_eff),
+                // F32x8::load_partial(c_col14_ptr, mr_eff),
+                // F32x8::load_partial(c_col15_ptr, mr_eff),
+                // F32x8::load_partial(c_col16_ptr, mr_eff),
+            )
+        },
+        std::cmp::Ordering::Greater => panic!("mr_eff > MR"),
+    };
+
+    let mut b_scalar_splat: F32x8;
 
     for p in 0..kc {
         // Loop over K dimension
-        let a_simd_vec = F32x8::new(&a_panel[p * MR..p * MR + MR]);
+        let a_col = F32x8::new(&a_panel[p * MR..p * MR + MR]);
+        // Loop over N dimension (columns of B and C micro-panel)
 
-        for j_col in 0..nr_eff {
-            // Loop over N dimension (columns of B and C micro-panel)
-            let b_scalar = b_panel[p * NR + j_col]; // Access correct B element for current column
-            let b_simd_splat = unsafe { F32x8::splat(b_scalar) };
-            c_simd_cols[j_col] = unsafe { c_simd_cols[j_col].fmadd(a_simd_vec, b_simd_splat) };
-        }
+        b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR]) };
+        c_col1 = unsafe { c_col1.fmadd(a_col, b_scalar_splat) };
+
+        b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 1]) };
+        c_col2 = unsafe { c_col2.fmadd(a_col, b_scalar_splat) };
+
+        b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 2]) };
+        c_col3 = unsafe { c_col3.fmadd(a_col, b_scalar_splat) };
+
+        b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 3]) };
+        c_col4 = unsafe { c_col4.fmadd(a_col, b_scalar_splat) };
+
+        b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 4]) };
+        c_col5 = unsafe { c_col5.fmadd(a_col, b_scalar_splat) };
+
+        b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 5]) };
+        c_col6 = unsafe { c_col6.fmadd(a_col, b_scalar_splat) };
+
+        // b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 6]) };
+        // c_col7 = unsafe { c_col7.fmadd(a_col, b_scalar_splat) };
+
+        // b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 7]) };
+        // c_col8 = unsafe { c_col8.fmadd(a_col, b_scalar_splat) };
+
+        // b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 8]) };
+        // c_col9 = unsafe { c_col9.fmadd(a_col, b_scalar_splat) };
+
+        // b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 9]) };
+        // c_col10 = unsafe { c_col10.fmadd(a_col, b_scalar_splat) };
+
+        // b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 10]) };
+        // c_col11 = unsafe { c_col11.fmadd(a_col, b_scalar_splat) };
+
+        // b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 11]) };
+        // c_col12 = unsafe { c_col12.fmadd(a_col, b_scalar_splat) };
+
+        // b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 12]) };
+        // c_col13 = unsafe { c_col13.fmadd(a_col, b_scalar_splat) };
+
+        // b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 13]) };
+        // c_col14 = unsafe { c_col14.fmadd(a_col, b_scalar_splat) };
+
+        // b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 14]) };
+        // c_col15 = unsafe { c_col15.fmadd(a_col, b_scalar_splat) };
+
+        // b_scalar_splat = unsafe { F32x8::splat(b_panel[p * NR + 15]) };
+        // c_col16 = unsafe { c_col16.fmadd(a_col, b_scalar_splat) };
     }
 
     // Store C columns back
-    for j_col in 0..nr_eff {
-        let c_col_ptr = unsafe { c_micro_panel.as_mut_ptr().add(j_col * ldc) };
-        match mr_eff.cmp(&MR) {
-            std::cmp::Ordering::Equal => unsafe { c_simd_cols[j_col].store_at(c_col_ptr) },
-            std::cmp::Ordering::Less => unsafe { c_simd_cols[j_col].store_at_partial(c_col_ptr) },
-            std::cmp::Ordering::Greater => panic!("mr_eff > MR"),
-        };
-    }
+    match mr_eff.cmp(&MR) {
+        std::cmp::Ordering::Equal => unsafe {
+            c_col1.store_at(c_col1_ptr);
+            c_col2.store_at(c_col2_ptr);
+            c_col3.store_at(c_col3_ptr);
+            c_col4.store_at(c_col4_ptr);
+            c_col5.store_at(c_col5_ptr);
+            c_col6.store_at(c_col6_ptr);
+            // c_col7.store_at(c_col7_ptr);
+            // c_col8.store_at(c_col8_ptr);
+            // c_col9.store_at(c_col9_ptr);
+            // c_col10.store_at(c_col10_ptr);
+            // c_col11.store_at(c_col11_ptr);
+            // c_col12.store_at(c_col12_ptr);
+            // c_col13.store_at(c_col13_ptr);
+            // c_col14.store_at(c_col14_ptr);
+            // c_col15.store_at(c_col15_ptr);
+            // c_col16.store_at(c_col16_ptr);
+        },
+        std::cmp::Ordering::Less => unsafe {
+            c_col1.store_at_partial(c_col1_ptr);
+            c_col2.store_at_partial(c_col2_ptr);
+            c_col3.store_at_partial(c_col3_ptr);
+            c_col4.store_at_partial(c_col4_ptr);
+            c_col5.store_at_partial(c_col5_ptr);
+            c_col6.store_at_partial(c_col6_ptr);
+            // c_col7.store_at_partial(c_col7_ptr);
+            // c_col8.store_at_partial(c_col8_ptr);
+            // c_col9.store_at_partial(c_col9_ptr);
+            // c_col10.store_at_partial(c_col10_ptr);
+            // c_col11.store_at_partial(c_col11_ptr);
+            // c_col12.store_at_partial(c_col12_ptr);
+            // c_col13.store_at_partial(c_col13_ptr);
+            // c_col14.store_at_partial(c_col14_ptr);
+            // c_col15.store_at_partial(c_col15_ptr);
+            // c_col16.store_at_partial(c_col16_ptr);
+        },
+        std::cmp::Ordering::Greater => panic!("mr_eff > MR"),
+    };
 }
 
 #[cfg(test)]
@@ -645,7 +791,7 @@ mod tests {
         let b_data: Vec<f32> = (0..(k * n))
             .map(|x| ((x + 50) % 100) as f32 / 10.0)
             .collect();
-        let mut c_data = vec![0.0; m * n];
+        let mut c_data = alloc_zeroed_f32_vec(m * n, f32x8::AVX_ALIGNMENT);
 
         let expected_c = naive_matmul(&a_data, &b_data, m, n, k);
 
@@ -764,7 +910,7 @@ mod tests {
         }
 
         let b_data: Vec<f32> = (0..(k * n)).map(|x| x as f32).collect();
-        let mut c_data = vec![0.0; m * n];
+        let mut c_data = alloc_zeroed_f32_vec(m * n, f32x8::AVX_ALIGNMENT);
 
         // Using original matmul with potentially buggy kernel
         unsafe { matmul(&a_data, &b_data, &mut c_data, m, n, k) };

@@ -36,7 +36,7 @@ impl CpuFeature {
             },
             CpuFeature {
                 name: "avx2",
-                rustc_flag: "+avx2,+avx",
+                rustc_flag: "+avx2,+avx,+fma",
                 cfg_flag: "avx2",
                 detected: false,
                 nightly_only: false,
@@ -71,7 +71,7 @@ impl CpuFeature {
             },
             CpuFeature {
                 name: "avx2",
-                rustc_flag: "+avx2,+avx",
+                rustc_flag: "+avx2,+avx,+fma",
                 cfg_flag: "avx2",
                 detected: false,
                 nightly_only: false,

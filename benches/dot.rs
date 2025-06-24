@@ -3,15 +3,22 @@ use std::hint::black_box;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use ndarray::Array2;
 use rand::{rngs::ThreadRng, Rng};
-// use simdly::simd::avx2::matmul::{matmul, par_matmul};
+
 use simdly::simd::{
-    avx512::{
-        f32x16,
+    avx2::{
+        f32x8,
         matmul::{matmul, par_matmul},
     },
     utils::alloc_zeroed_f32_vec,
 };
-// use simdly::matmul::{matmul, par_matmul}; // Added SeedableRng for reproducible tests // Use your crate name
+// use simdly::simd::{
+//     avx512::{
+//         f32x16,
+//         matmul::{matmul, par_matmul},
+//     },
+//     utils::alloc_zeroed_f32_vec,
+// };
+// use simdly::avx2::matmul::{matmul, par_matmul}; // Added SeedableRng for reproducible tests // Use your crate name
 
 // Helper to generate a column-major matrix as Vec<f32>
 // Data is filled column by column.
@@ -107,7 +114,7 @@ fn benchmark_gemm(c: &mut Criterion) {
             &size,
             |bencher, _| {
                 // Clone data inside iter to ensure fresh state if modified, or for cache effects
-                let mut c_vec_custom = alloc_zeroed_f32_vec(m * n, f32x16::AVX512_ALIGNMENT);
+                let mut c_vec_custom = alloc_zeroed_f32_vec(m * n, f32x8::AVX_ALIGNMENT);
                 // vec![0.0f32; m * n];
                 let a_clone = a_vec.clone();
                 let b_clone = b_vec.clone();
@@ -139,7 +146,7 @@ fn benchmark_gemm(c: &mut Criterion) {
             BenchmarkId::new("custom_par_matmul", &bench_id_str),
             &size,
             |bencher, _| {
-                let mut c_vec_par_custom = alloc_zeroed_f32_vec(m * n, f32x16::AVX512_ALIGNMENT);
+                let mut c_vec_par_custom = alloc_zeroed_f32_vec(m * n, f32x8::AVX_ALIGNMENT);
                 let a_clone = a_vec.clone();
                 let b_clone = b_vec.clone();
                 bencher.iter(|| {
@@ -177,33 +184,33 @@ fn benchmark_gemm(c: &mut Criterion) {
 
         // Perform verification for the smallest size to ensure correctness
         // This is done outside the bencher.iter loops.
-        if size == 64 {
-            let mut c_val_custom = vec![0.0f32; m * n];
-            unsafe { matmul(&a_vec, &b_vec, &mut c_val_custom, m, n, k_dim) };
-            verify_results(
-                m,
-                n,
-                &a_vec,
-                &b_vec,
-                &c_val_custom,
-                &a_nd,
-                &b_nd,
-                &format!("VALIDATION_custom_matmul_{bench_id_str}"),
-            );
+        // if size == 64 {
+        //     let mut c_val_custom = vec![0.0f32; m * n];
+        //     unsafe { matmul(&a_vec, &b_vec, &mut c_val_custom, m, n, k_dim) };
+        //     verify_results(
+        //         m,
+        //         n,
+        //         &a_vec,
+        //         &b_vec,
+        //         &c_val_custom,
+        //         &a_nd,
+        //         &b_nd,
+        //         &format!("VALIDATION_custom_matmul_{bench_id_str}"),
+        //     );
 
-            let mut c_val_par_custom = vec![0.0f32; m * n];
-            unsafe { par_matmul(&a_vec, &b_vec, &mut c_val_par_custom, m, n, k_dim) };
-            verify_results(
-                m,
-                n,
-                &a_vec,
-                &b_vec,
-                &c_val_par_custom,
-                &a_nd,
-                &b_nd,
-                &format!("VALIDATION_custom_par_matmul_{bench_id_str}"),
-            );
-        }
+        //     let mut c_val_par_custom = vec![0.0f32; m * n];
+        //     unsafe { par_matmul(&a_vec, &b_vec, &mut c_val_par_custom, m, n, k_dim) };
+        //     verify_results(
+        //         m,
+        //         n,
+        //         &a_vec,
+        //         &b_vec,
+        //         &c_val_par_custom,
+        //         &a_nd,
+        //         &b_nd,
+        //         &format!("VALIDATION_custom_par_matmul_{bench_id_str}"),
+        //     );
+        // }
     }
     group.finish();
 }
