@@ -74,29 +74,31 @@ fn pack_panel_a_into(
 fn pack_panel_b(
     dest_slice: &mut [f32],       // Pre-zeroed, length kc_panel * NR
     b_panel_source_slice: &[f32], // Points to B(pc_panel_start, jc_panel_start for this panel)
-    nr_effective_in_panel: usize, // <= NR, number of cols in B's panel to pack
-    kc_panel: usize,              // Number of rows in B's panel to pack (K-dim)
+    nr_effective_in_panel: usize, // <= NR
+    kc_panel: usize,              // Number of rows in B's panel to pack
     k_original_matrix: usize,     // Leading dimension of original matrix B
 ) {
     debug_assert_eq!(dest_slice.len(), kc_panel * NR, "Dest B slice len mismatch");
     debug_assert!(nr_effective_in_panel <= NR, "nr_eff_b > NR");
 
-    // dest_slice is assumed to be pre-zeroed.
-
     for p_row_in_panel in 0..kc_panel {
-        // Iterate over "rows" of B's panel (K-dimension)
         let dest_row_start_offset = p_row_in_panel * NR;
 
-        // For each "row" of the B-panel, the source elements are strided in col-major B.
-        // Copy nr_effective_in_panel elements element by element (scalar gather).
-        // The remaining (NR - nr_effective_in_panel) elements in dest_slice for this packed row
-        // are already zero.
+        // Get the destination row slice
+        let dest_row =
+            &mut dest_slice[dest_row_start_offset..dest_row_start_offset + nr_effective_in_panel];
+
         for j_col_in_panel in 0..nr_effective_in_panel {
-            // Iterate over "columns" of B's panel
             let source_index = j_col_in_panel * k_original_matrix + p_row_in_panel;
-            dest_slice[dest_row_start_offset + j_col_in_panel] = b_panel_source_slice[source_index];
+            unsafe {
+                // Write the value directly using pointers
+                ptr::copy_nonoverlapping(
+                    &b_panel_source_slice[source_index] as *const f32,
+                    &mut dest_row[j_col_in_panel] as *mut f32,
+                    1,
+                );
+            }
         }
-        // If nr_effective_in_panel == 0, this NR-sized segment in dest_slice remains all zeros.
     }
 }
 
