@@ -7,7 +7,10 @@ use rand::{rngs::ThreadRng, Rng};
 use simdly::simd::{
     avx2::{
         f32x8,
-        matmul::{matmul, par_matmul},
+        matmul::{
+            matmul,
+            // par_matmul
+        },
     },
     utils::alloc_zeroed_f32_vec,
 };
@@ -141,31 +144,31 @@ fn benchmark_gemm(c: &mut Criterion) {
             },
         );
 
-        // Benchmark your parallel matmul
-        group.bench_with_input(
-            BenchmarkId::new("custom_par_matmul", &bench_id_str),
-            &size,
-            |bencher, _| {
-                let mut c_vec_par_custom = alloc_zeroed_f32_vec(m * n, f32x8::AVX_ALIGNMENT);
-                let a_clone = a_vec.clone();
-                let b_clone = b_vec.clone();
-                bencher.iter(|| {
-                    c_vec_par_custom.iter_mut().for_each(|x| *x = 0.0); // Reset C
-                    unsafe {
-                        par_matmul(
-                            black_box(&a_clone),
-                            black_box(&b_clone),
-                            black_box(&mut c_vec_par_custom),
-                            black_box(m),
-                            black_box(n),
-                            black_box(k_dim),
-                        )
-                    };
-                });
-                // Optional: run verification once
-                // verify_results(m, n, &a_vec, &b_vec, &c_vec_par_custom, &a_nd, &b_nd, &format!("custom_par_matmul_{}", bench_id_str));
-            },
-        );
+        // // Benchmark your parallel matmul
+        // group.bench_with_input(
+        //     BenchmarkId::new("custom_par_matmul", &bench_id_str),
+        //     &size,
+        //     |bencher, _| {
+        //         let mut c_vec_par_custom = alloc_zeroed_f32_vec(m * n, f32x8::AVX_ALIGNMENT);
+        //         let a_clone = a_vec.clone();
+        //         let b_clone = b_vec.clone();
+        //         bencher.iter(|| {
+        //             c_vec_par_custom.iter_mut().for_each(|x| *x = 0.0); // Reset C
+        //             unsafe {
+        //                 par_matmul(
+        //                     black_box(&a_clone),
+        //                     black_box(&b_clone),
+        //                     black_box(&mut c_vec_par_custom),
+        //                     black_box(m),
+        //                     black_box(n),
+        //                     black_box(k_dim),
+        //                 )
+        //             };
+        //         });
+        //         // Optional: run verification once
+        //         // verify_results(m, n, &a_vec, &b_vec, &c_vec_par_custom, &a_nd, &b_nd, &format!("custom_par_matmul_{}", bench_id_str));
+        //     },
+        // );
 
         // Benchmark ndarray
         group.bench_with_input(

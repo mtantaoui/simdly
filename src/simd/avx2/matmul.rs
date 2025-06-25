@@ -1,7 +1,7 @@
-use rayon::{
-    iter::{IndexedParallelIterator, ParallelIterator},
-    slice::ParallelSliceMut,
-};
+// use rayon::{
+//     iter::{IndexedParallelIterator, ParallelIterator},
+//     slice::ParallelSliceMut,
+// };
 use std::cmp::min;
 
 use crate::{
@@ -15,6 +15,8 @@ use crate::{
 };
 use std::ptr::copy_nonoverlapping;
 
+
+
 // Assuming DivCeil trait is available
 trait DivCeil: Sized {
     // Copied for self-containment, use your actual trait
@@ -23,303 +25,8 @@ trait DivCeil: Sized {
 impl DivCeil for usize {
     #[inline]
     fn msrv_div_ceil(self, rhs: Self) -> Self {
-        (self + rhs - 1) / rhs
+        self.div_ceil(rhs)
     }
-}
-
-// --- Panel Packing Functions ---
-
-/// Packs a panel of matrix A (column-major) into dest_slice.
-/// Relies on dest_slice being pre-zeroed for padding.
-#[inline(always)]
-fn pack_panel_a_into(
-    dest_slice: &mut [f32],       // Pre-zeroed, length kc_panel * MR
-    a_panel_source_slice: &[f32], // Points to A(ic_panel_start, pc_panel_start for this panel)
-    mr_effective_in_panel: usize, // <= MR
-    kc_panel: usize,              // Number of columns in A's panel to pack (K-dim)
-    m_original_matrix: usize,     // Leading dimension of original matrix A
-) {
-    debug_assert_eq!(dest_slice.len(), kc_panel * MR, "Dest A slice len mismatch");
-    debug_assert!(mr_effective_in_panel <= MR, "mr_eff_a > MR");
-
-    for p_col_in_panel in 0..kc_panel {
-        // Iterate over columns of A's panel (K-dimension)
-        // Offset in a_panel_source_slice to the start of the current source column.
-        // a_panel_source_slice comes from &a[i_row_block_start..], so its 0th element
-        // is A(i_row_block_start, pc_of_strip). We advance by columns of the original A matrix.
-        let source_col_start_offset = p_col_in_panel * m_original_matrix;
-
-        // Offset in destination for the current packed column segment.
-        let dest_col_segment_start_offset = p_col_in_panel * MR;
-
-        if mr_effective_in_panel > 0 {
-            unsafe {
-                let src_ptr = a_panel_source_slice.as_ptr().add(source_col_start_offset);
-                let dest_ptr = dest_slice.as_mut_ptr().add(dest_col_segment_start_offset);
-
-                // The `mr_effective_in_panel` elements from this column of A are contiguous.
-                // Copy them in one go. The rest of the MR-sized dest segment is already zero.
-                copy_nonoverlapping(src_ptr, dest_ptr, mr_effective_in_panel);
-            }
-        }
-        // If mr_effective_in_panel == 0, this MR-sized segment in dest_slice remains all zeros.
-        // If mr_effective_in_panel < MR, the tail of this MR-sized segment remains all zeros.
-    }
-}
-
-/// Packs a panel of matrix B (column-major) into dest_slice.
-/// Output format is row-by-row of the B-panel.
-/// Relies on dest_slice being pre-zeroed for padding.
-#[inline(always)]
-fn pack_panel_b(
-    dest_slice: &mut [f32],       // Pre-zeroed, length kc_panel * NR
-    b_panel_source_slice: &[f32], // Points to B(pc_panel_start, jc_panel_start for this panel)
-    nr_effective_in_panel: usize, // <= NR, number of cols in B's panel to pack
-    kc_panel: usize,              // Number of rows in B's panel to pack (K-dim)
-    k_original_matrix: usize,     // Leading dimension of original matrix B
-) {
-    debug_assert_eq!(dest_slice.len(), kc_panel * NR, "Dest B slice len mismatch");
-    debug_assert!(nr_effective_in_panel <= NR, "nr_eff_b > NR");
-
-    // dest_slice is assumed to be pre-zeroed.
-
-    for p_row_in_panel in 0..kc_panel {
-        // Iterate over "rows" of B's panel (K-dimension)
-        let dest_row_start_offset = p_row_in_panel * NR;
-
-        // For each "row" of the B-panel, the source elements are strided in col-major B.
-        // Copy nr_effective_in_panel elements element by element (scalar gather).
-        // The remaining (NR - nr_effective_in_panel) elements in dest_slice for this packed row
-        // are already zero.
-        for j_col_in_panel in 0..nr_effective_in_panel {
-            // Iterate over "columns" of B's panel
-            let source_index = j_col_in_panel * k_original_matrix + p_row_in_panel;
-            dest_slice[dest_row_start_offset + j_col_in_panel] = b_panel_source_slice[source_index];
-        }
-        // If nr_effective_in_panel == 0, this NR-sized segment in dest_slice remains all zeros.
-    }
-}
-
-// --- Block Packing Functions ---
-
-/// Packs a block of matrix A (column-major).
-#[inline(always)]
-fn pack_block_a(
-    a_block_source_slice: &[f32], // Slice representing A(ic..ic+mc-1, pc..pc+kc-1)
-    // Starts at memory of A(ic, pc)
-    mc_block: usize,          // Total number of rows in this block of A
-    kc_block: usize,          // Total number of columns (depth) in this block of A
-    m_original_matrix: usize, // Leading dimension of original matrix A
-) -> Vec<f32> {
-    if mc_block == 0 || kc_block == 0 {
-        return Vec::new();
-    }
-
-    let num_row_panels = mc_block.msrv_div_ceil(MR);
-    let total_packed_size = num_row_panels * kc_block * MR;
-
-    let mut packed_block_a_data = alloc_zeroed_f32_vec(total_packed_size, f32x8::AVX_ALIGNMENT);
-    let mut current_write_offset_in_packed = 0;
-
-    // Iterate over the mc_block rows in MR-sized steps
-    for i_row_panel_start_in_block in (0..mc_block).step_by(MR) {
-        let mr_effective_for_panel = min(MR, mc_block - i_row_panel_start_in_block);
-
-        // The source slice for pack_panel_a_into should point to
-        // A(ic_block + i_row_panel_start_in_block, pc_block).
-        // a_block_source_slice points to A(ic_block, pc_block).
-        // So, we need to offset by i_row_panel_start_in_block elements down the first column
-        // of a_block_source_slice.
-        let panel_source_slice = &a_block_source_slice[i_row_panel_start_in_block..];
-
-        let dest_slice_len_for_this_panel = kc_block * MR; // Each panel packs into kc_block * MR
-        let dest_sub_slice = &mut packed_block_a_data[current_write_offset_in_packed
-            ..current_write_offset_in_packed + dest_slice_len_for_this_panel];
-
-        pack_panel_a_into(
-            dest_sub_slice,
-            panel_source_slice,
-            mr_effective_for_panel,
-            kc_block, // The "kc_panel" for pack_panel_a_into is the full kc_block
-            m_original_matrix,
-        );
-        current_write_offset_in_packed += dest_slice_len_for_this_panel;
-    }
-
-    packed_block_a_data
-}
-
-/// Packs a block of matrix B (column-major).
-#[inline(always)]
-fn pack_block_b(
-    b_block_source_slice: &[f32], // Slice representing B(pc..pc+kc-1, jc..jc+nc-1)
-    // Starts at memory of B(pc, jc)
-    nc_block: usize,          // Total number of columns in this block of B
-    kc_block: usize,          // Total number of rows (depth) in this block of B
-    k_original_matrix: usize, // Leading dimension of original matrix B
-) -> Vec<f32> {
-    if kc_block == 0 || nc_block == 0 {
-        return Vec::new();
-    }
-
-    let num_col_panels = nc_block.msrv_div_ceil(NR);
-    let total_packed_size = num_col_panels * kc_block * NR;
-
-    let mut packed_block_b_data = alloc_zeroed_f32_vec(total_packed_size, f32x8::AVX_ALIGNMENT);
-    let mut current_write_offset_in_packed = 0;
-
-    // Iterate over the nc_block columns in NR-sized steps
-    for j_col_panel_start_in_block in (0..nc_block).step_by(NR) {
-        let nr_effective_for_panel = min(NR, nc_block - j_col_panel_start_in_block);
-
-        // The source slice for pack_panel_b should point to
-        // B(pc_block, jc_block + j_col_panel_start_in_block).
-        // b_block_source_slice points to B(pc_block, jc_block).
-        // So, we need to offset by j_col_panel_start_in_block columns.
-        // In column-major, this is an offset of j_col_panel_start_in_block * k_original_matrix elements.
-        let panel_source_data_start_offset = j_col_panel_start_in_block * k_original_matrix;
-        let current_panel_source_slice = &b_block_source_slice[panel_source_data_start_offset..];
-
-        let dest_slice_len_for_this_panel = kc_block * NR; // Each panel packs into kc_block * NR
-        let dest_sub_slice = &mut packed_block_b_data[current_write_offset_in_packed
-            ..current_write_offset_in_packed + dest_slice_len_for_this_panel];
-
-        pack_panel_b(
-            dest_sub_slice,
-            current_panel_source_slice,
-            nr_effective_for_panel,
-            kc_block, // The "kc_panel" for pack_panel_b is the full kc_block
-            k_original_matrix,
-        );
-        current_write_offset_in_packed += dest_slice_len_for_this_panel;
-    }
-
-    packed_block_b_data
-}
-
-/// Performs matrix multiplication `C = A * B` using a blocked algorithm.
-/// Matrices A, B, and C are assumed to be in column-major format.
-///
-/// The algorithm follows the GotoBLAS/BLIS approach:
-/// 1. Loop `jc` over columns of C (and B) in `NC` steps. (Outer loop)
-/// 2. Loop `pc` over the K dimension (cols of A, rows of B) in `KC` steps. (Packing loop)
-/// 3. Loop `ic` over rows of C (and A) in `MC` steps. (Inner loop)
-///
-/// Inside these loops:
-///   - A block of B (`nc x kc`) is packed (`block_b_packed`).
-///   - For each `ic` step:
-///     - A block of A (`mc x kc`) is packed (`block_a_packed`).
-///     - Micro-kernel operations:
-///       - Loop `jr` over columns of `block_b_packed` in `NR` steps.
-///       - Loop `ir` over rows of `block_a_packed` in `MR` steps.
-///       - Call `kernel_8x1` to compute an `mr x nr` sub-micro-panel of C.
-///
-/// # Arguments
-///
-/// * `a` - Slice containing matrix A (M x K, column-major).
-/// * `b` - Slice containing matrix B (K x N, column-major).
-/// * `c` - Mutable slice for matrix C (M x N, column-major), to store the result.
-/// * `m` - Number of rows of A and C.
-/// * `n` - Number of columns of B and C.
-/// * `k` - Number of columns of A and rows of B.
-///
-/// # Safety
-///
-/// .
-#[target_feature(enable = "avx2,avx,fma")]
-pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
-    // Loop over columns of C by NC blocks
-    // `c_chunk` is a mutable slice of C representing `m` rows and `nc` columns, starting at column `jc`.
-    // It's equivalent to C(0..m-1, jc..jc+nc-1).
-    // In column-major, this is `m * nc` contiguous elements if C were just this chunk.
-    // Here, `c.chunks_mut(m * NC)` splits C into major column blocks. Each chunk is `m * NC` elements.
-    // However, C is a flat slice representing the whole matrix. If m < NC, m * NC is not the right chunk size.
-    // The chunk size should be for one block of columns in C, which is m rows * NC cols.
-    // If C has N columns total, and we iterate jc by NC:
-    // For jc = 0, we process C(:, 0..NC-1). This is m * NC elements.
-    // For jc = NC, we process C(:, NC..2*NC-1). This is m * NC elements.
-    // So c.chunks_mut(m * NC) is correct.
-    c.chunks_mut(m * NC)
-        .enumerate()
-        .for_each(|(j_idx, c_chunk)| {
-            let jc = j_idx * NC; // Current column offset in C and B
-            let nc = min(NC, n - jc); // Effective width of the current C_block and B_block
-
-            // Loop over the K dimension by KC blocks (packing loop)
-            // `a_chunk_for_k_strip` corresponds to A(0..m-1, pc..pc+kc-1)
-            // In column-major, this is `m * kc` contiguous elements if A were just this chunk.
-            // `a.chunks(m * KC)` splits A into major column blocks.
-            // This assumes A is laid out contiguously column-block by column-block.
-            // If A is M x K, a chunk is A(:, pc..pc+KC-1). This has m rows and KC columns. Size m * KC.
-            // This is correct.
-            a.chunks(m * KC) // Each chunk is A(:, pc*KC .. (pc+1)*KC-1 )
-                .enumerate()
-                .for_each(|(p_idx, a_col_strip_for_k)| {
-                    // Renamed for clarity
-                    let pc = p_idx * KC; // Current K offset
-                    let kc = min(KC, k - pc); // Effective depth of current A_block and B_block
-
-                    // Pack a block of B: B(pc..pc+kc-1, jc..jc+nc-1)
-                    // Offset into B is `jc * k + pc`: `jc` columns over (each `k` elements long), then `pc` rows down.
-                    // This correctly points to B(pc, jc).
-                    let b_block_slice = &b[at(pc, jc, k)..];
-                    let block_b_packed = pack_block_b(b_block_slice, nc, kc, k);
-
-                    // Loop over rows of C by MC blocks (innermost loop of the three macro-loops)
-                    for ic in (0..m).step_by(MC) {
-                        let mc = min(MC, m - ic); // Effective height of current C_block and A_block
-
-                        let block_a_packed = pack_block_a(&a_col_strip_for_k[ic..], mc, kc, m);
-
-                        // Micro-kernel operations iterate over the packed blocks
-                        // Loop over sub-columns of B_block (packed) by NR steps
-                        block_b_packed
-                            .chunks(kc * NR) // Each chunk is a panel of B, `kc * NR` elements
-                            .enumerate()
-                            .for_each(|(jr_idx, b_panel)| {
-                                // jr_idx is micro-panel column index
-                                // Loop over sub-rows of A_block (packed) by MR steps
-                                block_a_packed
-                                    .chunks(MR * kc) // Each chunk is a panel of A, `MR * kc` elements
-                                    .enumerate()
-                                    .for_each(|(ir_idx, a_panel)| {
-                                        // ir_idx is micro-panel row index
-                                        let nr_eff = min(NR, nc - jr_idx * NR); // Effective num cols for this micro-op
-                                        let mr_eff = min(MR, mc - ir_idx * MR); // Effective num rows for this micro-op
-
-                                        // Calculate pointer to the C micropanel C(ic+ir*MR, jc+jr*NR)
-                                        // This micropanel is mr_eff x nr_eff.
-                                        // c_chunk points to C(0..m-1, jc..jc+nc-1).
-                                        // Offset: (jr_idx * NR) columns over, each `m` elements long.
-                                        // Then (ic + ir_idx * MR) rows down.
-                                        // Global row: ic_abs = ic + ir_idx * MR
-                                        // Global col: jc_abs = jc + jr_idx * NR
-                                        // Index in C: at(ic_abs, jc_abs, m)
-                                        // Index in c_chunk: C(ic_abs, (jc_abs - jc), m_of_c_chunk = m)
-                                        // jr_chunk_offset = jr_idx * NR
-                                        // ir_chunk_offset = ir_idx * MR
-                                        // c_micropanel_start_idx in c_chunk for C(ic + ir_chunk_offset, jr_chunk_offset)
-                                        let c_micropanel_start_idx_in_c_chunk =
-                                            at(ic + ir_idx * MR, jr_idx * NR, m);
-
-                                        let c_micropanel =
-                                            &mut c_chunk[c_micropanel_start_idx_in_c_chunk..];
-
-                                        // Perform the core computation C_micropanel += A_panel * B_panel
-                                        kernel_8x6(
-                                            a_panel,
-                                            b_panel,
-                                            c_micropanel,
-                                            mr_eff,
-                                            nr_eff,
-                                            kc,
-                                            m,
-                                        );
-                                    });
-                            });
-                    }
-                });
-        });
 }
 
 /// Calculates the 1D index for a 2D array element in column-major order.
@@ -336,86 +43,6 @@ pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize)
 #[inline(always)]
 fn at(i: usize, j: usize, ld: usize) -> usize {
     (j * ld) + i
-}
-
-/// Performs matrix multiplication `C = A * B` in parallel using Rayon.
-/// Matrices A, B, and C are assumed to be in column-major format.
-///
-/// Parallelism strategy:
-/// - The outermost loop over `jc` (columns of C, `NC` blocks) is parallelized.
-///   Each thread gets an independent `c_chunk`.
-/// - The loop over `pc` (K-dimension, `KC` blocks) is serial within each `jc` task.
-/// - The loop over `jr` (micro-columns of B_block, `NR` steps) is serial within each `jc` task.
-///
-/// The doc comment in the original problem description suggested more parallelism levels
-/// which would require synchronization (like the commented-out Mutex). The current code,
-/// however, only parallelizes the `jc` loop, making `c_chunk` exclusive to each task.
-///
-/// # Arguments
-///
-/// * `a` - Slice containing matrix A (M x K, column-major).
-/// * `b` - Slice containing matrix B (K x N, column-major).
-/// * `c` - Mutable slice for matrix C (M x N, column-major), to store the result.
-/// * `m` - Number of rows of A and C.
-/// * `n` - Number of columns of B and C.
-/// * `k` - Number of columns of A and rows of B.
-///
-/// # Safety
-///
-/// .
-#[target_feature(enable = "avx2,avx,fma")]
-pub fn par_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
-    c.par_chunks_mut(m * NC)
-        .enumerate()
-        .for_each(|(j_idx, c_chunk)| {
-            let jc = j_idx * NC;
-            let nc = min(NC, n - jc);
-
-            // Inner loops are serial for each c_chunk task. No Mutex needed for c_chunk here.
-            a.chunks(m * KC) // Standard iterator
-                .enumerate()
-                .for_each(|(p_idx, a_col_strip_for_k)| {
-                    let pc = p_idx * KC;
-                    let kc = min(KC, k - pc);
-
-                    let b_block_slice = &b[at(pc, jc, k)..];
-                    let block_b_packed = pack_block_b(b_block_slice, nc, kc, k);
-
-                    for ic in (0..m).step_by(MC) {
-                        let mc = min(MC, m - ic);
-
-                        let block_a_packed = pack_block_a(&a_col_strip_for_k[ic..], mc, kc, m);
-
-                        block_b_packed
-                            .chunks(kc * NR) // Standard iterator
-                            .enumerate()
-                            .for_each(|(jr_idx, b_panel)| {
-                                block_a_packed
-                                    .chunks(MR * kc) // Standard iterator
-                                    .enumerate()
-                                    .for_each(|(ir_idx, a_panel)| {
-                                        let nr_eff = min(NR, nc - jr_idx * NR);
-                                        let mr_eff = min(MR, mc - ir_idx * MR);
-
-                                        let c_micropanel_start_idx_in_c_chunk =
-                                            at(ic + ir_idx * MR, jr_idx * NR, m);
-                                        let c_micropanel =
-                                            &mut c_chunk[c_micropanel_start_idx_in_c_chunk..];
-
-                                        kernel_8x6(
-                                            a_panel,
-                                            b_panel,
-                                            c_micropanel,
-                                            mr_eff,
-                                            nr_eff,
-                                            kc,
-                                            m,
-                                        );
-                                    });
-                            });
-                    }
-                });
-        });
 }
 
 #[inline(always)]
@@ -615,6 +242,291 @@ fn kernel_8x6(
     };
 }
 
+// --- Panel Packing Functions ---
+#[inline(always)]
+fn pack_panel_a_into(
+    dest_slice: &mut [f32],
+    a_panel_source_slice: &[f32],
+    mr_effective_in_panel: usize,
+    kc_panel: usize,
+    m_original_matrix: usize,
+) {
+    debug_assert_eq!(dest_slice.len(), kc_panel * MR, "Dest A slice len mismatch");
+    debug_assert!(mr_effective_in_panel <= MR, "mr_eff_a > MR");
+    for p_col_in_panel in 0..kc_panel {
+        let source_col_start_offset = p_col_in_panel * m_original_matrix;
+        let dest_col_segment_start_offset = p_col_in_panel * MR;
+        if mr_effective_in_panel > 0 {
+            unsafe {
+                let src_ptr = a_panel_source_slice.as_ptr().add(source_col_start_offset);
+                let dest_ptr = dest_slice.as_mut_ptr().add(dest_col_segment_start_offset);
+                copy_nonoverlapping(src_ptr, dest_ptr, mr_effective_in_panel);
+            }
+        }
+    }
+}
+
+#[inline(always)]
+fn pack_panel_b(
+    dest_slice: &mut [f32],
+    b_panel_source_slice: &[f32],
+    nr_effective_in_panel: usize,
+    kc_panel: usize,
+    k_original_matrix: usize,
+) {
+    debug_assert_eq!(dest_slice.len(), kc_panel * NR, "Dest B slice len mismatch");
+    debug_assert!(nr_effective_in_panel <= NR, "nr_eff_b > NR");
+    for p_row_in_panel in 0..kc_panel {
+        let dest_row_start_offset = p_row_in_panel * NR;
+        for j_col_in_panel in 0..nr_effective_in_panel {
+            let source_index = at(p_row_in_panel, j_col_in_panel, k_original_matrix);
+            dest_slice[dest_row_start_offset + j_col_in_panel] = b_panel_source_slice[source_index];
+        }
+    }
+}
+
+// --- Block Packing Functions ---
+#[inline(always)]
+fn pack_block_a(
+    a_block_source_slice: &[f32],
+    mc_block: usize,
+    kc_block: usize,
+    m_original_matrix: usize,
+) -> Vec<f32> {
+    if mc_block == 0 || kc_block == 0 {
+        return Vec::new();
+    }
+    let num_row_panels = mc_block.msrv_div_ceil(MR);
+    let total_packed_size = num_row_panels * kc_block * MR;
+    let mut packed_block_a_data = alloc_zeroed_f32_vec(total_packed_size, f32x8::AVX_ALIGNMENT);
+    let mut current_write_offset_in_packed = 0;
+    for i_row_panel_start_in_block in (0..mc_block).step_by(MR) {
+        let mr_effective_for_panel = min(MR, mc_block - i_row_panel_start_in_block);
+        let panel_source_slice = &a_block_source_slice[i_row_panel_start_in_block..];
+        let dest_slice_len_for_this_panel = kc_block * MR;
+        let dest_sub_slice = &mut packed_block_a_data[current_write_offset_in_packed
+            ..current_write_offset_in_packed + dest_slice_len_for_this_panel];
+        pack_panel_a_into(
+            dest_sub_slice,
+            panel_source_slice,
+            mr_effective_for_panel,
+            kc_block,
+            m_original_matrix,
+        );
+        current_write_offset_in_packed += dest_slice_len_for_this_panel;
+    }
+    packed_block_a_data
+}
+
+// --- Macro Kernels for GEMMFIP (with fix applied) ---
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+fn macro_kernel_standard(
+    block_a_packed: &[f32],
+    block_b_already_packed: &[f32],
+    c_jc_block_slice: &mut [f32],
+    m_orig_c: usize,
+    mc_eff_a_block: usize,
+    nc_eff_b_block: usize,
+    kc_eff_common: usize,
+    ic_offset_in_c: usize,
+) {
+    block_b_already_packed
+        .chunks(kc_eff_common * NR)
+        .enumerate()
+        .for_each(|(jr_idx, b_panel_packed)| {
+            block_a_packed
+                .chunks(MR * kc_eff_common)
+                .enumerate()
+                .for_each(|(ir_idx, a_panel_packed)| {
+                    let nr_eff_micropanel = min(NR, nc_eff_b_block - jr_idx * NR);
+                    let mr_eff_micropanel = min(MR, mc_eff_a_block - ir_idx * MR);
+
+                    let micro_panel_start_row_in_block = ic_offset_in_c + ir_idx * MR;
+                    let micro_panel_start_col_in_block = jr_idx * NR;
+                    let micropanel_start_offset_in_c_block = at(
+                        micro_panel_start_row_in_block,
+                        micro_panel_start_col_in_block,
+                        m_orig_c,
+                    );
+
+                    let slice_end_offset_exclusive =
+                        if mr_eff_micropanel == 0 || nr_eff_micropanel == 0 {
+                            micropanel_start_offset_in_c_block
+                        } else {
+                            micropanel_start_offset_in_c_block
+                                + (nr_eff_micropanel - 1) * m_orig_c
+                                + mr_eff_micropanel
+                        };
+
+                    let final_slice_end_exclusive =
+                        slice_end_offset_exclusive.min(c_jc_block_slice.len());
+                    let c_micropanel_for_kernel = &mut c_jc_block_slice
+                        [micropanel_start_offset_in_c_block..final_slice_end_exclusive];
+
+                    kernel_8x6(
+                        a_panel_packed,
+                        b_panel_packed,
+                        c_micropanel_for_kernel,
+                        mr_eff_micropanel,
+                        nr_eff_micropanel,
+                        kc_eff_common,
+                        m_orig_c,
+                    );
+                });
+        });
+}
+
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+fn macro_kernel_fused_b(
+    block_a_packed: &[f32],
+    b_block_original_data_slice: &[f32],
+    block_b_packed_dest: &mut [f32],
+    c_jc_block_slice: &mut [f32],
+    m_orig_c: usize,
+    k_orig_b: usize,
+    mc_eff_a_block: usize,
+    nc_eff_b_block: usize,
+    kc_eff_common: usize,
+    ic_offset_in_c: usize,
+) {
+    let num_col_panels_in_b_block = nc_eff_b_block.msrv_div_ceil(NR);
+    for jr_idx in 0..num_col_panels_in_b_block {
+        let nr_eff_this_b_panel = min(NR, nc_eff_b_block - jr_idx * NR);
+        let b_panel_dest_offset_in_storage = jr_idx * (kc_eff_common * NR);
+        let b_panel_packed_slice_mut = &mut block_b_packed_dest
+            [b_panel_dest_offset_in_storage..b_panel_dest_offset_in_storage + kc_eff_common * NR];
+        let current_b_panel_source_offset = jr_idx * NR * k_orig_b;
+        let current_b_panel_source_slice =
+            &b_block_original_data_slice[current_b_panel_source_offset..];
+        pack_panel_b(
+            b_panel_packed_slice_mut,
+            current_b_panel_source_slice,
+            nr_eff_this_b_panel,
+            kc_eff_common,
+            k_orig_b,
+        );
+
+        block_a_packed
+            .chunks(MR * kc_eff_common)
+            .enumerate()
+            .for_each(|(ir_idx, a_panel_packed)| {
+                let mr_eff_micropanel = min(MR, mc_eff_a_block - ir_idx * MR);
+
+                let micro_panel_start_row_in_block = ic_offset_in_c + ir_idx * MR;
+                let micro_panel_start_col_in_block = jr_idx * NR; // jr_idx is from the outer loop here
+                let micropanel_start_offset_in_c_block = at(
+                    micro_panel_start_row_in_block,
+                    micro_panel_start_col_in_block,
+                    m_orig_c,
+                );
+                let slice_end_offset_exclusive = 
+                // nr_eff_this_b_panel is the nr_eff for the current micro_panel
+                if mr_eff_micropanel == 0 || nr_eff_this_b_panel == 0 {
+                     micropanel_start_offset_in_c_block
+                } else {
+                    micropanel_start_offset_in_c_block
+                        + (nr_eff_this_b_panel - 1) * m_orig_c
+                        + mr_eff_micropanel
+                };
+
+                let final_slice_end_exclusive =
+                    slice_end_offset_exclusive.min(c_jc_block_slice.len());
+                let c_micropanel_for_kernel = &mut c_jc_block_slice
+                    [micropanel_start_offset_in_c_block..final_slice_end_exclusive];
+
+                kernel_8x6(
+                    a_panel_packed,
+                    b_panel_packed_slice_mut,
+                    c_micropanel_for_kernel,
+                    mr_eff_micropanel,
+                    nr_eff_this_b_panel,
+                    kc_eff_common,
+                    m_orig_c,
+                );
+            });
+    }
+}
+
+// --- Main Matmul Function ---
+/// .
+/// 
+/// # Safety
+/// 
+/// .
+#[target_feature(enable = "avx2,avx,fma")]
+pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
+    if m == 0 || n == 0 {
+        return;
+    }
+    for jc_start in (0..n).step_by(NC) {
+        let nc_eff_block = min(NC, n - jc_start);
+        for pc_start in (0..k).step_by(KC) {
+            let kc_eff_block = min(KC, k - pc_start);
+            if kc_eff_block == 0 {
+                continue;
+            }
+            let b_block_original_data_offset = at(pc_start, jc_start, k);
+            let b_block_original_data_slice = &b[b_block_original_data_offset..];
+            let num_col_panels_in_b_block = nc_eff_block.msrv_div_ceil(NR);
+            let packed_b_storage_size = num_col_panels_in_b_block * kc_eff_block * NR;
+            let mut packed_b_storage =
+                alloc_zeroed_f32_vec(packed_b_storage_size, f32x8::AVX_ALIGNMENT);
+            let mut b_block_has_been_packed_this_jc_pc = false;
+
+            for ic_start in (0..m).step_by(MC) {
+                let mc_eff_block = min(MC, m - ic_start);
+                if mc_eff_block == 0 {
+                    continue;
+                }
+                let a_block_original_data_offset = at(ic_start, pc_start, m);
+                let a_block_original_data_slice = &a[a_block_original_data_offset..];
+                let block_a_packed =
+                    pack_block_a(a_block_original_data_slice, mc_eff_block, kc_eff_block, m);
+
+                let c_jc_block_slice_start = at(0, jc_start, m);
+                // The end index for the slice needs to be based on the number of elements,
+                // not just at(0, jc_start + nc_eff_block, m) if nc_eff_block is 0.
+                // If nc_eff_block is 0, this loop for jc_start shouldn't run or nc_eff_block=0 handled.
+                // It's m rows * nc_eff_block columns. So total elements = m * nc_eff_block from start.
+                let c_jc_block_slice_end = c_jc_block_slice_start + m * nc_eff_block;
+                let c_target_jc_block_slice = &mut c[c_jc_block_slice_start..c_jc_block_slice_end];
+
+                if !b_block_has_been_packed_this_jc_pc {
+                    macro_kernel_fused_b(
+                        &block_a_packed,
+                        b_block_original_data_slice,
+                        &mut packed_b_storage,
+                        c_target_jc_block_slice,
+                        m,
+                        k,
+                        mc_eff_block,
+                        nc_eff_block,
+                        kc_eff_block,
+                        ic_start,
+                    );
+                    if mc_eff_block > 0 && kc_eff_block > 0 {
+                        b_block_has_been_packed_this_jc_pc = true;
+                    }
+                } else {
+                    macro_kernel_standard(
+                        &block_a_packed,
+                        &packed_b_storage,
+                        c_target_jc_block_slice,
+                        m,
+                        mc_eff_block,
+                        nc_eff_block,
+                        kc_eff_block,
+                        ic_start,
+                    );
+                }
+            }
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*; // To access functions and constants from parent module
@@ -667,7 +579,7 @@ mod tests {
         let expected_c = naive_matmul(&a_data, &b_data, m, n, k);
 
         if use_par {
-            unsafe { par_matmul(&a_data, &b_data, &mut c_data, m, n, k) };
+            unsafe { matmul(&a_data, &b_data, &mut c_data, m, n, k) };
         } else {
             // To test matmul with the *fixed* kernel, you'd need to modify matmul
             // to call kernel_MRxNR_fixed. For now, testing with original kernel_8x1.
