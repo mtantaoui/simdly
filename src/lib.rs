@@ -8,13 +8,16 @@
 
 pub mod simd;
 
+//ubuntu
 pub const MR: usize = 8;
 pub const NR: usize = 6;
 
+// ubuntu
+pub const NC: usize = 1024;
+pub const KC: usize = 256;
+pub const MC: usize = 64;
+
+// linux server
 // pub const MC: usize = MR * 4;
 // pub const NC: usize = NR * 8;
 // pub const KC: usize = 512;
-
-pub const NC: usize = NR * 12;
-pub const KC: usize = 256;
-pub const MC: usize = MR * 48;

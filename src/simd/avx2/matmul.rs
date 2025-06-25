@@ -13,16 +13,7 @@ use crate::{
     },
     KC, MC, MR, NC, NR,
 };
-use std::cmp::min;
 use std::ptr::copy_nonoverlapping;
-
-// Assuming these are in scope from your crate root or another module
-use crate::{
-    simd::avx2::f32x8, // For AVX_ALIGNMENT
-    simd::utils::alloc_zeroed_f32_vec,
-    MR,
-    NR, // KC, MC, NC are used by pack_block_a/b callers, not directly here
-};
 
 // Assuming DivCeil trait is available
 trait DivCeil: Sized {
