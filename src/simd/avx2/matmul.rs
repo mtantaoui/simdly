@@ -13,317 +13,197 @@ use crate::{
     },
     KC, MC, MR, NC, NR,
 };
+use std::cmp::min;
+use std::ptr::copy_nonoverlapping;
 
-/// Packs a panel of matrix B directly into a provided destination slice.
-/// Matrix B is assumed to be in column-major format. The `NR` constant,
-/// typically representing a SIMD register width or micro-kernel dimension,
-/// dictates the width of the packed rows in the destination.
-///
-/// ## Packing Logic and Output Layout
-///
-/// This function processes the input `b_panel_source_slice` (which represents
-/// a `kc_panel` x `nr_effective_in_panel` panel from the original matrix B)
-/// and packs it into `dest_slice`. The packing is "row by row" from the
-/// perspective of this panel.
-///
-/// Specifically, for each "row" `p_row_in_panel` (from `0` to `kc_panel - 1`)
-/// of the input panel:
-/// 1. It copies `nr_effective_in_panel` elements, corresponding to
-///    `B_panel(p_row_in_panel, 0)` through `B_panel(p_row_in_panel, nr_effective_in_panel - 1)`,
-///    into `dest_slice`.
-/// 2. These `nr_effective_in_panel` elements are followed by `NR - nr_effective_in_panel`
-///    zeros to pad this packed segment to a total length of `NR`.
-///
-/// These `kc_panel` packed segments (each of length `NR`) are laid out contiguously
-/// in `dest_slice`.
-///
-/// The memory layout within `dest_slice` (relative to its own start) will be:
-/// ```
-/// // p_row_in_panel = 0:
-/// // [ B_panel(0,0), B_panel(0,1), ..., B_panel(0,nr_eff-1), 0.0, ..., 0.0 ] (NR elements total)
-/// //
-/// // p_row_in_panel = 1:
-/// // [ B_panel(1,0), B_panel(1,1), ..., B_panel(1,nr_eff-1), 0.0, ..., 0.0 ] (NR elements total)
-/// //
-/// // ...
-/// //
-/// // p_row_in_panel = kc_panel - 1:
-/// // [ B_panel(kc-1,0), ..., B_panel(kc-1,nr_eff-1), 0.0, ..., 0.0 ] (NR elements total)
-/// ```
-/// where `B_panel(row, col)` refers to an element from the conceptual `kc_panel` x `nr_effective_in_panel`
-/// input panel that `b_panel_source_slice` represents.
-///
-/// This layout is effectively a row-major storage of the `kc_panel` x `nr_effective_in_panel` panel,
-/// where each "row" of the panel is padded to `NR` elements.
-///
-/// # Arguments
-///
-/// * `dest_slice` - A mutable slice where the packed panel will be written.
-///   Its length **MUST** be `kc_panel * NR`. The `NR` value is typically a `const`
-///   defined in the surrounding module.
-/// * `b_panel` - A slice into the original column-major matrix B's data.
-///   This slice must start at the memory location corresponding to the top-left
-///   element of the conceptual `kc_panel` x `nr_effective_in_panel` panel being packed.
-///   For example, if packing `B(pc, jc)` to `B(pc+kc_panel-1, jc+nr_effective_in_panel-1)`,
-///   this slice should start at the memory address of `B(pc, jc)`.
-/// * `nr` - The actual number of columns to pack from the source panel.
-///   Must satisfy `nr_effective_in_panel <= NR`.
-/// * `kc` - The number of "rows" (or depth along the K-dimension) to pack
-///   from the source panel. This dictates how many `NR`-element segments will be written.
-/// * `k` - The leading dimension (total number of rows) of the
-///   original, full matrix B. This is crucial for correctly calculating offsets
-///   between columns in the column-major `b_panel_source_slice`.
-///
-/// # Panics
-///
-/// * If `dest_slice.len()` is not equal to `kc_panel * NR`.
-/// * If `nr_effective_in_panel > NR`.
-/// * If `NR == 0` (this is usually checked via an assert on the `const NR` elsewhere).
-/// * If `b_panel_source_slice` is too short for the read accesses implied by
-///   `nr_effective_in_panel`, `kc_panel`, and `k_original_matrix`, leading to an
-///   out-of-bounds panic during `b_panel_source_slice[source_index]`.
-#[inline(always)]
-fn pack_panel_b(
-    // Consider renaming to pack_panel_b_into if it's an internal "into" variant
-    dest_slice: &mut [f32],
-    b_panel: &[f32],
-    nr: usize,
-    kc: usize,
-    k: usize,
-) {
-    // NR is assumed to be a const in scope, e.g., const NR: usize = 4;
-    debug_assert_eq!(
-        dest_slice.len(),
-        kc * NR,
-        "Destination slice length incorrect. Expected {}, got {}. kc_panel={}, NR={}",
-        kc * NR,
-        dest_slice.len(),
-        kc,
-        NR // Assuming NR is a const usize in scope
-    );
-    debug_assert!(
-        nr <= NR, // Assuming NR is a const usize in scope
-        "nr_effective_in_panel ({nr}) cannot exceed NR ({NR})" // Assuming NR is a const usize in scope
-    );
-    // Implicitly, NR > 0 is expected for the padding loop `nr_effective_in_panel..NR` to make sense.
+// Assuming these are in scope from your crate root or another module
+use crate::{
+    simd::avx2::f32x8, // For AVX_ALIGNMENT
+    simd::utils::alloc_zeroed_f32_vec,
+    MR,
+    NR, // KC, MC, NC are used by pack_block_a/b callers, not directly here
+};
 
-    // Iterate over the `kc_panel` "rows" of the panel. Each `p_row_in_panel`
-    // corresponds to a specific K-index offset (e.g., pc + p_row_in_panel)
-    // in the original matrix B.
-    for p_row_in_panel in 0..kc {
-        // Calculate the starting index in `dest_slice` for the current "row" `p_row_in_panel`.
-        // Each packed "row" occupies `NR` elements.
-        let dest_row_start_index = p_row_in_panel * NR;
-
-        // Iterate over the `nr_effective_in_panel` actual columns of the panel B that we need to copy.
-        // `j_col_in_panel` here corresponds to the column index within the sub-panel
-        // (e.g., jc + j_col_in_panel in original matrix).
-        for j_col_in_panel in 0..nr {
-            // Accessing B_panel(p_row_in_panel, j_col_in_panel) from `b_panel_source_slice`.
-            // The input slice `b_panel_source_slice` starts at B_panel(0,0) of this panel.
-            // In a column-major matrix with leading dimension `k_original_matrix`, an element at
-            // panel-relative (row `p_row_in_panel`, col `j_col_in_panel`) is located at
-            // memory offset `j_col_in_panel * k_original_matrix + p_row_in_panel`
-            // within `b_panel_source_slice`.
-            let source_index = j_col_in_panel * k + p_row_in_panel;
-
-            // Copy the element from the source panel to the destination packed slice.
-            dest_slice[dest_row_start_index + j_col_in_panel] = b_panel[source_index];
-        }
-
-        // Pad the remainder of the current `NR`-width segment in `dest_slice` with zeros.
-        // This loop runs if `nr_effective_in_panel < NR`.
-        for j_pad_col in nr..NR {
-            dest_slice[dest_row_start_index + j_pad_col] = 0.0;
-        }
+// Assuming DivCeil trait is available
+trait DivCeil: Sized {
+    // Copied for self-containment, use your actual trait
+    fn msrv_div_ceil(self, rhs: Self) -> Self;
+}
+impl DivCeil for usize {
+    #[inline]
+    fn msrv_div_ceil(self, rhs: Self) -> Self {
+        (self + rhs - 1) / rhs
     }
 }
 
-/// Packs a block of matrix B by iteratively packing NR-column-wide panels.
-/// Matrix B is assumed to be in column-major format., optimized to use an internal helper that writes directly
-/// into slices of a single pre-allocated vector for the entire packed block,
-/// minimizing allocations and copies.
-///
-/// # Arguments
-///
-/// * `b` - A slice representing a block of matrix B, `B(pc..pc+kc-1, jc..jc+nc-1)`.
-///   This slice must start at the memory location corresponding to `B(pc, jc)`.
-/// * `nc` - The total number of columns in this block of B (width of the block).
-/// * `kc` - The total number of rows (depth) in this block of B (height of the block).
-/// * `k` - The leading dimension (number of rows) of the original matrix B.
-///
-/// # Returns
-///
-/// A `Vec<f32>` containing the packed block of B. The total size will be
-/// `ceil(nc / NR) * kc * NR`.
-///
-/// # Panics
-/// * If `NR == 0` (this is a `const` so it's a compile-time consideration).
-/// * If internal slicing or preconditions for `pack_one_panel_into_dest` are violated,
-///   typically due to `b` being too short for the given `nc`, `kc`, `k` dimensions.
-#[inline(always)]
-fn pack_block_b(b: &[f32], nc: usize, kc: usize, k: usize) -> Vec<f32> {
-    // Handle edge cases: if the block has no rows or no columns, return an empty packed vector.
-    if kc == 0 || nc == 0 {
-        return Vec::new();
-    }
+// --- Panel Packing Functions ---
 
-    // Calculate the total number of NR-wide panels needed to cover `nc_block` columns.
-    let num_panels_across_nc = nc.div_ceil(NR); // ceil(nc_block / NR)
-
-    // Calculate the total size needed for the packed block.
-    // Each of the `num_panels_across_nc` panels will result in `kc_block * NR` packed elements.
-    let total_packed_size = num_panels_across_nc * kc * NR;
-
-    // Allocate the vector for the entire packed block. Initialize with zeros.
-    // `pack_one_panel_into_dest` will fill in data and re-fill padding with zeros.
-    // let mut packed_block_b_data = vec![0.0f32; total_packed_size];
-    let mut packed_block_b_data = alloc_zeroed_f32_vec(total_packed_size, f32x8::AVX_ALIGNMENT);
-
-    // `current_write_offset` tracks where the next packed panel should start in `packed_block_b_data`.
-    let mut current_write_offset = 0;
-
-    // Iterate over the columns of the input block `b_block_source_slice` in steps of `NR`.
-    // `j_col_block_start` is the starting column index *within the current block*
-    // for the panel being processed.
-    for j_col_block_start in (0..nc).step_by(NR) {
-        // Determine the number of effective columns for the current panel.
-        let nr_effective_in_panel = min(NR, nc - j_col_block_start);
-
-        // Determine the slice of `b_block_source_slice` that corresponds to the current panel.
-        // The panel starts at column `j_col_block_start` within the block.
-        // In the column-major `b_block_source_slice` (which starts at B(pc,jc)),
-        // this is at memory offset `j_col_block_start * k_original_matrix`.
-        let panel_source_data_start_index = j_col_block_start * k;
-        let current_panel_source_slice = &b[panel_source_data_start_index..];
-
-        // Determine the destination slice within `packed_block_b_data` for the current panel.
-        let panel_dest_slice_end = current_write_offset + kc * NR;
-        let dest_sub_slice = &mut packed_block_b_data[current_write_offset..panel_dest_slice_end];
-
-        // Pack the current panel directly into its designated part of `packed_block_b_data`.
-        // The internal helper `pack_one_panel_into_dest` uses the const NR.
-        pack_panel_b(
-            dest_sub_slice,
-            current_panel_source_slice,
-            nr_effective_in_panel,
-            kc,
-            k,
-        );
-
-        // Advance the write offset for the next panel.
-        current_write_offset = panel_dest_slice_end;
-    }
-
-    packed_block_b_data
-}
-
-/// Packs a panel of matrix A directly into a provided destination slice.
-/// Matrix A is assumed to be in column-major format.
-/// The destination slice `dest_slice` is expected to be `kc_panel * MR` in length.
-///
-/// ## Packed Format (within dest_slice)
-/// For each `p` from `0..kc_panel-1`:
-///   `dest_slice[p*MR .. p*MR + mr_effective_in_panel-1]` gets `A_panel(0..mr_effective_in_panel-1, p)`
-///   `dest_slice[p*MR + mr_effective_in_panel .. (p+1)*MR-1]` gets zeros (padding).
-///
-/// # Arguments
-///
-/// * `dest_slice` - Mutable slice where the packed panel is written. Length must be `kc_panel * MR`.
-/// * `a_panel_source_slice` - Slice into original column-major A, starting at `A(ic_panel, pc_panel)`.
-/// * `mr_effective_in_panel` - Actual number of rows to pack from this panel (`<= MR`).
-/// * `kc_panel` - Number of columns to pack from this panel (depth).
-/// * `m_original_matrix` - Leading dimension (rows) of the original matrix A.
+/// Packs a panel of matrix A (column-major) into dest_slice.
+/// Relies on dest_slice being pre-zeroed for padding.
 #[inline(always)]
 fn pack_panel_a_into(
-    dest_slice: &mut [f32],
-    a_panel_source_slice: &[f32],
-    mr_effective_in_panel: usize,
-    kc_panel: usize,
-    m_original_matrix: usize,
+    dest_slice: &mut [f32],       // Pre-zeroed, length kc_panel * MR
+    a_panel_source_slice: &[f32], // Points to A(ic_panel_start, pc_panel_start for this panel)
+    mr_effective_in_panel: usize, // <= MR
+    kc_panel: usize,              // Number of columns in A's panel to pack (K-dim)
+    m_original_matrix: usize,     // Leading dimension of original matrix A
 ) {
-    debug_assert_eq!(
-        dest_slice.len(),
-        kc_panel * MR,
-        "Destination slice length mismatch."
-    );
-    debug_assert!(
-        mr_effective_in_panel <= MR,
-        "mr_effective_in_panel cannot exceed MR."
-    );
+    debug_assert_eq!(dest_slice.len(), kc_panel * MR, "Dest A slice len mismatch");
+    debug_assert!(mr_effective_in_panel <= MR, "mr_eff_a > MR");
 
     for p_col_in_panel in 0..kc_panel {
-        // Iterate over columns of the panel (K-dimension)
-        let dest_col_segment_start = p_col_in_panel * MR;
-        for i_row_in_panel in 0..mr_effective_in_panel {
-            // Iterate over rows to copy for this column
-            // Access A(ic_panel + i_row_in_panel, pc_panel + p_col_in_panel)
-            // from a_panel_source_slice which starts at A(ic_panel, pc_panel)
-            let source_index = p_col_in_panel * m_original_matrix + i_row_in_panel;
-            dest_slice[dest_col_segment_start + i_row_in_panel] =
-                a_panel_source_slice[source_index];
+        // Iterate over columns of A's panel (K-dimension)
+        // Offset in a_panel_source_slice to the start of the current source column.
+        // a_panel_source_slice comes from &a[i_row_block_start..], so its 0th element
+        // is A(i_row_block_start, pc_of_strip). We advance by columns of the original A matrix.
+        let source_col_start_offset = p_col_in_panel * m_original_matrix;
+
+        // Offset in destination for the current packed column segment.
+        let dest_col_segment_start_offset = p_col_in_panel * MR;
+
+        if mr_effective_in_panel > 0 {
+            unsafe {
+                let src_ptr = a_panel_source_slice.as_ptr().add(source_col_start_offset);
+                let dest_ptr = dest_slice.as_mut_ptr().add(dest_col_segment_start_offset);
+
+                // The `mr_effective_in_panel` elements from this column of A are contiguous.
+                // Copy them in one go. The rest of the MR-sized dest segment is already zero.
+                copy_nonoverlapping(src_ptr, dest_ptr, mr_effective_in_panel);
+            }
         }
-        // Pad with zeros if mr_effective_in_panel < MR
-        for i_pad in mr_effective_in_panel..MR {
-            dest_slice[dest_col_segment_start + i_pad] = 0.0;
-        }
+        // If mr_effective_in_panel == 0, this MR-sized segment in dest_slice remains all zeros.
+        // If mr_effective_in_panel < MR, the tail of this MR-sized segment remains all zeros.
     }
 }
 
-/// Packs a block of matrix A by iteratively packing MR-row-high panels.
-/// Matrix A is assumed to be in column-major format.
-/// This version is optimized to use `pack_panel_a_into` for direct writing.
-///
-/// # Arguments
-///
-/// * `a` - Slice representing `A(ic_block..ic_block+mc_block-1, pc_block..pc_block+kc_block-1)`.
-///   Starts at memory location of `A(ic_block, pc_block)`.
-/// * `mc` - Total number of rows in this block of A.
-/// * `kc` - Total number of columns (depth) in this block of A.
-/// * `m` - Leading dimension (rows) of the original matrix A.
-///
-/// # Returns
-///
-/// A `Vec<f32>` containing the packed block of A. Size is `ceil(mc_block / MR) * kc_block * MR`.
+/// Packs a panel of matrix B (column-major) into dest_slice.
+/// Output format is row-by-row of the B-panel.
+/// Relies on dest_slice being pre-zeroed for padding.
 #[inline(always)]
-fn pack_block_a(a: &[f32], mc: usize, kc: usize, m: usize) -> Vec<f32> {
-    if mc == 0 || kc == 0 {
+fn pack_panel_b(
+    dest_slice: &mut [f32],       // Pre-zeroed, length kc_panel * NR
+    b_panel_source_slice: &[f32], // Points to B(pc_panel_start, jc_panel_start for this panel)
+    nr_effective_in_panel: usize, // <= NR, number of cols in B's panel to pack
+    kc_panel: usize,              // Number of rows in B's panel to pack (K-dim)
+    k_original_matrix: usize,     // Leading dimension of original matrix B
+) {
+    debug_assert_eq!(dest_slice.len(), kc_panel * NR, "Dest B slice len mismatch");
+    debug_assert!(nr_effective_in_panel <= NR, "nr_eff_b > NR");
+
+    // dest_slice is assumed to be pre-zeroed.
+
+    for p_row_in_panel in 0..kc_panel {
+        // Iterate over "rows" of B's panel (K-dimension)
+        let dest_row_start_offset = p_row_in_panel * NR;
+
+        // For each "row" of the B-panel, the source elements are strided in col-major B.
+        // Copy nr_effective_in_panel elements element by element (scalar gather).
+        // The remaining (NR - nr_effective_in_panel) elements in dest_slice for this packed row
+        // are already zero.
+        for j_col_in_panel in 0..nr_effective_in_panel {
+            // Iterate over "columns" of B's panel
+            let source_index = j_col_in_panel * k_original_matrix + p_row_in_panel;
+            dest_slice[dest_row_start_offset + j_col_in_panel] = b_panel_source_slice[source_index];
+        }
+        // If nr_effective_in_panel == 0, this NR-sized segment in dest_slice remains all zeros.
+    }
+}
+
+// --- Block Packing Functions ---
+
+/// Packs a block of matrix A (column-major).
+#[inline(always)]
+fn pack_block_a(
+    a_block_source_slice: &[f32], // Slice representing A(ic..ic+mc-1, pc..pc+kc-1)
+    // Starts at memory of A(ic, pc)
+    mc_block: usize,          // Total number of rows in this block of A
+    kc_block: usize,          // Total number of columns (depth) in this block of A
+    m_original_matrix: usize, // Leading dimension of original matrix A
+) -> Vec<f32> {
+    if mc_block == 0 || kc_block == 0 {
         return Vec::new();
     }
 
-    let num_row_panels = mc.div_ceil(MR); // ceil(mc_block / MR)
-    let total_packed_size = num_row_panels * kc * MR;
-
-    // let mut packed_block_a_data = vec![0.0f32; total_packed_size];
+    let num_row_panels = mc_block.msrv_div_ceil(MR);
+    let total_packed_size = num_row_panels * kc_block * MR;
 
     let mut packed_block_a_data = alloc_zeroed_f32_vec(total_packed_size, f32x8::AVX_ALIGNMENT);
+    let mut current_write_offset_in_packed = 0;
 
-    let mut current_write_offset = 0;
+    // Iterate over the mc_block rows in MR-sized steps
+    for i_row_panel_start_in_block in (0..mc_block).step_by(MR) {
+        let mr_effective_for_panel = min(MR, mc_block - i_row_panel_start_in_block);
 
-    for i_row_block_start in (0..mc).step_by(MR) {
-        // Iterate over rows of A_block in MR-sized steps
-        let mr_effective = min(MR, mc - i_row_block_start);
+        // The source slice for pack_panel_a_into should point to
+        // A(ic_block + i_row_panel_start_in_block, pc_block).
+        // a_block_source_slice points to A(ic_block, pc_block).
+        // So, we need to offset by i_row_panel_start_in_block elements down the first column
+        // of a_block_source_slice.
+        let panel_source_slice = &a_block_source_slice[i_row_panel_start_in_block..];
 
-        // The slice for pack_panel_a_into should start at A(ic_block + i_row_block_start, pc_block).
-        // Since a_block_source_slice starts at A(ic_block, pc_block),
-        // the offset is `i_row_block_start` (for column-major access to the first element of that row).
-        let panel_source_slice = &a[i_row_block_start..];
-
-        let dest_slice_len_for_panel = kc * MR;
-        let dest_sub_slice = &mut packed_block_a_data
-            [current_write_offset..current_write_offset + dest_slice_len_for_panel];
+        let dest_slice_len_for_this_panel = kc_block * MR; // Each panel packs into kc_block * MR
+        let dest_sub_slice = &mut packed_block_a_data[current_write_offset_in_packed
+            ..current_write_offset_in_packed + dest_slice_len_for_this_panel];
 
         pack_panel_a_into(
             dest_sub_slice,
             panel_source_slice,
-            mr_effective,
-            kc, // kc_block is the number of columns for the panel
-            m,
+            mr_effective_for_panel,
+            kc_block, // The "kc_panel" for pack_panel_a_into is the full kc_block
+            m_original_matrix,
         );
-        current_write_offset += dest_slice_len_for_panel;
+        current_write_offset_in_packed += dest_slice_len_for_this_panel;
     }
 
     packed_block_a_data
+}
+
+/// Packs a block of matrix B (column-major).
+#[inline(always)]
+fn pack_block_b(
+    b_block_source_slice: &[f32], // Slice representing B(pc..pc+kc-1, jc..jc+nc-1)
+    // Starts at memory of B(pc, jc)
+    nc_block: usize,          // Total number of columns in this block of B
+    kc_block: usize,          // Total number of rows (depth) in this block of B
+    k_original_matrix: usize, // Leading dimension of original matrix B
+) -> Vec<f32> {
+    if kc_block == 0 || nc_block == 0 {
+        return Vec::new();
+    }
+
+    let num_col_panels = nc_block.msrv_div_ceil(NR);
+    let total_packed_size = num_col_panels * kc_block * NR;
+
+    let mut packed_block_b_data = alloc_zeroed_f32_vec(total_packed_size, f32x8::AVX_ALIGNMENT);
+    let mut current_write_offset_in_packed = 0;
+
+    // Iterate over the nc_block columns in NR-sized steps
+    for j_col_panel_start_in_block in (0..nc_block).step_by(NR) {
+        let nr_effective_for_panel = min(NR, nc_block - j_col_panel_start_in_block);
+
+        // The source slice for pack_panel_b should point to
+        // B(pc_block, jc_block + j_col_panel_start_in_block).
+        // b_block_source_slice points to B(pc_block, jc_block).
+        // So, we need to offset by j_col_panel_start_in_block columns.
+        // In column-major, this is an offset of j_col_panel_start_in_block * k_original_matrix elements.
+        let panel_source_data_start_offset = j_col_panel_start_in_block * k_original_matrix;
+        let current_panel_source_slice = &b_block_source_slice[panel_source_data_start_offset..];
+
+        let dest_slice_len_for_this_panel = kc_block * NR; // Each panel packs into kc_block * NR
+        let dest_sub_slice = &mut packed_block_b_data[current_write_offset_in_packed
+            ..current_write_offset_in_packed + dest_slice_len_for_this_panel];
+
+        pack_panel_b(
+            dest_sub_slice,
+            current_panel_source_slice,
+            nr_effective_for_panel,
+            kc_block, // The "kc_panel" for pack_panel_b is the full kc_block
+            k_original_matrix,
+        );
+        current_write_offset_in_packed += dest_slice_len_for_this_panel;
+    }
+
+    packed_block_b_data
 }
 
 /// Performs matrix multiplication `C = A * B` using a blocked algorithm.
