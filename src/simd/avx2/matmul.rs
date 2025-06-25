@@ -435,7 +435,7 @@ pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize)
                                             &mut c_chunk[c_micropanel_start_idx_in_c_chunk..];
 
                                         // Perform the core computation C_micropanel += A_panel * B_panel
-                                        kernel_8x16(
+                                        kernel_8x6(
                                             a_panel,
                                             b_panel,
                                             c_micropanel,
@@ -531,7 +531,7 @@ pub fn par_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: us
                                         let c_micropanel =
                                             &mut c_chunk[c_micropanel_start_idx_in_c_chunk..];
 
-                                        kernel_8x16(
+                                        kernel_8x6(
                                             a_panel,
                                             b_panel,
                                             c_micropanel,
@@ -548,7 +548,7 @@ pub fn par_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: us
 }
 
 #[inline(always)]
-fn kernel_8x16(
+fn kernel_8x6(
     a_panel: &[f32],
     b_panel: &[f32],
     c_micro_panel: &mut [f32],
