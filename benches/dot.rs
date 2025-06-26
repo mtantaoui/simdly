@@ -85,10 +85,12 @@ fn benchmark_gemm(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("GEMM_Implementations");
 
+    group.sample_size(100);
+
     // Define matrix sizes to test (M, K, N)
     // Using square matrices for simplicity here.
     // Ensure these sizes are somewhat compatible with your block sizes (MC, NC, KC) for optimal performance.
-    for &size in [64, 128, 256, 512, 1024].iter() {
+    for &size in [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024].iter() {
         // for &size in &[64, 128].iter() { // Smaller set for quicker local tests
         let m = size;
         let k_dim = size; // Renamed to avoid conflict with `k` param in matmul functions
@@ -116,33 +118,6 @@ fn benchmark_gemm(c: &mut Criterion) {
         // vec![0.0f32; m * n];
         let a_clone = a_vec.clone();
         let b_clone = b_vec.clone();
-
-        // Benchmark your sequential matmul
-        group.bench_with_input(
-            BenchmarkId::new("custom_matmul", &bench_id_str),
-            &size,
-            |bencher, _| {
-                bencher.iter(|| {
-                    // If c_vec_custom is not reset, results accumulate.
-                    // For a fair benchmark, C should be zeroed or fresh for each call.
-                    // However, matmul is C += A*B, so it should be initialized.
-                    // If your kernel does C = A*B (overwrite), then no init needed.
-                    // Based on your kernel (FMA), it's accumulating. So, init to 0.
-                    unsafe {
-                        matmul(
-                            black_box(&a_clone),
-                            black_box(&b_clone),
-                            black_box(&mut c_vec_custom),
-                            black_box(m),
-                            black_box(n),
-                            black_box(k_dim),
-                        )
-                    };
-                });
-                // Optional: run verification once after benchmarking this size (not timed)
-                // verify_results(m, n, &a_vec, &b_vec, &c_vec_custom, &a_nd, &b_nd, &format!("custom_matmul_{}", bench_id_str));
-            },
-        );
 
         // // Benchmark your parallel matmul
         // group.bench_with_input(
@@ -185,6 +160,32 @@ fn benchmark_gemm(c: &mut Criterion) {
             },
         );
 
+        // Benchmark your sequential matmul
+        group.bench_with_input(
+            BenchmarkId::new("custom_matmul", &bench_id_str),
+            &size,
+            |bencher, _| {
+                bencher.iter(|| {
+                    // If c_vec_custom is not reset, results accumulate.
+                    // For a fair benchmark, C should be zeroed or fresh for each call.
+                    // However, matmul is C += A*B, so it should be initialized.
+                    // If your kernel does C = A*B (overwrite), then no init needed.
+                    // Based on your kernel (FMA), it's accumulating. So, init to 0.
+                    unsafe {
+                        matmul(
+                            black_box(&a_clone),
+                            black_box(&b_clone),
+                            black_box(&mut c_vec_custom),
+                            black_box(m),
+                            black_box(n),
+                            black_box(k_dim),
+                        )
+                    };
+                });
+                // Optional: run verification once after benchmarking this size (not timed)
+                // verify_results(m, n, &a_vec, &b_vec, &c_vec_custom, &a_nd, &b_nd, &format!("custom_matmul_{}", bench_id_str));
+            },
+        );
         // Perform verification for the smallest size to ensure correctness
         // This is done outside the bencher.iter loops.
         // if size == 64 {

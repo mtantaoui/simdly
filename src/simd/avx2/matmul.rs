@@ -21,7 +21,7 @@ trait DivCeil: Sized {
 }
 
 impl DivCeil for usize {
-    #[inline]
+    #[inline(always)]
     fn msrv_div_ceil(self, rhs: Self) -> Self {
         // Assumes std::intrinsics::exact_div or similar is not used,
         // and relies on the standard library's `div_ceil` available in newer Rust versions.
@@ -41,7 +41,7 @@ impl DivCeil for usize {
 /// # Returns
 ///
 /// The 1D index in the flat array.
-#[inline]
+#[inline(always)]
 fn at(i: usize, j: usize, ld: usize) -> usize {
     // Column-major: element (i, j) is at offset j * ld + i
     (j * ld) + i
@@ -78,7 +78,7 @@ fn at(i: usize, j: usize, ld: usize) -> usize {
 /// - `F32x8` is a SIMD type (e.g., AVX `__m256` equivalent for 8 floats).
 /// - Operations like `load`, `load_partial`, `store_at`, `store_at_partial`, `splat`, `fmadd`
 ///   are provided by the `F32x8` SIMD abstraction.
-#[inline]
+#[inline(always)]
 fn kernel_8x8(
     a_panel: &[f32],
     b_panel: &[f32],
@@ -245,7 +245,7 @@ fn kernel_8x8(
 // --- Panel Packing Functions ---
 
 /// Packs a panel of matrix A into a destination slice.
-#[inline]
+#[inline(always)]
 fn pack_panel_a_into(
     dest_slice: &mut [f32],
     a_panel_source_slice: &[f32],
@@ -271,37 +271,41 @@ fn pack_panel_a_into(
     }
 }
 
-/// Packs a panel of matrix B into a destination slice.
-#[inline]
+/// Packs a panel of matrix B into a destination slice (Optimized Version).
+#[inline(always)]
 fn pack_panel_b(
     dest_slice: &mut [f32],
     b_panel_source_slice: &[f32],
     nr_effective_in_panel: usize,
     kc_panel: usize,
-    k_original_matrix: usize,
+    k_original_matrix: usize, // This is LDB
 ) {
-    // Use global NR from crate
     debug_assert_eq!(dest_slice.len(), kc_panel * NR, "Dest B slice len mismatch");
     debug_assert!(nr_effective_in_panel <= NR, "nr_effective_in_panel > NR");
 
-    for p_row_in_panel in 0..kc_panel {
-        let dest_row_start_offset = p_row_in_panel * NR;
-        for j_col_in_panel in 0..nr_effective_in_panel {
-            let source_index = at(p_row_in_panel, j_col_in_panel, k_original_matrix);
-            // Ensure source_index is within bounds of b_panel_source_slice
-            // This should be guaranteed by how b_panel_source_slice is created and kc_panel, nr_effective_in_panel are bounded.
+    let src_ptr = b_panel_source_slice.as_ptr();
+    let dest_ptr = dest_slice.as_mut_ptr();
+
+    for j_col_in_panel in 0..nr_effective_in_panel {
+        let src_col_start_ptr = unsafe { src_ptr.add(j_col_in_panel * k_original_matrix) };
+        let mut dest_write_ptr = unsafe { dest_ptr.add(j_col_in_panel) };
+
+        for p_row_in_panel in 0..kc_panel {
             unsafe {
-                *dest_slice.get_unchecked_mut(dest_row_start_offset + j_col_in_panel) =
-                    *b_panel_source_slice.get_unchecked(source_index);
+                // Read is contiguous down a column of the source B panel.
+                *dest_write_ptr = *src_col_start_ptr.add(p_row_in_panel);
+                // Write is strided in the destination, which is acceptable.
+                dest_write_ptr = dest_write_ptr.add(NR);
             }
         }
-        // Remaining elements in dest_slice for this row (if nr_effective_in_panel < NR)
-        // are already zero due to alloc_zeroed_f32_vec, which is crucial for kernel_8x8.
     }
+    // The remaining columns in dest_slice (from nr_effective_in_panel to NR)
+    // are already zero because the buffer was allocated with `alloc_zeroed_f32_vec`,
+    // which is the correct behavior.
 }
 
 /// Packs a block of matrix A.
-#[inline]
+#[inline(always)]
 fn pack_block_a(
     a_block_source_slice: &[f32],
     mc_block: usize,
@@ -371,7 +375,7 @@ fn pack_block_a(
 
 /// Standard macro-kernel: C += A * B, where A and B are already packed.
 #[allow(clippy::too_many_arguments)]
-#[inline]
+#[inline(always)]
 fn macro_kernel_standard(
     block_a_packed: &[f32],
     block_b_already_packed: &[f32],
@@ -431,7 +435,7 @@ fn macro_kernel_standard(
 
 /// Macro-kernel with fused B packing: C += A * B.
 #[allow(clippy::too_many_arguments)]
-#[inline]
+#[inline(always)]
 fn macro_kernel_fused_b(
     block_a_packed: &[f32],
     b_block_original_data_slice: &[f32],
