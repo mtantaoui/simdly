@@ -1,6 +1,6 @@
 use std::cmp::min;
 
-use crate::{
+use simdly::{
     simd::{
         // avx512::f32x8::{self, F32x8, AVX512_ALIGNMENT},
         avx2::f32x8::{self, F32x8},
@@ -21,6 +21,7 @@ trait DivCeil: Sized {
 }
 
 impl DivCeil for usize {
+    #[time_graph::instrument]
     #[inline]
     fn msrv_div_ceil(self, rhs: Self) -> Self {
         // Assumes std::intrinsics::exact_div or similar is not used,
@@ -42,6 +43,7 @@ impl DivCeil for usize {
 ///
 /// The 1D index in the flat array.
 #[inline]
+#[time_graph::instrument]
 fn at(i: usize, j: usize, ld: usize) -> usize {
     // Column-major: element (i, j) is at offset j * ld + i
     (j * ld) + i
@@ -79,6 +81,7 @@ fn at(i: usize, j: usize, ld: usize) -> usize {
 /// - Operations like `load`, `load_partial`, `store_at`, `store_at_partial`, `splat`, `fmadd`
 ///   are provided by the `F32x8` SIMD abstraction.
 #[inline]
+#[time_graph::instrument]
 fn kernel_8x8(
     a_panel: &[f32],
     b_panel: &[f32],
@@ -246,6 +249,7 @@ fn kernel_8x8(
 
 /// Packs a panel of matrix A into a destination slice.
 #[inline]
+#[time_graph::instrument]
 fn pack_panel_a_into(
     dest_slice: &mut [f32],
     a_panel_source_slice: &[f32],
@@ -273,6 +277,7 @@ fn pack_panel_a_into(
 
 /// Packs a panel of matrix B into a destination slice.
 #[inline]
+#[time_graph::instrument]
 fn pack_panel_b(
     dest_slice: &mut [f32],
     b_panel_source_slice: &[f32],
@@ -302,6 +307,7 @@ fn pack_panel_b(
 
 /// Packs a block of matrix A.
 #[inline]
+#[time_graph::instrument]
 fn pack_block_a(
     a_block_source_slice: &[f32],
     mc_block: usize,
@@ -372,6 +378,7 @@ fn pack_block_a(
 /// Standard macro-kernel: C += A * B, where A and B are already packed.
 #[allow(clippy::too_many_arguments)]
 #[inline]
+#[time_graph::instrument]
 fn macro_kernel_standard(
     block_a_packed: &[f32],
     block_b_already_packed: &[f32],
@@ -432,6 +439,7 @@ fn macro_kernel_standard(
 /// Macro-kernel with fused B packing: C += A * B.
 #[allow(clippy::too_many_arguments)]
 #[inline]
+#[time_graph::instrument]
 fn macro_kernel_fused_b(
     block_a_packed: &[f32],
     b_block_original_data_slice: &[f32],
@@ -513,6 +521,7 @@ fn macro_kernel_fused_b(
 ///
 /// .
 #[target_feature(enable = "avx2,avx,fma")]
+#[time_graph::instrument]
 pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
     if m == 0 || n == 0 {
         return;
@@ -608,202 +617,27 @@ pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize)
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*; // To access functions and constants from parent module
+fn main() {
+    let m = 64;
+    let n = 64;
+    let k = 64;
 
-    // Naive matrix multiplication for result verification (C = A * B)
-    // A (m x k), B (k x n), C (m x n)
-    // All inputs are flat slices in column-major
-    fn naive_matmul(a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
-        let mut c = vec![0.0; m * n];
+    let a_data: Vec<f32> = (0..(m * k)).map(|x| (x % 100) as f32 / 10.0).collect();
+    let b_data: Vec<f32> = (0..(k * n))
+        .map(|x| ((x + 50) % 100) as f32 / 10.0)
+        .collect();
+    let mut c_data = alloc_zeroed_f32_vec(m * n, f32x8::AVX_ALIGNMENT);
 
-        let ld_a = m;
-        let ld_b = k;
-        let ld_c = m;
+    // Enable performance profiling
+    time_graph::enable_data_collection(true);
 
-        for j in 0..n {
-            for p in 0..k {
-                for i in 0..m {
-                    c[at(i, j, ld_c)] = c[at(i, j, ld_c)] + a[at(i, p, ld_a)] * b[at(p, j, ld_b)];
-                }
-            }
-        }
+    unsafe { matmul(&a_data, &b_data, &mut c_data, m, n, k) };
 
-        c
-    }
-
-    #[test]
-    fn test_at() {
-        // For a 3x2 matrix (m=3, n=2), ld=3
-        // 0 3
-        // 1 4
-        // 2 5
-        assert_eq!(at(0, 0, 3), 0); // (0,0)
-        assert_eq!(at(1, 0, 3), 1); // (1,0)
-        assert_eq!(at(0, 1, 3), 3); // (0,1)
-        assert_eq!(at(2, 1, 3), 5); // (2,1)
-    }
-
-    #[allow(clippy::modulo_one)]
-    fn run_matmul_test(m: usize, n: usize, k: usize, use_par: bool) {
-        // Override global consts for specific test scenarios if needed,
-        // or ensure m,n,k test various relations to MC,NC,KC,MR,NR.
-        // For these tests, we use the globally defined MR, NR, etc.
-
-        let a_data: Vec<f32> = (0..(m * k)).map(|x| (x % 100) as f32 / 10.0).collect();
-        let b_data: Vec<f32> = (0..(k * n))
-            .map(|x| ((x + 50) % 100) as f32 / 10.0)
-            .collect();
-        let mut c_data = alloc_zeroed_f32_vec(m * n, f32x8::AVX_ALIGNMENT);
-
-        let expected_c = naive_matmul(&a_data, &b_data, m, n, k);
-
-        if use_par {
-            unsafe { matmul(&a_data, &b_data, &mut c_data, m, n, k) };
-        } else {
-            // To test matmul with the *fixed* kernel, you'd need to modify matmul
-            // to call kernel_MRxNR_fixed. For now, testing with original kernel_8x1.
-            unsafe { matmul(&a_data, &b_data, &mut c_data, m, n, k) };
-        }
-
-        for i in 0..(m * n) {
-            // If using the original kernel_8x1 and NR > 1, results will be wrong for columns j%NR != 0.
-            // This assertion will likely fail for many elements if NR > 1 due to the kernel bug.
-            // If NR=1 in constants, it might pass.
-            // If the kernel used in matmul/par_matmul is fixed, this should pass.
-            // For now, let's assume we want to see it fail with buggy kernel if NR > 1.
-            if NR > 1 && (i / m) % NR != 0 && crate::NR > 1 { // (i/m) is column index
-                 // If the original buggy kernel is used, columns other than the first in an NR-block won't be computed.
-                 // The naive result WILL have values there. The actual C will have zeros (or initial values).
-                 // This comparison is tricky. Let's compare against what the BUGGY kernel would produce.
-                 // This means the test validates the *current code*, bug and all.
-                 // A better test would be against a correctly computed C and expect matmul to match if kernel is fixed.
-            }
-
-            assert!(
-                (c_data[i] - expected_c[i]).abs() < 1e-1,
-                "C[{}] mismatch: got {}, expected {}. (m={}, n={}, k={}, par={})",
-                i,
-                c_data[i],
-                expected_c[i],
-                m,
-                n,
-                k,
-                use_par
-            );
-        }
-    }
-
-    // Test cases for matmul and par_matmul
-    // Note: These tests will likely FAIL with the provided kernel_8x1 if NR > 1
-    // because the kernel only computes the first column of each NR-wide micro-panel.
-    // To make them pass, either:
-    // 1. Set global const NR = 1.
-    // 2. Modify matmul/par_matmul to call the `kernel_MRxNR_fixed`.
-    // The tests below are written to compare against a fully correct naive_matmul,
-    // so they will expose the kernel_8x1 bug when NR > 1.
-
-    // Small, exact fit for MR, NR potentially
-    #[test]
-    fn test_matmul_small_exact() {
-        run_matmul_test(MR, NR, KC / 2, false);
-    }
-    #[test]
-    fn test_par_matmul_small_exact() {
-        run_matmul_test(MR, NR, KC / 2, true);
-    }
-
-    // Dimensions smaller than MR, NR
-    #[test]
-    fn test_matmul_tiny() {
-        run_matmul_test(MR / 2, NR / 2, KC / 4, false);
-    }
-
-    #[test]
-    fn test_par_matmul_tiny() {
-        run_matmul_test(MR / 2, NR / 2, KC / 4, true);
-    }
-
-    // Dimensions not multiples of MR, NR (test padding)
-    #[test]
-    fn test_matmul_padding() {
-        run_matmul_test(MR + 1, NR + 1, KC / 2 + 1, false);
-    }
-    #[test]
-    fn test_par_matmul_padding() {
-        run_matmul_test(MR + 1, NR + 1, KC / 2 + 1, true);
-    }
-
-    // Dimensions larger than one block (MC, NC, KC)
-    #[test]
-    fn test_matmul_large() {
-        run_matmul_test(MC + MR, NC + NR, KC + KC / 2, false);
-    }
-    #[test]
-    fn test_par_matmul_large() {
-        run_matmul_test(MC + MR, NC + NR, KC + KC / 2, true);
-    }
-
-    // Non-square
-    #[test]
-    fn test_matmul_nonsquare1() {
-        run_matmul_test(MC / 2, NC + 5, KC, false);
-    }
-    #[test]
-    fn test_par_matmul_nonsquare1() {
-        run_matmul_test(MC / 2, NC + 5, KC, true);
-    }
-    #[test]
-    fn test_matmul_nonsquare2() {
-        run_matmul_test(MC + 5, NC / 2, KC, false);
-    }
-    #[test]
-    fn test_par_matmul_nonsquare2() {
-        run_matmul_test(MC + 5, NC / 2, KC, true);
-    }
-
-    #[allow(clippy::modulo_one)]
-    #[test]
-    fn test_identity_multiplication() {
-        let m = 4;
-        let n = 4;
-        let k = 4;
-        let mut a_data = vec![0.0; m * k]; // Identity for A
-        for i in 0..m {
-            a_data[at(i, i, m)] = 1.0;
-        }
-
-        let b_data: Vec<f32> = (0..(k * n)).map(|x| x as f32).collect();
-        let mut c_data = alloc_zeroed_f32_vec(m * n, f32x8::AVX_ALIGNMENT);
-
-        // Using original matmul with potentially buggy kernel
-        unsafe { matmul(&a_data, &b_data, &mut c_data, m, n, k) };
-
-        // If kernel is buggy and NR > 1, c_data won't be equal to b_data.
-        // For identity A, C should be B.
-        // This test will fail if NR > 1 and kernel is not fixed.
-        // E.g. if NR=4, m=4. Column 0 of C is computed. Column 1,2,3 of C are not.
-        let mut expected_c_for_buggy_kernel = vec![0.0; m * n];
-        let naive_c = naive_matmul(&a_data, &b_data, m, n, k); // This is just b_data
-
-        for j_col in 0..n {
-            // Only first col in NR-block is computed by buggy kernel
-            for i_row in 0..m {
-                expected_c_for_buggy_kernel[at(i_row, j_col, m)] = naive_c[at(i_row, j_col, m)];
-            }
-        }
-        for i in 0..(m * n) {
-            assert!(
-                (c_data[i] - expected_c_for_buggy_kernel[i]).abs() < 1e-3,
-                "Identity C[{}] mismatch: got {}, expected_for_buggy_kernel {}. (m={}, n={}, k={})",
-                i,
-                c_data[i],
-                expected_c_for_buggy_kernel[i],
-                m,
-                n,
-                k
-            );
-        }
-    }
+    // Get and print the performance profiling results
+    let graph = time_graph::get_full_graph();
+    // The following output formats are available but commented out:
+    // println!("{}", graph.as_dot()); // DOT format for visualization
+    // println!("{}", graph.as_json());     // JSON format
+    // println!("{}", graph.as_table());    // Full table
+    println!("{}", graph.as_short_table()); // Condensed table
 }

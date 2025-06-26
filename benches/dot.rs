@@ -111,23 +111,23 @@ fn benchmark_gemm(c: &mut Criterion) {
 
         let bench_id_str = format!("{m}x{k_dim}x{n}");
 
+        // Clone data inside iter to ensure fresh state if modified, or for cache effects
+        let mut c_vec_custom = alloc_zeroed_f32_vec(m * n, f32x8::AVX_ALIGNMENT);
+        // vec![0.0f32; m * n];
+        let a_clone = a_vec.clone();
+        let b_clone = b_vec.clone();
+
         // Benchmark your sequential matmul
         group.bench_with_input(
             BenchmarkId::new("custom_matmul", &bench_id_str),
             &size,
             |bencher, _| {
-                // Clone data inside iter to ensure fresh state if modified, or for cache effects
-                let mut c_vec_custom = alloc_zeroed_f32_vec(m * n, f32x8::AVX_ALIGNMENT);
-                // vec![0.0f32; m * n];
-                let a_clone = a_vec.clone();
-                let b_clone = b_vec.clone();
                 bencher.iter(|| {
                     // If c_vec_custom is not reset, results accumulate.
                     // For a fair benchmark, C should be zeroed or fresh for each call.
                     // However, matmul is C += A*B, so it should be initialized.
                     // If your kernel does C = A*B (overwrite), then no init needed.
                     // Based on your kernel (FMA), it's accumulating. So, init to 0.
-                    c_vec_custom.iter_mut().for_each(|x| *x = 0.0); // Reset C
                     unsafe {
                         matmul(
                             black_box(&a_clone),
