@@ -90,7 +90,12 @@ fn benchmark_gemm(c: &mut Criterion) {
     // Define matrix sizes to test (M, K, N)
     // Using square matrices for simplicity here.
     // Ensure these sizes are somewhat compatible with your block sizes (MC, NC, KC) for optimal performance.
-    for &size in [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024].iter() {
+    for &size in [
+        // 2, 4, 8, 16, 32,
+        64, 128, 256, 512, 1024,
+    ]
+    .iter()
+    {
         // for &size in &[64, 128].iter() { // Smaller set for quicker local tests
         let m = size;
         let k_dim = size; // Renamed to avoid conflict with `k` param in matmul functions
