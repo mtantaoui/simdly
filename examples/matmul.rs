@@ -1,517 +1,755 @@
-use std::{cmp::min, ptr::write_bytes};
-
-use simdly::simd::utils::alloc_zeroed_f32_vec;
-
-use simdly::{
-    simd::{
-        // avx512::f32x8::{self, F32x8, AVX512_ALIGNMENT},
-        avx2::f32x8::{self, F32x8},
-        traits::SimdVec,
-        utils::alloc_uninit_f32_vec,
-    },
-    KC, MC, MR, NC, NR,
+use std::{
+    alloc::{alloc, handle_alloc_error, Layout},
+    cmp::min,
+    mem,
+    ptr::copy_nonoverlapping,
 };
-use std::ptr::copy_nonoverlapping;
 
-// --- Core Traits and Helpers ---
+use num::Float;
 
-trait DivCeil: Sized {
-    fn msrv_div_ceil(self, rhs: Self) -> Self;
-}
+#[cfg(target_arch = "x86")]
+use core::arch::x86::*;
+#[cfg(target_arch = "x86_64")]
+use core::arch::x86_64::*;
 
-impl DivCeil for usize {
-    #[time_graph::instrument]
-    #[inline(always)]
-    fn msrv_div_ceil(self, rhs: Self) -> Self {
-        (self + rhs - 1) / rhs
-    }
-}
+const MR: usize = 8;
+const NR: usize = 8;
 
-#[time_graph::instrument]
-#[inline(always)]
-fn at(i: usize, j: usize, ld: usize) -> usize {
-    (j * ld) + i
-}
+const NC: usize = 1024;
+const KC: usize = 256;
+const MC: usize = 64;
 
-// --- KERNEL GENERATION ---
-// This macro generates a specialized micro-kernel for a specific number of columns (NR_EFF).
-// By using a macro, we avoid code duplication while allowing the compiler to generate
-// highly optimized, unrolled code for each specific case.
-macro_rules! generate_kernel {
-    ($func_name:ident, $nr_eff:expr) => {
-        #[time_graph::instrument]
-        #[inline(always)]
-        fn $func_name(
-            a_panel: &[f32],
-            b_panel: &[f32], // This panel is now exactly $nr_eff wide
-            c_micro_panel: *mut f32,
-            mr_eff: usize,
-            kc: usize,
-            ldc: usize,
-        ) {
-            let mut c_cols: [F32x8; NR] = [unsafe { F32x8::splat(0.0) }; NR];
+const AVX_ALIGNMENT: usize = 32;
 
-            // Load C columns into SIMD registers.
-            // This loop will be completely unrolled by the compiler since $nr_eff is a constant.
-            if mr_eff == MR {
-                for j in 0..$nr_eff {
-                    c_cols[j] = unsafe { F32x8::load(c_micro_panel.add(j * ldc), mr_eff) };
-                }
-            } else {
-                for j in 0..$nr_eff {
-                    c_cols[j] = unsafe { F32x8::load_partial(c_micro_panel.add(j * ldc), mr_eff) };
-                }
-            }
-
-            // --- Main compute loop over K dimension ---
-            for p in 0..kc {
-                let a_col = F32x8::new(&a_panel[p * MR..]);
-
-                // This inner loop over the columns of B and C is the key.
-                // It will be fully unrolled, creating a flat sequence of FMAs.
-                for j in 0..$nr_eff {
-                    let b_scalar = unsafe { *b_panel.get_unchecked(p * $nr_eff + j) };
-                    c_cols[j] = unsafe { c_cols[j].fmadd(a_col, F32x8::splat(b_scalar)) };
-                }
-            }
-
-            // Store the results back to C.
-            if mr_eff == MR {
-                for j in 0..$nr_eff {
-                    unsafe { c_cols[j].store_at(c_micro_panel.add(j * ldc)) };
-                }
-            } else {
-                for j in 0..$nr_eff {
-                    unsafe { c_cols[j].store_at_partial(c_micro_panel.add(j * ldc)) };
-                }
-            }
-        }
-    };
-}
-
-// Instantiate the entire family of kernels.
-generate_kernel!(kernel_8x1, 1);
-generate_kernel!(kernel_8x2, 2);
-generate_kernel!(kernel_8x3, 3);
-generate_kernel!(kernel_8x4, 4);
-generate_kernel!(kernel_8x5, 5);
-generate_kernel!(kernel_8x6, 6);
-generate_kernel!(kernel_8x7, 7);
-generate_kernel!(kernel_8x8, 8);
-
-// --- Panel Packing Functions ---
-
-/// Packs a panel of matrix A. This function now explicitly handles zero-padding
-/// because the destination buffer is uninitialized.
-#[time_graph::instrument]
-#[inline(always)]
-fn pack_panel_a_into(
-    dest_slice: &mut [f32],
-    // --- FIX: Take the full 'A' matrix and the panel's starting coordinates ---
-    a_full_matrix: &[f32],
-    panel_start_row: usize,
-    panel_start_col: usize,
-    mr_effective: usize,
-    kc_panel: usize,
-    m_original_matrix: usize,
+/// Packs a panel of A into a buffer in column-major micro-panel format.
+/// The kernel expects this layout to stream columns of A.
+/// Layout: For each k, store MR consecutive elements: [a(0,k), a(1,k), ..., a(MR-1,k)]
+unsafe fn pack_a(
+    mc: usize,
+    kc: usize,
+    packed_buffer: *mut f32,
+    a: *const f32,
+    rsa: isize,
+    csa: isize,
 ) {
-    let panel_base_offset = at(panel_start_row, panel_start_col, m_original_matrix);
-    for p_col_in_panel in 0..kc_panel {
-        let dest_col_offset = p_col_in_panel * MR;
-        if mr_effective > 0 {
-            let src_offset = panel_base_offset + p_col_in_panel * m_original_matrix;
-            unsafe {
-                let src_ptr = a_full_matrix.as_ptr().add(src_offset);
-                let dest_ptr = dest_slice.as_mut_ptr().add(dest_col_offset);
-                copy_nonoverlapping(src_ptr, dest_ptr, mr_effective);
-            }
-        }
-        if mr_effective < MR {
-            let padding_start = dest_col_offset + mr_effective;
-            let padding_len = MR - mr_effective;
-            unsafe {
-                let dest_ptr = dest_slice.as_mut_ptr().add(padding_start);
-                write_bytes(dest_ptr, 0, padding_len);
+    let mut pack_ptr = packed_buffer;
+
+    // For each micro-panel of MR rows
+    for i_panel in (0..mc).step_by(MR) {
+        let panel_size = min(MR, mc - i_panel);
+
+        // For each column k in this micro-panel
+        for k in 0..kc {
+            // Pack MR elements from column k
+            for i in 0..MR {
+                if i < panel_size {
+                    // Valid element: get a[i_panel + i, k]
+                    let src_ptr = a.offset((i_panel + i) as isize * rsa + k as isize * csa);
+                    *pack_ptr = *src_ptr;
+                } else {
+                    // Padding for incomplete micro-panels
+                    *pack_ptr = 0.0;
+                }
+                pack_ptr = pack_ptr.add(1);
             }
         }
     }
 }
 
-#[time_graph::instrument]
-#[inline(always)]
-fn pack_panel_b(
-    dest_slice: &mut [f32],
-    // --- FIX: Take the full 'B' matrix and the panel's starting coordinates ---
-    b_full_matrix: &[f32],
-    panel_start_row: usize,
-    panel_start_col: usize,
-    panel_width: usize,
-    kc_panel: usize,
-    k_original_matrix: usize,
+/// Packs a panel of B into a buffer in row-major micro-panel format.
+/// The kernel expects this layout to stream rows of B.
+/// Layout: For each k, store NR consecutive elements: [b(k,0), b(k,1), ..., b(k,NR-1)]
+unsafe fn pack_b(
+    kc: usize,
+    nc: usize,
+    packed_buffer: *mut f32,
+    b: *const f32,
+    rsb: isize,
+    csb: isize,
 ) {
-    debug_assert_eq!(dest_slice.len(), kc_panel * panel_width);
-    let panel_base_offset = at(panel_start_row, panel_start_col, k_original_matrix);
-    let panel_base_ptr = unsafe { b_full_matrix.as_ptr().add(panel_base_offset) };
-    let dest_ptr = dest_slice.as_mut_ptr();
+    let mut pack_ptr = packed_buffer;
 
-    for j_col_in_panel in 0..panel_width {
-        let src_col_start_ptr = unsafe { panel_base_ptr.add(j_col_in_panel * k_original_matrix) };
-        let mut dest_write_ptr = unsafe { dest_ptr.add(j_col_in_panel) };
-        for p_row_in_panel in 0..kc_panel {
-            unsafe {
-                *dest_write_ptr = *src_col_start_ptr.add(p_row_in_panel);
-                dest_write_ptr = dest_write_ptr.add(panel_width);
+    // For each micro-panel of NR columns
+    for j_panel in (0..nc).step_by(NR) {
+        let panel_size = min(NR, nc - j_panel);
+
+        // For each row k in this micro-panel
+        for k in 0..kc {
+            // Pack NR elements from row k
+            for j in 0..NR {
+                if j < panel_size {
+                    // Valid element: get b[k, j_panel + j]
+                    let src_ptr = b.offset(k as isize * rsb + (j_panel + j) as isize * csb);
+                    *pack_ptr = *src_ptr;
+                } else {
+                    // Padding for incomplete micro-panels
+                    *pack_ptr = 0.0;
+                }
+                pack_ptr = pack_ptr.add(1);
             }
         }
     }
 }
 
-#[time_graph::instrument]
-#[inline(always)]
-fn pack_block_a(
-    // --- FIX: Take the full 'A' matrix and block coordinates ---
-    a_full_matrix: &[f32],
-    block_start_row: usize,
-    block_start_col: usize,
-    mc_block: usize,
-    kc_block: usize,
-    m_original_matrix: usize,
-) -> Vec<f32> {
-    if mc_block == 0 || kc_block == 0 {
-        return Vec::new();
-    }
-
-    let num_row_panels = mc_block.msrv_div_ceil(MR);
-    let total_packed_size = num_row_panels * kc_block * MR;
-    let mut packed_block_a_data = alloc_uninit_f32_vec(total_packed_size, f32x8::AVX_ALIGNMENT);
-
-    let mut current_write_offset_in_packed = 0;
-    for i_panel_in_block in 0..num_row_panels {
-        let panel_start_row_in_block = i_panel_in_block * MR;
-        let mr_effective = min(MR, mc_block - panel_start_row_in_block);
-
-        let dest_slice_len = kc_block * MR;
-        let dest_sub_slice = &mut packed_block_a_data
-            [current_write_offset_in_packed..current_write_offset_in_packed + dest_slice_len];
-
-        pack_panel_a_into(
-            dest_sub_slice,
-            a_full_matrix,
-            block_start_row + panel_start_row_in_block,
-            block_start_col,
-            mr_effective,
-            kc_block,
-            m_original_matrix,
-        );
-        current_write_offset_in_packed += dest_slice_len;
-    }
-    packed_block_a_data
-}
-
-// --- Macro-Kernel Dispatcher ---
-
-/// Macro-kernel with fused B packing. It now correctly uses a write-offset
-/// for the B packing buffer.
-#[allow(clippy::too_many_arguments)]
-#[time_graph::instrument]
-#[inline(always)]
-fn macro_kernel_fused_b(
-    block_a_packed: &[f32],
-    b_full_matrix: &[f32],
-    b_block_start_row: usize,
-    b_block_start_col: usize,
-    block_b_packed_dest: &mut [f32],
-    c_base_ptr_for_this_jc_block: *mut f32,
-    m_orig_c: usize,
-    k_orig_b: usize,
-    mc_eff_a_block: usize,
-    nc_eff_b_block: usize,
-    kc_eff_common: usize,
-    ic_offset_in_c: usize,
+unsafe fn my_sgemm(
+    m: usize,
+    k: usize,
+    n: usize,
+    alpha: f32,
+    a: &[f32],
+    rsa: isize,
+    csa: isize,
+    b: &[f32],
+    rsb: isize,
+    csb: isize,
+    beta: f32,
+    c: &mut [f32],
+    rsc: isize,
+    csc: isize,
 ) {
-    let num_col_panels_in_b_block = nc_eff_b_block.msrv_div_ceil(NR);
-    let mut b_packed_offset = 0;
-
-    for jr_idx in 0..num_col_panels_in_b_block {
-        let nr_eff_this_b_panel = min(NR, nc_eff_b_block - jr_idx * NR);
-        if nr_eff_this_b_panel == 0 {
-            continue;
-        }
-
-        let b_panel_packed_size = kc_eff_common * nr_eff_this_b_panel;
-        let b_panel_packed_slice_mut =
-            &mut block_b_packed_dest[b_packed_offset..b_packed_offset + b_panel_packed_size];
-
-        pack_panel_b(
-            b_panel_packed_slice_mut,
-            b_full_matrix,
-            b_block_start_row,
-            b_block_start_col + jr_idx * NR,
-            nr_eff_this_b_panel,
-            kc_eff_common,
-            k_orig_b,
-        );
-
-        run_computation_for_b_panel(
-            block_a_packed,
-            b_panel_packed_slice_mut,
-            c_base_ptr_for_this_jc_block,
-            m_orig_c,
-            mc_eff_a_block,
-            kc_eff_common,
-            ic_offset_in_c,
-            jr_idx,
-            nr_eff_this_b_panel,
-        );
-        b_packed_offset += b_panel_packed_size;
-    }
-}
-
-/// **CRITICAL FIX**: This function is now also a proper dispatcher. It no longer
-/// incorrectly assumes all panels are NR-wide.
-#[allow(clippy::too_many_arguments)]
-#[time_graph::instrument]
-#[inline(always)]
-fn macro_kernel_standard(
-    block_a_packed: &[f32],
-    block_b_already_packed: &[f32],
-    c_base_ptr_for_this_jc_block: *mut f32,
-    m_orig_c: usize,
-    mc_eff_a_block: usize,
-    nc_eff_b_block: usize,
-    kc_eff_common: usize,
-    ic_offset_in_c: usize,
-) {
-    let num_col_panels = nc_eff_b_block.msrv_div_ceil(NR);
-    let mut b_packed_offset = 0;
-
-    for jr_idx in 0..num_col_panels {
-        let nr_eff_this_b_panel = min(NR, nc_eff_b_block - jr_idx * NR);
-        if nr_eff_this_b_panel == 0 {
-            continue;
-        }
-
-        let b_panel_packed_size = kc_eff_common * nr_eff_this_b_panel;
-        let b_panel_packed_slice =
-            &block_b_already_packed[b_packed_offset..b_packed_offset + b_panel_packed_size];
-
-        run_computation_for_b_panel(
-            block_a_packed,
-            b_panel_packed_slice,
-            c_base_ptr_for_this_jc_block,
-            m_orig_c,
-            mc_eff_a_block,
-            kc_eff_common,
-            ic_offset_in_c,
-            jr_idx,
-            nr_eff_this_b_panel,
-        );
-        b_packed_offset += b_panel_packed_size;
-    }
-}
-
-/// Helper function to de-duplicate the computation/dispatch logic from both macro-kernels.
-#[allow(clippy::too_many_arguments)]
-#[time_graph::instrument]
-#[inline(always)]
-fn run_computation_for_b_panel(
-    block_a_packed: &[f32],
-    b_panel_packed_slice: &[f32],
-    c_base_ptr_for_this_jc_block: *mut f32,
-    m_orig_c: usize,
-    mc_eff_a_block: usize,
-    kc_eff_common: usize,
-    ic_offset_in_c: usize,
-    jr_idx: usize,
-    nr_eff_this_b_panel: usize,
-) {
-    block_a_packed
-        .chunks(MR * kc_eff_common)
-        .enumerate()
-        .for_each(|(ir_idx, a_panel_packed)| {
-            let mr_eff_micropanel = min(MR, mc_eff_a_block - ir_idx * MR);
-            if mr_eff_micropanel == 0 {
-                return;
-            }
-
-            let micropanel_offset = at(ic_offset_in_c + ir_idx * MR, jr_idx * NR, m_orig_c);
-            let c_micropanel_target_ptr =
-                unsafe { c_base_ptr_for_this_jc_block.add(micropanel_offset) };
-
-            // KERNEL DISPATCH
-            match nr_eff_this_b_panel {
-                8 => kernel_8x8(
-                    a_panel_packed,
-                    b_panel_packed_slice,
-                    c_micropanel_target_ptr,
-                    mr_eff_micropanel,
-                    kc_eff_common,
-                    m_orig_c,
-                ),
-                7 => kernel_8x7(
-                    a_panel_packed,
-                    b_panel_packed_slice,
-                    c_micropanel_target_ptr,
-                    mr_eff_micropanel,
-                    kc_eff_common,
-                    m_orig_c,
-                ),
-                6 => kernel_8x6(
-                    a_panel_packed,
-                    b_panel_packed_slice,
-                    c_micropanel_target_ptr,
-                    mr_eff_micropanel,
-                    kc_eff_common,
-                    m_orig_c,
-                ),
-                5 => kernel_8x5(
-                    a_panel_packed,
-                    b_panel_packed_slice,
-                    c_micropanel_target_ptr,
-                    mr_eff_micropanel,
-                    kc_eff_common,
-                    m_orig_c,
-                ),
-                4 => kernel_8x4(
-                    a_panel_packed,
-                    b_panel_packed_slice,
-                    c_micropanel_target_ptr,
-                    mr_eff_micropanel,
-                    kc_eff_common,
-                    m_orig_c,
-                ),
-                3 => kernel_8x3(
-                    a_panel_packed,
-                    b_panel_packed_slice,
-                    c_micropanel_target_ptr,
-                    mr_eff_micropanel,
-                    kc_eff_common,
-                    m_orig_c,
-                ),
-                2 => kernel_8x2(
-                    a_panel_packed,
-                    b_panel_packed_slice,
-                    c_micropanel_target_ptr,
-                    mr_eff_micropanel,
-                    kc_eff_common,
-                    m_orig_c,
-                ),
-                1 => kernel_8x1(
-                    a_panel_packed,
-                    b_panel_packed_slice,
-                    c_micropanel_target_ptr,
-                    mr_eff_micropanel,
-                    kc_eff_common,
-                    m_orig_c,
-                ),
-                _ => {}
-            }
-        });
-}
-
-// --- CORRECTED TOP-LEVEL MATMUL FUNCTION ---
-
-// --- TOP-LEVEL MATMUL FUNCTION (Corrected) ---
-#[time_graph::instrument]
-#[target_feature(enable = "avx2,avx,fma")]
-pub unsafe fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
     if m == 0 || n == 0 {
         return;
     }
 
-    (0..n).into_iter().step_by(NC).for_each(|jc_start| {
-        let nc_eff_block = min(NC, n - jc_start);
-
-        for pc_start in (0..k).step_by(KC) {
-            let kc_eff_block = min(KC, k - pc_start);
-            if kc_eff_block == 0 {
-                continue;
-            }
-
-            // Size calculation for the B packing buffer
-            let num_b_panels = nc_eff_block.msrv_div_ceil(NR);
-            let last_b_panel_width = if nc_eff_block % NR == 0 {
-                NR
-            } else {
-                nc_eff_block % NR
-            };
-            let packed_b_storage_size =
-                (num_b_panels - 1) * kc_eff_block * NR + kc_eff_block * last_b_panel_width;
-            let mut packed_b_storage =
-                alloc_uninit_f32_vec(packed_b_storage_size, f32x8::AVX_ALIGNMENT);
-
-            let mut b_block_has_been_packed_this_jc_pc = false;
-
-            for ic_start in (0..m).step_by(MC) {
-                let mc_eff_block = min(MC, m - ic_start);
-                if mc_eff_block == 0 {
-                    continue;
+    if k == 0 {
+        if beta == 0.0 {
+            for i in 0..m {
+                for j in 0..n {
+                    *c.as_mut_ptr().offset(i as isize * rsc + j as isize * csc) = 0.0;
                 }
-
-                let c_base_ptr = c.as_mut_ptr();
-                let c_jc_block_base_ptr = c_base_ptr.add(at(0, jc_start, m));
-
-                let block_a_packed =
-                    pack_block_a(a, ic_start, pc_start, mc_eff_block, kc_eff_block, m);
-
-                if !b_block_has_been_packed_this_jc_pc {
-                    // --- FIX: Pass the correct local variables ---
-                    macro_kernel_fused_b(
-                        &block_a_packed,
-                        b,
-                        pc_start,
-                        jc_start,
-                        &mut packed_b_storage,
-                        c_jc_block_base_ptr,
-                        m,
-                        k,
-                        mc_eff_block, // Corrected from mc_eff_a_block
-                        nc_eff_block,
-                        kc_eff_block, // Corrected from kc_eff_common
-                        ic_start,     // Corrected from ic_offset_in_c
-                    );
-                    if mc_eff_block > 0 && kc_eff_block > 0 && nc_eff_block > 0 {
-                        b_block_has_been_packed_this_jc_pc = true;
-                    }
-                } else {
-                    // --- FIX: Pass the correct local variables ---
-                    macro_kernel_standard(
-                        &block_a_packed,
-                        &packed_b_storage,
-                        c_jc_block_base_ptr,
-                        m,
-                        mc_eff_block, // Corrected from mc_eff_a_block
-                        nc_eff_block, // Corrected from nc_eff_b_block
-                        kc_eff_block, // Corrected from kc_eff_common
-                        ic_start,     // Corrected from ic_offset_in_c
-                    );
+            }
+        } else if beta != 1.0 {
+            for i in 0..m {
+                for j in 0..n {
+                    let c_ptr = c.as_mut_ptr().offset(i as isize * rsc + j as isize * csc);
+                    *c_ptr *= beta;
                 }
             }
         }
-    });
+        return;
+    }
+
+    let kernel_nc = NC;
+    let kernel_kc = KC;
+    let kernel_mc = MC;
+
+    let packing_buffer: PackedBuffer<f32> = PackedBuffer::new(m, n, k);
+
+    let a_ptr = a.as_ptr();
+    let b_ptr = b.as_ptr();
+    let c_ptr = c.as_mut_ptr();
+
+    for jc in (0..n).step_by(kernel_nc) {
+        let nc = min(kernel_nc, n - jc);
+        let b_col_panel = b_ptr.offset(jc as isize * csb);
+        let c_col_panel = c_ptr.offset(jc as isize * csc);
+
+        for pc in (0..k).step_by(kernel_kc) {
+            let kc = min(kernel_kc, k - pc);
+            let b_panel = b_col_panel.offset(pc as isize * rsb);
+            let a_panel = a_ptr.offset(pc as isize * csa);
+
+            pack_b(kc, nc, packing_buffer.packed_b_ptr, b_panel, rsb, csb);
+
+            let betap = if pc == 0 { beta } else { 1.0 };
+
+            for ic in (0..m).step_by(kernel_mc) {
+                let mc = min(kernel_mc, m - ic);
+                let a_micropanel = a_panel.offset(ic as isize * rsa);
+                let c_micropanel = c_col_panel.offset(ic as isize * rsc);
+
+                pack_a(mc, kc, packing_buffer.packed_a_ptr, a_micropanel, rsa, csa);
+
+                sgemm_packed(
+                    nc,
+                    kc,
+                    mc,
+                    alpha,
+                    packing_buffer.packed_a_ptr,
+                    packing_buffer.packed_b_ptr,
+                    betap,
+                    c_micropanel,
+                    rsc,
+                    csc,
+                );
+            }
+        }
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+use std::arch::x86_64::*;
+
+pub unsafe fn kernel_8x8(
+    k: usize,
+    alpha: f32,
+    a: *const f32,
+    b: *const f32,
+    beta: f32,
+    c: *mut f32,
+    rsc: isize,
+    csc: isize,
+) {
+    const MR: usize = 8; // Number of rows
+    const NR: usize = 8; // Number of columns
+
+    debug_assert_ne!(k, 0);
+
+    let mut ab = [_mm256_setzero_ps(); MR];
+
+    // This kernel can operate in either transposition (C = A B or C^T = B^T A^T)
+    let prefer_row_major_c = rsc != 1;
+
+    let (mut a, mut b) = if prefer_row_major_c { (a, b) } else { (b, a) };
+    let (rsc, csc) = if prefer_row_major_c {
+        (rsc, csc)
+    } else {
+        (csc, rsc)
+    };
+
+    // Shuffle and permute mask constants
+    const PERM32_2301: i32 = (1 << 6) | (0 << 4) | (3 << 2) | 2; // 0x4E
+    const PERM128_30: i32 = (0 << 4) | 3; // 0x03
+    const SHUF_0123: i32 = (3 << 6) | (2 << 4) | (1 << 2) | 0; // 0xE4
+    const PERM128_02: i32 = (2 << 4) | 0; // 0x20
+    const PERM128_31: i32 = (1 << 4) | 3; // 0x13
+    const PERM32_ROTATE: i32 = (0 << 6) | (3 << 4) | (2 << 2) | 1; // 0x39
+
+    // Start data load before each iteration
+    let mut av = _mm256_load_ps(a);
+    let mut bv = _mm256_load_ps(b);
+
+    // Main computation loop - unrolled by 4
+    let mut remaining_k = k;
+
+    // Process in chunks of 4
+    while remaining_k >= 4 {
+        for _ in 0..4 {
+            // Load and duplicate even elements: a0 a0 a2 a2 a4 a4 a6 a6
+            let a0246 = _mm256_moveldup_ps(av);
+            let a2064 = _mm256_permute_ps(a0246, PERM32_2301);
+
+            // Load and duplicate odd elements: a1 a1 a3 a3 a5 a5 a7 a7
+            let a1357 = _mm256_movehdup_ps(av);
+            let a3175 = _mm256_permute_ps(a1357, PERM32_2301);
+
+            let bv_lh = _mm256_permute2f128_ps(bv, bv, PERM128_30);
+
+            // Compute partial products using FMA if available
+            ab[0] = _mm256_fmadd_ps(a0246, bv, ab[0]);
+            ab[1] = _mm256_fmadd_ps(a2064, bv, ab[1]);
+            ab[2] = _mm256_fmadd_ps(a0246, bv_lh, ab[2]);
+            ab[3] = _mm256_fmadd_ps(a2064, bv_lh, ab[3]);
+
+            ab[4] = _mm256_fmadd_ps(a1357, bv, ab[4]);
+            ab[5] = _mm256_fmadd_ps(a3175, bv, ab[5]);
+            ab[6] = _mm256_fmadd_ps(a1357, bv_lh, ab[6]);
+            ab[7] = _mm256_fmadd_ps(a3175, bv_lh, ab[7]);
+
+            // Advance pointers for next iteration
+            if remaining_k > 1 {
+                a = a.add(MR);
+                b = b.add(NR);
+                bv = _mm256_load_ps(b);
+                av = _mm256_load_ps(a);
+            }
+
+            remaining_k -= 1;
+            if remaining_k == 0 {
+                break;
+            }
+        }
+    }
+
+    // Handle remaining iterations (less than 4)
+    while remaining_k > 0 {
+        let a0246 = _mm256_moveldup_ps(av);
+        let a2064 = _mm256_permute_ps(a0246, PERM32_2301);
+
+        let a1357 = _mm256_movehdup_ps(av);
+        let a3175 = _mm256_permute_ps(a1357, PERM32_2301);
+
+        let bv_lh = _mm256_permute2f128_ps(bv, bv, PERM128_30);
+
+        ab[0] = _mm256_fmadd_ps(a0246, bv, ab[0]);
+        ab[1] = _mm256_fmadd_ps(a2064, bv, ab[1]);
+        ab[2] = _mm256_fmadd_ps(a0246, bv_lh, ab[2]);
+        ab[3] = _mm256_fmadd_ps(a2064, bv_lh, ab[3]);
+
+        ab[4] = _mm256_fmadd_ps(a1357, bv, ab[4]);
+        ab[5] = _mm256_fmadd_ps(a3175, bv, ab[5]);
+        ab[6] = _mm256_fmadd_ps(a1357, bv_lh, ab[6]);
+        ab[7] = _mm256_fmadd_ps(a3175, bv_lh, ab[7]);
+
+        if remaining_k > 1 {
+            a = a.add(MR);
+            b = b.add(NR);
+            bv = _mm256_load_ps(b);
+            av = _mm256_load_ps(a);
+        }
+
+        remaining_k -= 1;
+    }
+
+    let alphav = _mm256_set1_ps(alpha);
+
+    // Permute to put the abij elements in order
+    let ab0246 = ab[0];
+    let ab2064 = ab[1];
+    let ab4602 = ab[2]; // reverse order
+    let ab6420 = ab[3]; // reverse order
+
+    let ab1357 = ab[4];
+    let ab3175 = ab[5];
+    let ab5713 = ab[6]; // reverse order
+    let ab7531 = ab[7]; // reverse order
+
+    // First level of shuffling
+    let ab0044 = _mm256_shuffle_ps(ab0246, ab2064, SHUF_0123);
+    let ab2266 = _mm256_shuffle_ps(ab2064, ab0246, SHUF_0123);
+
+    let ab4400 = _mm256_shuffle_ps(ab4602, ab6420, SHUF_0123);
+    let ab6622 = _mm256_shuffle_ps(ab6420, ab4602, SHUF_0123);
+
+    let ab1155 = _mm256_shuffle_ps(ab1357, ab3175, SHUF_0123);
+    let ab3377 = _mm256_shuffle_ps(ab3175, ab1357, SHUF_0123);
+
+    let ab5511 = _mm256_shuffle_ps(ab5713, ab7531, SHUF_0123);
+    let ab7733 = _mm256_shuffle_ps(ab7531, ab5713, SHUF_0123);
+
+    // Second level of permutation
+    let ab0000 = _mm256_permute2f128_ps(ab0044, ab4400, PERM128_02);
+    let ab4444 = _mm256_permute2f128_ps(ab0044, ab4400, PERM128_31);
+
+    let ab2222 = _mm256_permute2f128_ps(ab2266, ab6622, PERM128_02);
+    let ab6666 = _mm256_permute2f128_ps(ab2266, ab6622, PERM128_31);
+
+    let ab1111 = _mm256_permute2f128_ps(ab1155, ab5511, PERM128_02);
+    let ab5555 = _mm256_permute2f128_ps(ab1155, ab5511, PERM128_31);
+
+    let ab3333 = _mm256_permute2f128_ps(ab3377, ab7733, PERM128_02);
+    let ab7777 = _mm256_permute2f128_ps(ab3377, ab7733, PERM128_31);
+
+    ab[0] = ab0000;
+    ab[1] = ab1111;
+    ab[2] = ab2222;
+    ab[3] = ab3333;
+    ab[4] = ab4444;
+    ab[5] = ab5555;
+    ab[6] = ab6666;
+    ab[7] = ab7777;
+
+    // Helper function to compute C matrix offset
+    let c_offset =
+        |i: usize, j: usize| -> *mut f32 { c.offset(rsc * i as isize + csc * j as isize) };
+
+    // C ← α A B + β C
+    let mut cv = [_mm256_setzero_ps(); MR];
+
+    if beta != 0.0 {
+        let betav = _mm256_set1_ps(beta);
+
+        // Read C
+        if csc == 1 {
+            // Contiguous columns - can load directly
+            cv[0] = _mm256_loadu_ps(c_offset(0, 0));
+            cv[1] = _mm256_loadu_ps(c_offset(1, 0));
+            cv[2] = _mm256_loadu_ps(c_offset(2, 0));
+            cv[3] = _mm256_loadu_ps(c_offset(3, 0));
+            cv[4] = _mm256_loadu_ps(c_offset(4, 0));
+            cv[5] = _mm256_loadu_ps(c_offset(5, 0));
+            cv[6] = _mm256_loadu_ps(c_offset(6, 0));
+            cv[7] = _mm256_loadu_ps(c_offset(7, 0));
+        } else {
+            // Strided columns - gather elements manually
+            cv[0] = _mm256_setr_ps(
+                *c_offset(0, 0),
+                *c_offset(0, 1),
+                *c_offset(0, 2),
+                *c_offset(0, 3),
+                *c_offset(0, 4),
+                *c_offset(0, 5),
+                *c_offset(0, 6),
+                *c_offset(0, 7),
+            );
+            cv[1] = _mm256_setr_ps(
+                *c_offset(1, 0),
+                *c_offset(1, 1),
+                *c_offset(1, 2),
+                *c_offset(1, 3),
+                *c_offset(1, 4),
+                *c_offset(1, 5),
+                *c_offset(1, 6),
+                *c_offset(1, 7),
+            );
+            cv[2] = _mm256_setr_ps(
+                *c_offset(2, 0),
+                *c_offset(2, 1),
+                *c_offset(2, 2),
+                *c_offset(2, 3),
+                *c_offset(2, 4),
+                *c_offset(2, 5),
+                *c_offset(2, 6),
+                *c_offset(2, 7),
+            );
+            cv[3] = _mm256_setr_ps(
+                *c_offset(3, 0),
+                *c_offset(3, 1),
+                *c_offset(3, 2),
+                *c_offset(3, 3),
+                *c_offset(3, 4),
+                *c_offset(3, 5),
+                *c_offset(3, 6),
+                *c_offset(3, 7),
+            );
+            cv[4] = _mm256_setr_ps(
+                *c_offset(4, 0),
+                *c_offset(4, 1),
+                *c_offset(4, 2),
+                *c_offset(4, 3),
+                *c_offset(4, 4),
+                *c_offset(4, 5),
+                *c_offset(4, 6),
+                *c_offset(4, 7),
+            );
+            cv[5] = _mm256_setr_ps(
+                *c_offset(5, 0),
+                *c_offset(5, 1),
+                *c_offset(5, 2),
+                *c_offset(5, 3),
+                *c_offset(5, 4),
+                *c_offset(5, 5),
+                *c_offset(5, 6),
+                *c_offset(5, 7),
+            );
+            cv[6] = _mm256_setr_ps(
+                *c_offset(6, 0),
+                *c_offset(6, 1),
+                *c_offset(6, 2),
+                *c_offset(6, 3),
+                *c_offset(6, 4),
+                *c_offset(6, 5),
+                *c_offset(6, 6),
+                *c_offset(6, 7),
+            );
+            cv[7] = _mm256_setr_ps(
+                *c_offset(7, 0),
+                *c_offset(7, 1),
+                *c_offset(7, 2),
+                *c_offset(7, 3),
+                *c_offset(7, 4),
+                *c_offset(7, 5),
+                *c_offset(7, 6),
+                *c_offset(7, 7),
+            );
+        }
+
+        // Scale by beta: βC
+        cv[0] = _mm256_mul_ps(cv[0], betav);
+        cv[1] = _mm256_mul_ps(cv[1], betav);
+        cv[2] = _mm256_mul_ps(cv[2], betav);
+        cv[3] = _mm256_mul_ps(cv[3], betav);
+        cv[4] = _mm256_mul_ps(cv[4], betav);
+        cv[5] = _mm256_mul_ps(cv[5], betav);
+        cv[6] = _mm256_mul_ps(cv[6], betav);
+        cv[7] = _mm256_mul_ps(cv[7], betav);
+    }
+
+    // Compute C = αAB + βC using FMA
+    cv[0] = _mm256_fmadd_ps(alphav, ab[0], cv[0]);
+    cv[1] = _mm256_fmadd_ps(alphav, ab[1], cv[1]);
+    cv[2] = _mm256_fmadd_ps(alphav, ab[2], cv[2]);
+    cv[3] = _mm256_fmadd_ps(alphav, ab[3], cv[3]);
+    cv[4] = _mm256_fmadd_ps(alphav, ab[4], cv[4]);
+    cv[5] = _mm256_fmadd_ps(alphav, ab[5], cv[5]);
+    cv[6] = _mm256_fmadd_ps(alphav, ab[6], cv[6]);
+    cv[7] = _mm256_fmadd_ps(alphav, ab[7], cv[7]);
+
+    // Store C back to memory
+    if csc == 1 {
+        // Contiguous columns - can store directly
+        _mm256_storeu_ps(c_offset(0, 0), cv[0]);
+        _mm256_storeu_ps(c_offset(1, 0), cv[1]);
+        _mm256_storeu_ps(c_offset(2, 0), cv[2]);
+        _mm256_storeu_ps(c_offset(3, 0), cv[3]);
+        _mm256_storeu_ps(c_offset(4, 0), cv[4]);
+        _mm256_storeu_ps(c_offset(5, 0), cv[5]);
+        _mm256_storeu_ps(c_offset(6, 0), cv[6]);
+        _mm256_storeu_ps(c_offset(7, 0), cv[7]);
+    } else {
+        // Strided columns - scatter elements individually
+        for i in 0..8 {
+            let cvlo = _mm256_extractf128_ps(cv[i], 0);
+            let cvhi = _mm256_extractf128_ps(cv[i], 1);
+
+            // Store lower 128 bits (4 elements)
+            _mm_store_ss(c_offset(i, 0), cvlo);
+            let cperm = _mm_permute_ps(cvlo, PERM32_ROTATE);
+            _mm_store_ss(c_offset(i, 1), cperm);
+            let cperm = _mm_permute_ps(cperm, PERM32_ROTATE);
+            _mm_store_ss(c_offset(i, 2), cperm);
+            let cperm = _mm_permute_ps(cperm, PERM32_ROTATE);
+            _mm_store_ss(c_offset(i, 3), cperm);
+
+            // Store upper 128 bits (4 elements)
+            _mm_store_ss(c_offset(i, 4), cvhi);
+            let cperm = _mm_permute_ps(cvhi, PERM32_ROTATE);
+            _mm_store_ss(c_offset(i, 5), cperm);
+            let cperm = _mm_permute_ps(cperm, PERM32_ROTATE);
+            _mm_store_ss(c_offset(i, 6), cperm);
+            let cperm = _mm_permute_ps(cperm, PERM32_ROTATE);
+            _mm_store_ss(c_offset(i, 7), cperm);
+        }
+    }
+}
+#[repr(align(32))]
+struct PackedBuffer<F: Float> {
+    ptr: *mut F,
+    len: usize,
+    packed_a_ptr: *mut F,
+    packed_a_len: usize,
+    packed_b_ptr: *mut F,
+    packed_b_len: usize,
+    alignment: usize,
+}
+
+impl<F: Float> PackedBuffer<F> {
+    fn new(m: usize, n: usize, k: usize) -> Self {
+        // Calculate buffer sizes with proper rounding up
+        let packed_a_len = min(k, KC) * ((min(m, MC) + MR - 1) / MR) * MR;
+        let packed_b_len = min(k, KC) * ((min(n, NC) + NR - 1) / NR) * NR;
+
+        let buffer_len = packed_a_len + packed_b_len;
+
+        let layout = unsafe {
+            Layout::from_size_align_unchecked(mem::size_of::<F>() * buffer_len, AVX_ALIGNMENT)
+        };
+
+        let ptr = unsafe { alloc(layout) };
+
+        if ptr.is_null() {
+            handle_alloc_error(layout);
+        }
+
+        let packed_a_ptr: *mut F = ptr as *mut F;
+        let packed_b_ptr = unsafe { packed_a_ptr.add(packed_a_len) };
+
+        Self {
+            ptr: ptr as *mut F,
+            len: buffer_len,
+            packed_a_ptr,
+            packed_a_len,
+            packed_b_ptr,
+            packed_b_len,
+            alignment: AVX_ALIGNMENT,
+        }
+    }
+}
+
+/// Loops 1 and 2 around the µ-kernel
+unsafe fn sgemm_packed(
+    nc: usize,
+    kc: usize,
+    mc: usize,
+    alpha: f32,
+    a_packed_pointer: *const f32,
+    b_packed_pointer: *const f32,
+    beta: f32,
+    c: *mut f32,
+    rsc: isize,
+    csc: isize,
+) {
+    let mr = MR;
+    let nr = NR;
+
+    // Calculate the stride for accessing packed data
+    let num_mr_panels = (mc + mr - 1) / mr;
+    let num_nr_panels = (nc + nr - 1) / nr;
+
+    for jr in 0..num_nr_panels {
+        // Each B panel has kc * nr elements
+        let bpp = b_packed_pointer.add(jr * kc * nr);
+        let c_col = c.offset((jr * nr) as isize * csc);
+
+        for ir in 0..num_mr_panels {
+            // Each A panel has kc * mr elements
+            let app = a_packed_pointer.add(ir * kc * mr);
+            let c_block = c_col.offset((ir * mr) as isize * rsc);
+
+            kernel_8x8(kc, alpha, app, bpp, beta, c_block, rsc, csc);
+        }
+    }
+}
+
+// Drop implementation for PackedBuffer
+impl<F: Float> Drop for PackedBuffer<F> {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe {
+                let layout = Layout::from_size_align_unchecked(
+                    mem::size_of::<F>() * self.len,
+                    self.alignment,
+                );
+                std::alloc::dealloc(self.ptr as *mut u8, layout);
+            }
+        }
+    }
+}
+
+// --- TEST SUITE ---
+fn naive_sgemm(
+    m: usize,
+    k: usize,
+    n: usize,
+    alpha: f32,
+    a: &[f32],
+    rsa: isize,
+    csa: isize,
+    b: &[f32],
+    rsb: isize,
+    csb: isize,
+    beta: f32,
+    c: &mut [f32],
+    rsc: isize,
+    csc: isize,
+) {
+    if beta == 0.0 {
+        for i in 0..m {
+            for j in 0..n {
+                c[(i as isize * rsc + j as isize * csc) as usize] = 0.0;
+            }
+        }
+    } else if beta != 1.0 {
+        for i in 0..m {
+            for j in 0..n {
+                let c_idx = (i as isize * rsc + j as isize * csc) as usize;
+                c[c_idx] *= beta;
+            }
+        }
+    }
+    if k == 0 {
+        return;
+    }
+    for i in 0..m {
+        for j in 0..n {
+            let mut dot_product = 0.0;
+            for l in 0..k {
+                let a_val = a[(i as isize * rsa + l as isize * csa) as usize];
+                let b_val = b[(l as isize * rsb + j as isize * csb) as usize];
+                dot_product += a_val * b_val;
+            }
+            c[(i as isize * rsc + j as isize * csc) as usize] += alpha * dot_product;
+        }
+    }
+}
+
+fn check_results(
+    m: usize,
+    n: usize,
+    c_impl: &[f32],
+    c_ref: &[f32],
+    rsc: isize,
+    csc: isize,
+) -> bool {
+    let epsilon = 1e-3;
+    for i in 0..m {
+        for j in 0..n {
+            let idx = (i as isize * rsc + j as isize * csc) as usize;
+            let ref_val = c_ref[idx];
+            let impl_val = c_impl[idx];
+            if (ref_val - impl_val).abs() > epsilon {
+                println!(
+                    "Mismatch at C({}, {}): reference = {}, implementation = {}",
+                    i, j, ref_val, impl_val
+                );
+                return false;
+            }
+        }
+    }
+    true
 }
 
 fn main() {
-    let m = 64;
-    let n = 64;
-    let k = 64;
+    if !is_x86_feature_detected!("avx") || !is_x86_feature_detected!("fma") {
+        println!("AVX or FMA not detected on this CPU. Cannot run the test.");
+        return;
+    }
 
-    let a_data: Vec<f32> = (0..(m * k)).map(|x| (x % 100) as f32 / 10.0).collect();
-    let b_data: Vec<f32> = (0..(k * n))
-        .map(|x| ((x + 50) % 100) as f32 / 10.0)
-        .collect();
-    let mut c_data = alloc_zeroed_f32_vec(m * n, f32x8::AVX_ALIGNMENT);
+    let m = 77;
+    let k = 49;
+    let n = 3;
+    let alpha = 1.0;
+    let beta = 1.0;
 
-    // Enable performance profiling
-    time_graph::enable_data_collection(true);
+    let a: Vec<f32> = (0..(m * k)).map(|i| (i % 100) as f32 / 10.0).collect();
+    let b: Vec<f32> = (0..(k * n)).map(|i| (i % 100) as f32 / 10.0).collect();
+    let c_orig: Vec<f32> = (0..(m * n)).map(|i| (i % 100) as f32 / 10.0).collect();
 
-    unsafe { matmul(&a_data, &b_data, &mut c_data, m, n, k) };
+    println!("--- Testing with row-major C matrix ---");
+    let mut c_impl = c_orig.clone();
+    let mut c_ref = c_orig.clone();
+    let rsa = k as isize;
+    let csa = 1;
+    let rsb = n as isize;
+    let csb = 1;
+    let rsc = n as isize;
+    let csc = 1;
+    unsafe {
+        my_sgemm(
+            m,
+            k,
+            n,
+            alpha,
+            &a,
+            rsa,
+            csa,
+            &b,
+            rsb,
+            csb,
+            beta,
+            &mut c_impl,
+            rsc,
+            csc,
+        );
+    }
+    naive_sgemm(
+        m, k, n, alpha, &a, rsa, csa, &b, rsb, csb, beta, &mut c_ref, rsc, csc,
+    );
+    if check_results(m, n, &c_impl, &c_ref, rsc, csc) {
+        println!("Test PASSED for row-major layout.");
+    } else {
+        println!("Test FAILED for row-major layout.");
+    }
 
-    // Get and print the performance profiling results
-    let graph = time_graph::get_full_graph();
-    // The following output formats are available but commented out:
-    // println!("{}", graph.as_dot()); // DOT format for visualization
-    // println!("{}", graph.as_json());     // JSON format
-    // println!("{}", graph.as_table());    // Full table
-    println!("{}", graph.as_short_table()); // Condensed table
+    println!("\n--- Testing with column-major C matrix ---");
+    let mut c_impl = c_orig.clone();
+    let mut c_ref = c_orig.clone();
+    let rsc_col = 1;
+    let csc_col = m as isize;
+    unsafe {
+        my_sgemm(
+            m,
+            k,
+            n,
+            alpha,
+            &a,
+            rsa,
+            csa,
+            &b,
+            rsb,
+            csb,
+            beta,
+            &mut c_impl,
+            rsc_col,
+            csc_col,
+        );
+    }
+    naive_sgemm(
+        m, k, n, alpha, &a, rsa, csa, &b, rsb, csb, beta, &mut c_ref, rsc_col, csc_col,
+    );
+    if check_results(m, n, &c_impl, &c_ref, rsc_col, csc_col) {
+        println!("Test PASSED for column-major C layout.");
+    } else {
+        println!("Test FAILED for column-major C layout.");
+    }
 }
