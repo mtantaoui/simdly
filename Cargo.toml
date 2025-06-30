@@ -31,11 +31,6 @@ time-graph = { version = "0.3.2", features = ["json", "table"] }
 name = "f32"
 harness = false
 
-[[bench]]
-name = "dot"
-harness = false
-
-
 [profile.release]
 lto = "fat" 
 codegen-units = 1
