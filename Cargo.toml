@@ -15,6 +15,7 @@ keywords = ["math", "SIMD", "functions", "performance",  "Numerical"]
 [dependencies]
 chrono = "0.4.41"
 ndarray = "0.16.1"
+num = "0.4.3"
 rand = "0.9.1"
 rayon = "1.10.0"
 
