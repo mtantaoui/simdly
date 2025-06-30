@@ -19,7 +19,7 @@ fn at(i: usize, j: usize, ld: usize) -> usize {
     (j * ld) + i
 }
 
-pub fn display_matrix_row_major(m: usize, n: usize, ld: usize, a: &[f32]) {
+pub fn display_matrix(m: usize, n: usize, ld: usize, a: &[f32]) {
     for i in 0..m {
         for j in 0..n {
             print!("{} \t", a[at(i, j, ld)]);
@@ -329,27 +329,48 @@ pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize)
 
             let b_block = pack_b::<KC, NR>(b, nc, kc, k);
 
-            for b_panel in b_block.as_panels() {
-                println!("{:?}\n", b_panel.data);
+            for ic in (0..m).step_by(MC) {
+                let mc = min(MC, m - ic);
+
+                let a_block = pack_a::<MR, KC>(&a_chunk[ic..], mc, kc, m);
+
+                b_block
+                    .as_panels()
+                    .iter()
+                    .enumerate()
+                    .for_each(|(jr, b_panel)| {
+                        a_block
+                            .as_panels()
+                            .iter()
+                            .enumerate()
+                            .for_each(|(ir, a_panel)| {
+                                let nr = min(NR, nc - jr * NR);
+                                let mr = min(MR, mc - ir * MR);
+
+                                println!("C micro panel, Size: {}x{}", mr, nr);
+
+                                let c_micropanel = &mut c_chunk[(jr * NR * m + (ic + ir * MR))..];
+
+                                display_matrix(mr, nr, m, c_micropanel);
+                            })
+                    });
             }
         });
     });
 }
 
 fn main() {
-    // pack_a_test();
-
-    // pack_b_test();
-
     let m = 7;
-    let k = 9;
-    let n = 11;
+    let k = 8;
+    let n = 7;
 
     let a = vec![1.0; m * k];
 
     let b = vec![2.0; k * n];
 
-    let mut c = vec![0.0; m * n];
+    let mut c = (0..m * n).map(|i| i as f32).collect::<Vec<f32>>();
+
+    display_matrix(m, n, m, c.as_slice());
 
     matmul(&a, &b, &mut c, m, n, k);
 }
