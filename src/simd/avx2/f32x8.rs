@@ -30,8 +30,8 @@ pub const LANE_COUNT: usize = 8;
 /// The struct implements the `SimdVec` trait, which defines the necessary methods for SIMD operations.     
 #[derive(Copy, Clone, Debug)]
 pub struct F32x8 {
-    pub(crate) size: usize,
-    pub(crate) elements: __m256,
+    pub size: usize,
+    pub elements: __m256,
 }
 
 impl SimdVec<f32> for F32x8 {
@@ -80,27 +80,27 @@ impl SimdVec<f32> for F32x8 {
         debug_assert!(size == LANE_COUNT, "Size must be == {LANE_COUNT}");
 
         if Self::is_aligned(ptr) {
-            unsafe { Self::load_aligned(ptr, size) }
+            unsafe { Self::load_aligned(ptr) }
         } else {
-            unsafe { Self::load_unaligned(ptr, size) }
+            unsafe { Self::load_unaligned(ptr) }
         }
     }
 
     /// Loads a vector from an aligned pointer, ensuring the size is exactly 8 elements.
     #[inline(always)]
-    unsafe fn load_aligned(ptr: *const f32, size: usize) -> Self {
+    unsafe fn load_aligned(ptr: *const f32) -> Self {
         Self {
             elements: unsafe { _mm256_load_ps(ptr) },
-            size,
+            size: LANE_COUNT,
         }
     }
 
     /// Loads a vector from an unaligned pointer, ensuring the size is exactly 8 elements.
     #[inline(always)]
-    unsafe fn load_unaligned(ptr: *const f32, size: usize) -> Self {
+    unsafe fn load_unaligned(ptr: *const f32) -> Self {
         Self {
             elements: unsafe { _mm256_loadu_ps(ptr) },
-            size,
+            size: LANE_COUNT,
         }
     }
 
@@ -422,6 +422,20 @@ impl SimdVec<f32> for F32x8 {
         Self {
             size: self.size,
             elements: unsafe { _mm256_fmadd_ps(a.elements, b.elements, self.elements) },
+        }
+    }
+
+    unsafe fn permute<const IMM8: i32>(&self) -> Self {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_permute_ps(self.elements, IMM8) },
+        }
+    }
+
+    unsafe fn permute2f128<const IMM8: i32>(&self, other: Self) -> Self {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_permute2f128_ps::<IMM8>(self.elements, other.elements) },
         }
     }
 }

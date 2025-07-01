@@ -11,6 +11,16 @@ pub trait SimdVec<T> {
     fn is_aligned(ptr: *const T) -> bool;
 
     /// .
+    /// # Safety
+    /// .
+    unsafe fn permute<const IMM8: i32>(&self) -> Self;
+
+    /// .
+    /// # Safety
+    /// .
+    unsafe fn permute2f128<const IMM8: i32>(&self, other: Self) -> Self;
+
+    /// .
     ///
     /// # Safety
     ///
@@ -22,14 +32,14 @@ pub trait SimdVec<T> {
     /// # Safety
     ///
     /// .
-    unsafe fn load_aligned(ptr: *const T, size: usize) -> Self;
+    unsafe fn load_aligned(ptr: *const T) -> Self;
 
     /// .
     ///
     /// # Safety
     ///
     /// .
-    unsafe fn load_unaligned(ptr: *const T, size: usize) -> Self;
+    unsafe fn load_unaligned(ptr: *const T) -> Self;
 
     /// .
     ///
