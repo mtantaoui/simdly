@@ -445,35 +445,35 @@ unsafe fn kernel_8x8(
     // Strategy: Use 8x8 matrix transpose to reorganize the data efficiently
     // We can view c0-c7 as 8 rows that need to be transposed to get the 8 columns
 
-    // Step 1: Interleave adjacent pairs (32-bit granularity)
-    let r0 = c0.unpacklo(c1); // [c0[0],c1[0],c0[1],c1[1],c0[4],c1[4],c0[5],c1[5]]
-    let r1 = c0.unpackhi(c1); // [c0[2],c1[2],c0[3],c1[3],c0[6],c1[6],c0[7],c1[7]]
-    let r2 = c2.unpacklo(c3); // [c2[0],c3[0],c2[1],c3[1],c2[4],c3[4],c2[5],c3[5]]
-    let r3 = c2.unpackhi(c3); // [c2[2],c3[2],c2[3],c3[3],c2[6],c3[6],c2[7],c3[7]]
-    let r4 = c4.unpacklo(c5); // [c4[0],c5[0],c4[1],c5[1],c4[4],c5[4],c4[5],c5[5]]
-    let r5 = c4.unpackhi(c5); // [c4[2],c5[2],c4[3],c5[3],c4[6],c5[6],c4[7],c5[7]]
-    let r6 = c6.unpacklo(c7); // [c6[0],c7[0],c6[1],c7[1],c6[4],c7[4],c6[5],c7[5]]
-    let r7 = c6.unpackhi(c7); // [c6[2],c7[2],c6[3],c7[3],c6[6],c7[6],c6[7],c7[7]]
+    // // Step 1: Interleave adjacent pairs (32-bit granularity)
+    // let r0 = c0.unpacklo(c1); // [c0[0],c1[0],c0[1],c1[1],c0[4],c1[4],c0[5],c1[5]]
+    // let r1 = c0.unpackhi(c1); // [c0[2],c1[2],c0[3],c1[3],c0[6],c1[6],c0[7],c1[7]]
+    // let r2 = c2.unpacklo(c3); // [c2[0],c3[0],c2[1],c3[1],c2[4],c3[4],c2[5],c3[5]]
+    // let r3 = c2.unpackhi(c3); // [c2[2],c3[2],c2[3],c3[3],c2[6],c3[6],c2[7],c3[7]]
+    // let r4 = c4.unpacklo(c5); // [c4[0],c5[0],c4[1],c5[1],c4[4],c5[4],c4[5],c5[5]]
+    // let r5 = c4.unpackhi(c5); // [c4[2],c5[2],c4[3],c5[3],c4[6],c5[6],c4[7],c5[7]]
+    // let r6 = c6.unpacklo(c7); // [c6[0],c7[0],c6[1],c7[1],c6[4],c7[4],c6[5],c7[5]]
+    // let r7 = c6.unpackhi(c7); // [c6[2],c7[2],c6[3],c7[3],c6[6],c7[6],c6[7],c7[7]]
 
-    // Step 2: Interleave 64-bit pairs
-    let s0 = r0.unpacklo(r2); // [c0[0],c2[0],c1[0],c3[0],c0[4],c2[4],c1[4],c3[4]]
-    let s1 = r0.unpackhi(r2); // [c0[1],c2[1],c1[1],c3[1],c0[5],c2[5],c1[5],c3[5]]
-    let s2 = r1.unpacklo(r3); // [c0[2],c2[2],c1[2],c3[2],c0[6],c2[6],c1[6],c3[6]]
-    let s3 = r1.unpackhi(r3); // [c0[3],c2[3],c1[3],c3[3],c0[7],c2[7],c1[7],c3[7]]
-    let s4 = r4.unpacklo(r6); // [c4[0],c6[0],c5[0],c7[0],c4[4],c6[4],c5[4],c7[4]]
-    let s5 = r4.unpackhi(r6); // [c4[1],c6[1],c5[1],c7[1],c4[5],c6[5],c5[5],c7[5]]
-    let s6 = r5.unpacklo(r7); // [c4[2],c6[2],c5[2],c7[2],c4[6],c6[6],c5[6],c7[6]]
-    let s7 = r5.unpackhi(r7); // [c4[3],c6[3],c5[3],c7[3],c4[7],c6[7],c5[7],c7[7]]
+    // // Step 2: Interleave 64-bit pairs
+    // let s0 = r0.unpacklo(r2); // [c0[0],c2[0],c1[0],c3[0],c0[4],c2[4],c1[4],c3[4]]
+    // let s1 = r0.unpackhi(r2); // [c0[1],c2[1],c1[1],c3[1],c0[5],c2[5],c1[5],c3[5]]
+    // let s2 = r1.unpacklo(r3); // [c0[2],c2[2],c1[2],c3[2],c0[6],c2[6],c1[6],c3[6]]
+    // let s3 = r1.unpackhi(r3); // [c0[3],c2[3],c1[3],c3[3],c0[7],c2[7],c1[7],c3[7]]
+    // let s4 = r4.unpacklo(r6); // [c4[0],c6[0],c5[0],c7[0],c4[4],c6[4],c5[4],c7[4]]
+    // let s5 = r4.unpackhi(r6); // [c4[1],c6[1],c5[1],c7[1],c4[5],c6[5],c5[5],c7[5]]
+    // let s6 = r5.unpacklo(r7); // [c4[2],c6[2],c5[2],c7[2],c4[6],c6[6],c5[6],c7[6]]
+    // let s7 = r5.unpackhi(r7); // [c4[3],c6[3],c5[3],c7[3],c4[7],c6[7],c5[7],c7[7]]
 
-    // Step 3: Interleave 128-bit lanes to complete the transpose
-    let t0 = s0.permute2f128::<0x20>(s4); // [c0[0],c2[0],c1[0],c3[0],c4[0],c6[0],c5[0],c7[0]]
-    let t1 = s1.permute2f128::<0x20>(s5); // [c0[1],c2[1],c1[1],c3[1],c4[1],c6[1],c5[1],c7[1]]
-    let t2 = s2.permute2f128::<0x20>(s6); // [c0[2],c2[2],c1[2],c3[2],c4[2],c6[2],c5[2],c7[2]]
-    let t3 = s3.permute2f128::<0x20>(s7); // [c0[3],c2[3],c1[3],c3[3],c4[3],c6[3],c5[3],c7[3]]
-    let t4 = s0.permute2f128::<0x31>(s4); // [c0[4],c2[4],c1[4],c3[4],c4[4],c6[4],c5[4],c7[4]]
-    let t5 = s1.permute2f128::<0x31>(s5); // [c0[5],c2[5],c1[5],c3[5],c4[5],c6[5],c5[5],c7[5]]
-    let t6 = s2.permute2f128::<0x31>(s6); // [c0[6],c2[6],c1[6],c3[6],c4[6],c6[6],c5[6],c7[6]]
-    let t7 = s3.permute2f128::<0x31>(s7); // [c0[7],c2[7],c1[7],c3[7],c4[7],c6[7],c5[7],c7[7]]
+    // // Step 3: Interleave 128-bit lanes to complete the transpose
+    // let t0 = s0.permute2f128::<0x20>(s4); // [c0[0],c2[0],c1[0],c3[0],c4[0],c6[0],c5[0],c7[0]]
+    // let t1 = s1.permute2f128::<0x20>(s5); // [c0[1],c2[1],c1[1],c3[1],c4[1],c6[1],c5[1],c7[1]]
+    // let t2 = s2.permute2f128::<0x20>(s6); // [c0[2],c2[2],c1[2],c3[2],c4[2],c6[2],c5[2],c7[2]]
+    // let t3 = s3.permute2f128::<0x20>(s7); // [c0[3],c2[3],c1[3],c3[3],c4[3],c6[3],c5[3],c7[3]]
+    // let t4 = s0.permute2f128::<0x31>(s4); // [c0[4],c2[4],c1[4],c3[4],c4[4],c6[4],c5[4],c7[4]]
+    // let t5 = s1.permute2f128::<0x31>(s5); // [c0[5],c2[5],c1[5],c3[5],c4[5],c6[5],c5[5],c7[5]]
+    // let t6 = s2.permute2f128::<0x31>(s6); // [c0[6],c2[6],c1[6],c3[6],c4[6],c6[6],c5[6],c7[6]]
+    // let t7 = s3.permute2f128::<0x31>(s7); // [c0[7],c2[7],c1[7],c3[7],c4[7],c6[7],c5[7],c7[7]]
 }
 
 pub fn naive_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {

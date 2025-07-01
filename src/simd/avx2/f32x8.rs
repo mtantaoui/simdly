@@ -438,6 +438,20 @@ impl SimdVec<f32> for F32x8 {
             elements: unsafe { _mm256_permute2f128_ps::<IMM8>(self.elements, other.elements) },
         }
     }
+
+    unsafe fn unpackhi(&self, other: Self) -> Self {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_unpackhi_ps(self.elements, other.elements) },
+        }
+    }
+
+    unsafe fn unpacklo(&self, other: Self) -> Self {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_unpacklo_ps(self.elements, other.elements) },
+        }
+    }
 }
 
 /// Computes the remainder of two `__m256` vectors elementwise.

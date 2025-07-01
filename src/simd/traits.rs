@@ -147,6 +147,20 @@ pub trait SimdVec<T> {
     ///
     /// .
     unsafe fn fmadd(&self, a: Self, b: Self) -> Self;
+
+    /// .
+    ///
+    /// # Safety
+    ///
+    /// .
+    unsafe fn unpackhi(&self, other: Self) -> Self;
+
+    /// .
+    ///
+    /// # Safety
+    ///
+    /// .
+    unsafe fn unpacklo(&self, other: Self) -> Self;
 }
 
 pub trait SimdAdd<Rhs = Self> {
