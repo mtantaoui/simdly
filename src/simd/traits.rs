@@ -18,6 +18,11 @@ pub trait SimdVec<T> {
     /// .
     /// # Safety
     /// .
+    unsafe fn shuffle<const MASK: i32>(&self, other: Self) -> Self;
+
+    /// .
+    /// # Safety
+    /// .
     unsafe fn permute2f128<const IMM8: i32>(&self, other: Self) -> Self;
 
     /// .
@@ -146,7 +151,7 @@ pub trait SimdVec<T> {
     /// # Safety
     ///
     /// .
-    unsafe fn fmadd(&self, a: Self, b: Self) -> Self;
+    unsafe fn fmadd(&mut self, a: Self, b: Self);
 
     /// .
     ///
@@ -161,6 +166,22 @@ pub trait SimdVec<T> {
     ///
     /// .
     unsafe fn unpacklo(&self, other: Self) -> Self;
+
+    /// .
+    ///
+    /// # Safety
+    ///
+    /// .
+    unsafe fn moveldup(&self) -> Self;
+
+    /// .
+    ///
+    /// # Safety
+    ///
+    /// .
+    unsafe fn movehdup(&self) -> Self;
+
+    fn zero() -> Self;
 }
 
 pub trait SimdAdd<Rhs = Self> {

@@ -71,6 +71,13 @@ impl SimdVec<f32> for F32x8 {
         ptr % core::mem::align_of::<__m256>() == 0
     }
 
+    fn zero() -> Self {
+        Self {
+            elements: unsafe { _mm256_setzero_ps() },
+            size: LANE_COUNT,
+        }
+    }
+
     /// Loads a vector from a pointer, ensuring the size is exactly 8 elements.
     #[inline(always)]
     unsafe fn load(ptr: *const f32, size: usize) -> Self {
@@ -418,11 +425,8 @@ impl SimdVec<f32> for F32x8 {
     }
 
     #[inline(always)]
-    unsafe fn fmadd(&self, a: Self, b: Self) -> Self {
-        Self {
-            size: self.size,
-            elements: unsafe { _mm256_fmadd_ps(a.elements, b.elements, self.elements) },
-        }
+    unsafe fn fmadd(&mut self, a: Self, b: Self) {
+        self.elements = unsafe { _mm256_fmadd_ps(a.elements, b.elements, self.elements) };
     }
 
     unsafe fn permute<const IMM8: i32>(&self) -> Self {
@@ -450,6 +454,27 @@ impl SimdVec<f32> for F32x8 {
         Self {
             size: self.size,
             elements: unsafe { _mm256_unpacklo_ps(self.elements, other.elements) },
+        }
+    }
+
+    unsafe fn moveldup(&self) -> Self {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_moveldup_ps(self.elements) },
+        }
+    }
+
+    unsafe fn movehdup(&self) -> Self {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_movehdup_ps(self.elements) },
+        }
+    }
+
+    unsafe fn shuffle<const MASK: i32>(&self, other: Self) -> Self {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_shuffle_ps(self.elements, other.elements, MASK) },
         }
     }
 }

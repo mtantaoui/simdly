@@ -28,7 +28,7 @@ fn at(i: usize, j: usize, ld: usize) -> usize {
     (j * ld) + i
 }
 
-pub fn display_matrix(m: usize, n: usize, ld: usize, a: &[f32]) {
+pub fn display_matrix_column_major(m: usize, n: usize, ld: usize, a: &[f32]) {
     for i in 0..m {
         for j in 0..n {
             print!("{} \t", a[at(i, j, ld)]);
@@ -38,7 +38,7 @@ pub fn display_matrix(m: usize, n: usize, ld: usize, a: &[f32]) {
     println!("---");
 }
 
-pub fn display_matrix_column_major(m: usize, n: usize, ld: usize, a: &[f32]) {
+pub fn display_matrix_row_major(m: usize, n: usize, ld: usize, a: &[f32]) {
     for j in 0..n {
         for i in 0..m {
             print!("{} \t", a[at(i, j, ld)]);
@@ -372,8 +372,13 @@ pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize)
     });
 }
 
-const A_PERMUTATION: i32 = 0b10_11_00_01;
-const B_PERMUTATION: i32 = 0b01_00_11_10;
+const A_PERMUTATION: i32 = 0b01_00_11_10;
+const B_PERMUTATION: i32 = 0x01;
+
+const SHUFFLE_MASK: i32 = 0b11100100;
+
+const FINAL_PERMUTATION_1: i32 = 0x20;
+const FINAL_PERMUTATION_2: i32 = 0x31;
 
 unsafe fn kernel_8x8(
     a_panel: &APanel<MR, KC>,
@@ -386,143 +391,145 @@ unsafe fn kernel_8x8(
 ) {
     println!("C micro panel, Size: {}x{}", mr, nr);
 
-    let mut c0 = F32x8::load(c_micropanel, mr);
-    let mut c1 = F32x8::load(c_micropanel.add(m), mr);
-    let mut c2 = F32x8::load(c_micropanel.add(2 * m), mr);
-    let mut c3 = F32x8::load(c_micropanel.add(3 * m), mr);
-    let mut c4 = F32x8::load(c_micropanel.add(4 * m), mr);
-    let mut c5 = F32x8::load(c_micropanel.add(5 * m), mr);
-    let mut c6 = F32x8::load(c_micropanel.add(6 * m), mr);
-    let mut c7 = F32x8::load(c_micropanel.add(7 * m), mr);
+    // Only when Using column major storage
+    let (a_panel, b_panel) = (b_panel, a_panel);
+
+    let mut ab_striped0: F32x8 = F32x8::zero();
+    let mut ab_striped1: F32x8 = F32x8::zero();
+    let mut ab_striped2: F32x8 = F32x8::zero();
+    let mut ab_striped3: F32x8 = F32x8::zero();
+    let mut ab_striped4: F32x8 = F32x8::zero();
+    let mut ab_striped5: F32x8 = F32x8::zero();
+    let mut ab_striped6: F32x8 = F32x8::zero();
+    let mut ab_striped7: F32x8 = F32x8::zero();
 
     for p in 0..kc {
-        // load A micropanel
-        let a = F32x8::load_aligned(a_panel.data[p].as_ptr());
+        let a_col = F32x8::load_aligned(a_panel.data[p].as_ptr());
 
-        // load B micropanel
-        let b = F32x8::load_aligned(b_panel.data[p].as_ptr());
+        let a_even = a_col.moveldup();
 
-        c0 = c0.fmadd(a, b);
+        let a_odd = a_col.movehdup();
 
-        // let a_p = _mm256_permute_ps(a.elements, A_PERMUTATION);
-        let a_p = a.permute::<A_PERMUTATION>();
+        let a_even_permuted = a_even.permute::<A_PERMUTATION>();
 
-        c1 = c1.fmadd(a_p, b);
+        let a_odd_permuted = a_odd.permute::<A_PERMUTATION>();
 
-        // let b_p0 = _mm256_permute_ps(b.elements, B_PERMUTATION);
-        let b_p0 = b.permute::<B_PERMUTATION>();
+        let b_row = F32x8::load_aligned(b_panel.data[p].as_ptr());
 
-        c2 = c2.fmadd(a, b_p0);
-        c3 = c3.fmadd(a_p, b_p0);
+        let b_row_permuted = b_row.permute2f128::<B_PERMUTATION>(b_row);
 
-        // let b_p1 = _mm256_permute2f128_ps(b.elements, b.elements, 0x01);
-        let b_p1 = b.permute2f128::<0x01>(b);
+        ab_striped0.fmadd(a_even, b_row);
+        ab_striped1.fmadd(a_even_permuted, b_row);
+        ab_striped2.fmadd(a_even, b_row_permuted);
+        ab_striped3.fmadd(a_even_permuted, b_row_permuted);
 
-        c4 = c4.fmadd(a, b_p1);
-        c5 = c5.fmadd(a_p, b_p1);
-
-        let b_p2 = b_p1.permute::<B_PERMUTATION>();
-
-        c6 = c6.fmadd(a, b_p2);
-        c7 = c7.fmadd(a_p, b_p2);
+        ab_striped4.fmadd(a_odd, b_row);
+        ab_striped5.fmadd(a_odd_permuted, b_row);
+        ab_striped6.fmadd(a_odd, b_row_permuted);
+        ab_striped7.fmadd(a_odd_permuted, b_row_permuted);
     }
 
-    // Unshuffling and storing section
-    // After computation, we have 8 accumulators that need to be reorganized into proper columns
-    //
-    // The computation creates these patterns:
-    // c0: diagonal elements [a0*b0, a1*b1, a2*b2, a3*b3, a4*b4, a5*b5, a6*b6, a7*b7].
-    // c1: A-permuted [a2*b0, a3*b1, a0*b2, a1*b3, a6*b4, a7*b5, a4*b6, a5*b7].
-    // c2: B-permuted [a0*b1, a1*b0, a2*b3, a3*b2, a4*b5, a5*b4, a6*b7, a7*b6].
-    // c3: both permuted [a2*b1, a3*b0, a0*b3, a1*b2, a6*b5, a7*b4, a4*b7, a5*b6].
-    // c4: B 128-swapped [a0*b4, a1*b5, a2*b6, a3*b7, a4*b0, a5*b1, a6*b2, a7*b3].
-    // c5: A-perm + B 128-swap [a2*b4, a3*b5, a0*b6, a1*b7, a6*b0, a7*b1, a4*b2, a5*b3].
-    // c6: B-perm + B 128-swap [a0*b5, a1*b4, a2*b7, a3*b6, a4*b1, a5*b0, a6*b3, a7*b2]
-    // c7: all perms [a2*b5, a3*b4, a0*b7, a1*b6, a6*b1, a7*b0, a4*b3, a5*b2]
+    // Shuffle within vectors
+    let pair_0_1 = ab_striped0.shuffle::<SHUFFLE_MASK>(ab_striped1);
+    let pair_1_0 = ab_striped1.shuffle::<SHUFFLE_MASK>(ab_striped0);
 
-    // Target: Column j should contain [a0*bj, a1*bj, a2*bj, a3*bj, a4*bj, a5*bj, a6*bj, a7*bj]
+    let pair_2_3 = ab_striped2.shuffle::<SHUFFLE_MASK>(ab_striped3);
+    let pair_3_2 = ab_striped3.shuffle::<SHUFFLE_MASK>(ab_striped2);
 
-    // Strategy: Use 8x8 matrix transpose to reorganize the data efficiently
-    // We can view c0-c7 as 8 rows that need to be transposed to get the 8 columns
+    let pair_4_5 = ab_striped4.shuffle::<SHUFFLE_MASK>(ab_striped5);
+    let pair_5_4 = ab_striped5.shuffle::<SHUFFLE_MASK>(ab_striped4);
 
-    // // Step 1: Interleave adjacent pairs (32-bit granularity)
-    // let r0 = c0.unpacklo(c1); // [c0[0],c1[0],c0[1],c1[1],c0[4],c1[4],c0[5],c1[5]]
-    // let r1 = c0.unpackhi(c1); // [c0[2],c1[2],c0[3],c1[3],c0[6],c1[6],c0[7],c1[7]]
-    // let r2 = c2.unpacklo(c3); // [c2[0],c3[0],c2[1],c3[1],c2[4],c3[4],c2[5],c3[5]]
-    // let r3 = c2.unpackhi(c3); // [c2[2],c3[2],c2[3],c3[3],c2[6],c3[6],c2[7],c3[7]]
-    // let r4 = c4.unpacklo(c5); // [c4[0],c5[0],c4[1],c5[1],c4[4],c5[4],c4[5],c5[5]]
-    // let r5 = c4.unpackhi(c5); // [c4[2],c5[2],c4[3],c5[3],c4[6],c5[6],c4[7],c5[7]]
-    // let r6 = c6.unpacklo(c7); // [c6[0],c7[0],c6[1],c7[1],c6[4],c7[4],c6[5],c7[5]]
-    // let r7 = c6.unpackhi(c7); // [c6[2],c7[2],c6[3],c7[3],c6[6],c7[6],c6[7],c7[7]]
+    let pair_6_7 = ab_striped6.shuffle::<SHUFFLE_MASK>(ab_striped7);
+    let pair_7_6 = ab_striped7.shuffle::<SHUFFLE_MASK>(ab_striped6);
 
-    // // Step 2: Interleave 64-bit pairs
-    // let s0 = r0.unpacklo(r2); // [c0[0],c2[0],c1[0],c3[0],c0[4],c2[4],c1[4],c3[4]]
-    // let s1 = r0.unpackhi(r2); // [c0[1],c2[1],c1[1],c3[1],c0[5],c2[5],c1[5],c3[5]]
-    // let s2 = r1.unpacklo(r3); // [c0[2],c2[2],c1[2],c3[2],c0[6],c2[6],c1[6],c3[6]]
-    // let s3 = r1.unpackhi(r3); // [c0[3],c2[3],c1[3],c3[3],c0[7],c2[7],c1[7],c3[7]]
-    // let s4 = r4.unpacklo(r6); // [c4[0],c6[0],c5[0],c7[0],c4[4],c6[4],c5[4],c7[4]]
-    // let s5 = r4.unpackhi(r6); // [c4[1],c6[1],c5[1],c7[1],c4[5],c6[5],c5[5],c7[5]]
-    // let s6 = r5.unpacklo(r7); // [c4[2],c6[2],c5[2],c7[2],c4[6],c6[6],c5[6],c7[6]]
-    // let s7 = r5.unpackhi(r7); // [c4[3],c6[3],c5[3],c7[3],c4[7],c6[7],c5[7],c7[7]]
+    let c_col_0 = pair_0_1.permute2f128::<FINAL_PERMUTATION_1>(pair_2_3);
+    let c_col_1 = pair_4_5.permute2f128::<FINAL_PERMUTATION_1>(pair_6_7);
+    let c_col_2 = pair_1_0.permute2f128::<FINAL_PERMUTATION_1>(pair_3_2);
+    let c_col_3 = pair_5_4.permute2f128::<FINAL_PERMUTATION_1>(pair_7_6);
+    let c_col_4 = pair_0_1.permute2f128::<FINAL_PERMUTATION_2>(pair_2_3);
+    let c_col_5 = pair_4_5.permute2f128::<FINAL_PERMUTATION_2>(pair_6_7);
+    let c_col_6 = pair_1_0.permute2f128::<FINAL_PERMUTATION_2>(pair_3_2);
+    let c_col_7 = pair_5_4.permute2f128::<FINAL_PERMUTATION_2>(pair_7_6);
 
-    // // Step 3: Interleave 128-bit lanes to complete the transpose
-    // let t0 = s0.permute2f128::<0x20>(s4); // [c0[0],c2[0],c1[0],c3[0],c4[0],c6[0],c5[0],c7[0]]
-    // let t1 = s1.permute2f128::<0x20>(s5); // [c0[1],c2[1],c1[1],c3[1],c4[1],c6[1],c5[1],c7[1]]
-    // let t2 = s2.permute2f128::<0x20>(s6); // [c0[2],c2[2],c1[2],c3[2],c4[2],c6[2],c5[2],c7[2]]
-    // let t3 = s3.permute2f128::<0x20>(s7); // [c0[3],c2[3],c1[3],c3[3],c4[3],c6[3],c5[3],c7[3]]
-    // let t4 = s0.permute2f128::<0x31>(s4); // [c0[4],c2[4],c1[4],c3[4],c4[4],c6[4],c5[4],c7[4]]
-    // let t5 = s1.permute2f128::<0x31>(s5); // [c0[5],c2[5],c1[5],c3[5],c4[5],c6[5],c5[5],c7[5]]
-    // let t6 = s2.permute2f128::<0x31>(s6); // [c0[6],c2[6],c1[6],c3[6],c4[6],c6[6],c5[6],c7[6]]
-    // let t7 = s3.permute2f128::<0x31>(s7); // [c0[7],c2[7],c1[7],c3[7],c4[7],c6[7],c5[7],c7[7]]
+    println!("C0: {:?}", c_col_0);
+    println!("C1: {:?}", c_col_1);
+    println!("C2: {:?}", c_col_2);
+    println!("C3: {:?}", c_col_3);
+    println!("C4: {:?}", c_col_4);
+    println!("C5: {:?}", c_col_5);
+    println!("C6: {:?}", c_col_6);
+    println!("C7: {:?}", c_col_7);
+
+    // Store the results back to the micro panel.
+
+    match mr {
+        MR => {
+            // // For 8 rows, we can store directly.
+            // c_col_0.store_at(c_micropanel.add(0));
+            // c_col_1.store_at(c_micropanel.add(m));
+            // c_col_2.store_at(c_micropanel.add(m * 2));
+            // c_col_3.store_at(c_micropanel.add(m * 3));
+            // c_col_4.store_at(c_micropanel.add(m * 4));
+            // c_col_5.store_at(c_micropanel.add(m * 5));
+            // c_col_6.store_at(c_micropanel.add(m * 6));
+            // c_col_7.store_at(c_micropanel.add(m * 7));
+        }
+        _ => {
+            // // For 8 rows, we can store directly.
+            // c_col_0.store_at_partial(c_micropanel.add(0));
+            // c_col_1.store_at_partial(c_micropanel.add(m));
+            // c_col_2.store_at_partial(c_micropanel.add(m * 2));
+            // c_col_3.store_at_partial(c_micropanel.add(m * 3));
+            // c_col_4.store_at_partial(c_micropanel.add(m * 4));
+            // c_col_5.store_at_partial(c_micropanel.add(m * 5));
+            // c_col_6.store_at_partial(c_micropanel.add(m * 6));
+            // c_col_7.store_at_partial(c_micropanel.add(m * 7));
+        }
+    }
 }
 
-pub fn naive_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
-    // Pre-condition checks for memory safety and correctness.
-    // Panicking with a clear message is better than causing an out-of-bounds access.
-    assert_eq!(a.len(), m * k, "Matrix A has incorrect dimensions");
-    assert_eq!(b.len(), k * n, "Matrix B has incorrect dimensions");
-    assert_eq!(c.len(), m * n, "Matrix C has incorrect dimensions");
+fn naive_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
+    assert_eq!(a.len(), m * k);
+    assert_eq!(b.len(), k * n);
+    assert_eq!(c.len(), m * n);
 
-    // The standard matrix multiplication algorithm.
-    // Loop ordering is i, j, p which is straightforward but not the most cache-efficient.
-    for i in 0..m {
-        // Iterate over rows of C (and A)
-        for j in 0..n {
-            // Iterate over columns of C (and B)
-            // Calculate the dot product of the i-th row of A and the j-th column of B.
-            let mut dot_product = 0.0;
-            for p in 0..k {
-                // Iterate over the common dimension K
-                // A[i, p] * B[p, j]
-                // In row-major layout:
-                // A[i, p] is at index i * (num_cols_A) + p = i * k + p
-                // B[p, j] is at index p * (num_cols_B) + j = p * n + j
-                dot_product += a[i * k + p] * b[p * n + j];
+    println!("A: {:?}", a);
+    println!("B: {:?}", b);
+    println!("C: {:?}", c);
+
+    for col in 0..n {
+        for row in 0..m {
+            let mut sum = 0.0;
+            for inner in 0..k {
+                // Column-major index: i + j * rows
+                let a_idx = row + inner * m;
+                let b_idx = inner + col * k;
+                sum += a[a_idx] * b[b_idx];
             }
-            // Add the result to C: C[i, j] += dot_product
-            // C[i, j] is at index i * (num_cols_C) + j = i * n + j
-            c[i * n + j] += dot_product;
+            let c_idx = row + col * m;
+            c[c_idx] = sum;
         }
     }
 }
 
 fn main() {
-    let m = 8;
-    let k = 8;
-    let n = 8;
+    let m = 2;
+    let k = 2;
+    let n = 2;
 
     let a = (0..m * k).map(|i| i as f32).collect::<Vec<f32>>();
-
     let b = (0..k * n).map(|i| i as f32).collect::<Vec<f32>>();
 
     let mut c_matmul = (0..m * n).map(|i| 0 as f32).collect::<Vec<f32>>();
     let mut c_naive_matmul = (0..m * n).map(|i| 0 as f32).collect::<Vec<f32>>();
 
-    display_matrix(m, n, m, c_matmul.as_slice());
+    // display_matrix_column_major(m, n, m, c_naive_matmul.as_slice());
+    // display_matrix_row_major(m, n, m, c_naive_matmul.as_slice());
 
     matmul(&a, &b, &mut c_matmul, m, n, k);
     naive_matmul(&a, &b, &mut c_naive_matmul, m, n, k);
 
-    display_matrix(m, n, m, c_matmul.as_slice());
-    display_matrix(m, n, m, c_naive_matmul.as_slice());
+    // display_matrix_column_major(m, n, m, c_naive_matmul.as_slice());
+    display_matrix_column_major(m, n, m, c_matmul.as_slice());
+    display_matrix_column_major(m, n, m, c_naive_matmul.as_slice());
 }
