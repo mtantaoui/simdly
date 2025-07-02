@@ -378,7 +378,7 @@ const B_PERMUTATION: i32 = 0x01;
 const SHUFFLE_MASK: i32 = 0b11100100;
 
 const FINAL_PERMUTATION_1: i32 = 0x20;
-const FINAL_PERMUTATION_2: i32 = 0x31;
+const FINAL_PERMUTATION_2: i32 = 0x31; //originally 0x31
 
 unsafe fn kernel_8x8(
     a_panel: &APanel<MR, KC>,
@@ -446,33 +446,29 @@ unsafe fn kernel_8x8(
     let c_col_1 = pair_4_5.permute2f128::<FINAL_PERMUTATION_1>(pair_6_7);
     let c_col_2 = pair_1_0.permute2f128::<FINAL_PERMUTATION_1>(pair_3_2);
     let c_col_3 = pair_5_4.permute2f128::<FINAL_PERMUTATION_1>(pair_7_6);
-    let c_col_4 = pair_0_1.permute2f128::<FINAL_PERMUTATION_2>(pair_2_3);
-    let c_col_5 = pair_4_5.permute2f128::<FINAL_PERMUTATION_2>(pair_6_7);
-    let c_col_6 = pair_1_0.permute2f128::<FINAL_PERMUTATION_2>(pair_3_2);
-    let c_col_7 = pair_5_4.permute2f128::<FINAL_PERMUTATION_2>(pair_7_6);
+    let mut c_col_4 = pair_0_1.permute2f128::<FINAL_PERMUTATION_2>(pair_2_3);
+    let mut c_col_5 = pair_4_5.permute2f128::<FINAL_PERMUTATION_2>(pair_6_7);
+    let mut c_col_6 = pair_1_0.permute2f128::<FINAL_PERMUTATION_2>(pair_3_2);
+    let mut c_col_7 = pair_5_4.permute2f128::<FINAL_PERMUTATION_2>(pair_7_6);
 
-    println!("C0: {:?}", c_col_0);
-    println!("C1: {:?}", c_col_1);
-    println!("C2: {:?}", c_col_2);
-    println!("C3: {:?}", c_col_3);
-    println!("C4: {:?}", c_col_4);
-    println!("C5: {:?}", c_col_5);
-    println!("C6: {:?}", c_col_6);
-    println!("C7: {:?}", c_col_7);
+    c_col_4 = c_col_4.permute2f128::<0x01>(c_col_4);
+    c_col_5 = c_col_5.permute2f128::<0x01>(c_col_5);
+    c_col_6 = c_col_6.permute2f128::<0x01>(c_col_6);
+    c_col_7 = c_col_7.permute2f128::<0x01>(c_col_7);
 
     // Store the results back to the micro panel.
 
     match mr {
         MR => {
-            // // For 8 rows, we can store directly.
-            // c_col_0.store_at(c_micropanel.add(0));
-            // c_col_1.store_at(c_micropanel.add(m));
-            // c_col_2.store_at(c_micropanel.add(m * 2));
-            // c_col_3.store_at(c_micropanel.add(m * 3));
-            // c_col_4.store_at(c_micropanel.add(m * 4));
-            // c_col_5.store_at(c_micropanel.add(m * 5));
-            // c_col_6.store_at(c_micropanel.add(m * 6));
-            // c_col_7.store_at(c_micropanel.add(m * 7));
+            // For 8 rows, we can store directly.
+            c_col_0.store_at(c_micropanel.add(0));
+            c_col_1.store_at(c_micropanel.add(m));
+            c_col_2.store_at(c_micropanel.add(m * 2));
+            c_col_3.store_at(c_micropanel.add(m * 3));
+            c_col_4.store_at(c_micropanel.add(m * 4));
+            c_col_5.store_at(c_micropanel.add(m * 5));
+            c_col_6.store_at(c_micropanel.add(m * 6));
+            c_col_7.store_at(c_micropanel.add(m * 7));
         }
         _ => {
             // // For 8 rows, we can store directly.
@@ -493,9 +489,9 @@ fn naive_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usiz
     assert_eq!(b.len(), k * n);
     assert_eq!(c.len(), m * n);
 
-    println!("A: {:?}", a);
-    println!("B: {:?}", b);
-    println!("C: {:?}", c);
+    // println!("A: {:?}", a);
+    // println!("B: {:?}", b);
+    // println!("C: {:?}", c);
 
     for col in 0..n {
         for row in 0..m {
@@ -513,9 +509,9 @@ fn naive_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usiz
 }
 
 fn main() {
-    let m = 2;
-    let k = 2;
-    let n = 2;
+    let m = 8;
+    let k = 8;
+    let n = 8;
 
     let a = (0..m * k).map(|i| i as f32).collect::<Vec<f32>>();
     let b = (0..k * n).map(|i| i as f32).collect::<Vec<f32>>();
@@ -523,8 +519,8 @@ fn main() {
     let mut c_matmul = (0..m * n).map(|i| 0 as f32).collect::<Vec<f32>>();
     let mut c_naive_matmul = (0..m * n).map(|i| 0 as f32).collect::<Vec<f32>>();
 
-    // display_matrix_column_major(m, n, m, c_naive_matmul.as_slice());
-    // display_matrix_row_major(m, n, m, c_naive_matmul.as_slice());
+    display_matrix_column_major(m, n, m, c_naive_matmul.as_slice());
+    display_matrix_row_major(m, n, m, c_naive_matmul.as_slice());
 
     matmul(&a, &b, &mut c_matmul, m, n, k);
     naive_matmul(&a, &b, &mut c_naive_matmul, m, n, k);
