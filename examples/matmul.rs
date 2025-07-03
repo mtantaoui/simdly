@@ -161,57 +161,6 @@ impl<const KC: usize, const NR: usize> IndexMut<usize> for BBlock<KC, NR> {
     }
 }
 
-/// Packs a block from a column-major matrix `b` into a structured, aligned `BBlock` (KCxNC).
-///
-/// This is the highly efficient version that:
-/// 1. Performs a single, aligned memory allocation for the entire block.
-/// 2. Writes data directly into its final destination.
-/// 3. Returns a structured `BBlock` that manages the memory's lifecycle.
-///
-/// # Generic Parameters
-/// * `KC`: The packing dimension for rows (a compile-time constant).
-/// * `NR`: The register-blocking parameter for columns (a compile-time constant).
-///
-/// # Arguments
-/// * `b`: Slice representing the source column-major matrix `B`.
-/// * `nc`: The number of columns from `b` to pack (runtime variable).
-/// * `kc`: .
-/// * `k`: The leading dimension (total number of rows) of the source matrix `b`.
-pub fn pack_b<const KC: usize, const NR: usize>(
-    b: &[f32],
-    nc: usize,
-    kc: usize,
-    k: usize,
-) -> BBlock<KC, NR> {
-    // 1. Allocate the BBlock. This gives us perfectly aligned, zeroed memory.
-    let mut packed_block = BBlock::<KC, NR>::new(nc).expect("Memory allocation failed");
-
-    // Iterate over the columns of B in panels of width NR.
-    for (panel_idx, j_panel_start) in (0..nc).step_by(NR).enumerate() {
-        // Get a mutable reference to the destination panel within the BBlock.
-        let dest_panel = &mut packed_block[panel_idx];
-
-        // The number of columns in this specific panel (can be < NR at the matrix edge).
-        let nr_cols_in_panel = min(NR, nc - j_panel_start);
-
-        // 2. Fill the panel. The data is packed into a row-major format.
-        for p_row in 0..kc {
-            for j_col_in_panel in 0..nr_cols_in_panel {
-                // Calculate source index in column-major matrix B.
-                let src_col = j_panel_start + j_col_in_panel;
-                let src_idx = src_col * k + p_row;
-
-                // Write directly into the final destination.
-                dest_panel.data[p_row][j_col_in_panel] = b[src_idx];
-            }
-            // The remaining columns in `dest_panel.data[p_row]` (from nr_cols_in_panel..NR)
-            // are already zero because we used `alloc_zeroed`, so padding is handled.
-        }
-    }
-
-    packed_block
-}
-
 #[repr(C, align(32))]
 pub struct APanel<const MR: usize, const KC: usize> {
     pub data: [[f32; MR]; KC],
@@ -288,98 +237,134 @@ impl<const MR: usize, const KC: usize> IndexMut<usize> for ABlock<MR, KC> {
     }
 }
 
-/// Packs a block from a column-major matrix `a` into an `ABlock` using `copy_from_slice`.
-///
-/// This version is highly efficient as it copies contiguous blocks of memory from the
-/// source matrix directly into the contiguous columns of the destination panel.
+// The corrected matmul function - the key insight is that you cannot use chunks()
+// on column-major matrices because blocks are not contiguous in memory
+
+pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
+    // Loop over column blocks of C (and B)
+    for jc in (0..n).step_by(NC) {
+        let nc = min(NC, n - jc);
+
+        // Loop over row blocks of C (and A)
+        for ic in (0..m).step_by(MC) {
+            let mc = min(MC, m - ic);
+
+            // Initialize this block of C to zero (only for the first K iteration)
+            // Actually, we assume C starts as zeros, so we can skip this
+
+            // Loop over K dimension blocks
+            for pc in (0..k).step_by(KC) {
+                let kc = min(KC, k - pc);
+
+                // Pack block of A: A(ic:ic+mc, pc:pc+kc)
+                // We need to extract this block from the column-major matrix A
+                let a_block = pack_a::<MR, KC>(a, mc, kc, m, ic, pc);
+
+                // Pack block of B: B(pc:pc+kc, jc:jc+nc)
+                // We need to extract this block from the column-major matrix B
+                let b_block = pack_b::<KC, NR>(b, nc, kc, k, pc, jc);
+
+                // Perform micro-kernel computations
+                for jr in 0..b_block.as_panels().len() {
+                    let b_panel = &b_block[jr];
+                    let nr = min(NR, nc - jr * NR);
+
+                    for ir in 0..a_block.as_panels().len() {
+                        let a_panel = &a_block[ir];
+                        let mr = min(MR, mc - ir * MR);
+
+                        // Calculate position in C for this micro-panel
+                        let c_row = ic + ir * MR;
+                        let c_col = jc + jr * NR;
+                        let c_micropanel_start_idx = c_col * m + c_row;
+
+                        let c_micropanel = &mut c[c_micropanel_start_idx..];
+
+                        unsafe {
+                            kernel_8x8(a_panel, b_panel, c_micropanel.as_mut_ptr(), mr, nr, kc, m);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Modified pack_a to take matrix parameters and block coordinates
 pub fn pack_a<const MR: usize, const KC: usize>(
     a: &[f32],
     mc: usize,
     kc: usize,
-    m: usize,
+    m: usize,  // leading dimension of A
+    ic: usize, // starting row of block
+    pc: usize, // starting column of block
 ) -> ABlock<MR, KC> {
     let mut packed_block = ABlock::<MR, KC>::new(mc).expect("Memory allocation failed");
 
-    // Iterate over A in row-panels of height MR.
+    // Iterate over A in row-panels of height MR
     for (panel_idx, i_panel_start) in (0..mc).step_by(MR).enumerate() {
         let dest_panel = &mut packed_block[panel_idx];
         let mr_in_panel = min(MR, mc - i_panel_start);
 
-        // Iterate through columns of the source block to fill the columns of the dest panel.
+        // Fill each column of the panel
         for p_col in 0..kc {
-            // 1. Define the source slice. This is a contiguous segment
-            //    from a column of the original matrix `a`.
-            let src_start = p_col * m + i_panel_start;
+            // Source column in original matrix A
+            let src_col = pc + p_col;
+            // Source row start in original matrix A
+            let src_row_start = ic + i_panel_start;
+
+            // In column-major A, column src_col starts at index src_col * m
+            // We want elements A(src_row_start:src_row_start+mr_in_panel, src_col)
+            let src_start = src_col * m + src_row_start;
             let src_slice = &a[src_start..src_start + mr_in_panel];
 
-            // 2. Define the destination slice. This is the start of the
-            //    destination column in the packed panel.
+            // Destination in panel
             let dest_slice = &mut dest_panel.data[p_col][0..mr_in_panel];
 
-            // 3. Perform the copy. This will be optimized to a single `memcpy`.
+            // Copy the data
             dest_slice.copy_from_slice(src_slice);
-
-            // Padding is already handled as the memory was zero-allocated.
-            // The remaining elements in `dest_panel.data[p_col]` are untouched and remain zero.
         }
     }
 
     packed_block
 }
 
-pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
-    c.chunks_mut(m * NC).enumerate().for_each(|(j, c_chunk)| {
-        let jc = j * NC;
-        let nc = min(NC, n - jc);
+// Modified pack_b to take matrix parameters and block coordinates
+pub fn pack_b<const KC: usize, const NR: usize>(
+    b: &[f32],
+    nc: usize,
+    kc: usize,
+    k: usize,  // leading dimension of B
+    pc: usize, // starting row of block
+    jc: usize, // starting column of block
+) -> BBlock<KC, NR> {
+    let mut packed_block = BBlock::<KC, NR>::new(nc).expect("Memory allocation failed");
 
-        a.chunks(m * KC).enumerate().for_each(|(p, a_chunk)| {
-            let pc = p * KC;
-            let kc = min(KC, k - pc);
+    // Iterate over columns of B in panels of width NR
+    for (panel_idx, j_panel_start) in (0..nc).step_by(NR).enumerate() {
+        let dest_panel = &mut packed_block[panel_idx];
+        let nr_cols_in_panel = min(NR, nc - j_panel_start);
 
-            let b_block = pack_b::<KC, NR>(b, nc, kc, k);
+        // Fill the panel row by row
+        for p_row in 0..kc {
+            // Source row in original matrix B
+            let src_row = pc + p_row;
 
-            for ic in (0..m).step_by(MC) {
-                let mc = min(MC, m - ic);
+            for j_col_in_panel in 0..nr_cols_in_panel {
+                // Source column in original matrix B
+                let src_col = jc + j_panel_start + j_col_in_panel;
 
-                let a_block = pack_a::<MR, KC>(&a_chunk[ic..], mc, kc, m);
+                // In column-major B, element B(src_row, src_col) is at index src_col * k + src_row
+                let src_idx = src_col * k + src_row;
 
-                b_block
-                    .as_panels()
-                    .iter()
-                    .enumerate()
-                    .for_each(|(jr, b_panel)| {
-                        a_block
-                            .as_panels()
-                            .iter()
-                            .enumerate()
-                            .for_each(|(ir, a_panel)| {
-                                let nr = min(NR, nc - jr * NR);
-                                let mr = min(MR, mc - ir * MR);
-
-                                println!("C micro panel, Size: {}x{}", mr, nr);
-
-                                let c_micropanel =
-                                    c_chunk[(jr * NR * m + (ic + ir * MR))..].as_mut_ptr();
-
-                                unsafe {
-                                    kernel_8x8(a_panel, b_panel, c_micropanel, mr, nr, kc, m)
-                                };
-                                // display_matrix(mr, nr, m, c_micropanel);
-                            })
-                    });
+                // Store in panel
+                dest_panel.data[p_row][j_col_in_panel] = b[src_idx];
             }
-        });
-    });
+        }
+    }
+
+    packed_block
 }
-
-const A_PERMUTATION: i32 = 0b01_00_11_10;
-const B_PERMUTATION: i32 = 0x01;
-
-const SHUFFLE_MASK: i32 = 0b11100100;
-
-const FINAL_PERMUTATION_1: i32 = 0x20;
-const FINAL_PERMUTATION_2: i32 = 0x31; //originally 0x31
-
 unsafe fn kernel_8x8(
     a_panel: &APanel<MR, KC>,
     b_panel: &BPanel<KC, NR>,
@@ -389,99 +374,76 @@ unsafe fn kernel_8x8(
     kc: usize,
     m: usize,
 ) {
-    println!("C micro panel, Size: {}x{}", mr, nr);
+    // println!("C micro panel, Size: {}x{}", mr, nr);
 
-    // Only when Using column major storage
-    let (a_panel, b_panel) = (b_panel, a_panel);
+    // for p in 0..kc {
+    //     let a_column = &a_panel.data[p];
+    //     let b_row = &b_panel.data[p];
 
-    let mut ab_striped0: F32x8 = F32x8::zero();
-    let mut ab_striped1: F32x8 = F32x8::zero();
-    let mut ab_striped2: F32x8 = F32x8::zero();
-    let mut ab_striped3: F32x8 = F32x8::zero();
-    let mut ab_striped4: F32x8 = F32x8::zero();
-    let mut ab_striped5: F32x8 = F32x8::zero();
-    let mut ab_striped6: F32x8 = F32x8::zero();
-    let mut ab_striped7: F32x8 = F32x8::zero();
+    //     println!("A: column:{:?}", a_column);
+    //     println!("B: row:{:?}", b_row);
+    // }
+
+    let mut c0 = F32x8::load(c_micropanel, mr);
+    let mut c1 = F32x8::load(c_micropanel.add(m), mr);
+    let mut c2 = F32x8::load(c_micropanel.add(2 * m), mr);
+    let mut c3 = F32x8::load(c_micropanel.add(3 * m), mr);
+    let mut c4 = F32x8::load(c_micropanel.add(4 * m), mr);
+    let mut c5 = F32x8::load(c_micropanel.add(5 * m), mr);
+    let mut c6 = F32x8::load(c_micropanel.add(6 * m), mr);
+    let mut c7 = F32x8::load(c_micropanel.add(7 * m), mr);
+
+    let mut b_pj: F32x8;
 
     for p in 0..kc {
-        let a_col = F32x8::load_aligned(a_panel.data[p].as_ptr());
+        let a = &a_panel.data[p];
+        let b = &b_panel.data[p];
 
-        let a_even = a_col.moveldup();
+        // Load the A column into a vector
+        let a = F32x8::load_aligned(a.as_ptr());
 
-        let a_odd = a_col.movehdup();
+        // Perform the multiplication and accumulate
+        b_pj = F32x8::splat(b[0]);
+        // c0.fmadd(a, b_pj);
+        c0 += a * b_pj;
 
-        let a_even_permuted = a_even.permute::<A_PERMUTATION>();
+        b_pj = F32x8::splat(b[1]);
+        // c1.fmadd(a, b_pj);
+        c1 += a * b_pj;
 
-        let a_odd_permuted = a_odd.permute::<A_PERMUTATION>();
+        b_pj = F32x8::splat(b[2]);
+        // c2.fmadd(a, b_pj);
+        c2 += a * b_pj;
 
-        let b_row = F32x8::load_aligned(b_panel.data[p].as_ptr());
+        b_pj = F32x8::splat(b[3]);
+        // c3.fmadd(a, b_pj);
+        c3 += a * b_pj;
 
-        let b_row_permuted = b_row.permute2f128::<B_PERMUTATION>(b_row);
+        b_pj = F32x8::splat(b[4]);
+        // c4.fmadd(a, b_pj);
+        c4 += a * b_pj;
 
-        ab_striped0.fmadd(a_even, b_row);
-        ab_striped1.fmadd(a_even_permuted, b_row);
-        ab_striped2.fmadd(a_even, b_row_permuted);
-        ab_striped3.fmadd(a_even_permuted, b_row_permuted);
+        b_pj = F32x8::splat(b[5]);
+        // c5.fmadd(a, b_pj);
+        c5 += a * b_pj;
 
-        ab_striped4.fmadd(a_odd, b_row);
-        ab_striped5.fmadd(a_odd_permuted, b_row);
-        ab_striped6.fmadd(a_odd, b_row_permuted);
-        ab_striped7.fmadd(a_odd_permuted, b_row_permuted);
+        b_pj = F32x8::splat(b[6]);
+        // c6.fmadd(a, b_pj);
+        c6 += a * b_pj;
+
+        b_pj = F32x8::splat(b[7]);
+        // c7.fmadd(a, b_pj);
+        c7 += a * b_pj;
     }
 
-    // Shuffle within vectors
-    let pair_0_1 = ab_striped0.shuffle::<SHUFFLE_MASK>(ab_striped1);
-    let pair_1_0 = ab_striped1.shuffle::<SHUFFLE_MASK>(ab_striped0);
-
-    let pair_2_3 = ab_striped2.shuffle::<SHUFFLE_MASK>(ab_striped3);
-    let pair_3_2 = ab_striped3.shuffle::<SHUFFLE_MASK>(ab_striped2);
-
-    let pair_4_5 = ab_striped4.shuffle::<SHUFFLE_MASK>(ab_striped5);
-    let pair_5_4 = ab_striped5.shuffle::<SHUFFLE_MASK>(ab_striped4);
-
-    let pair_6_7 = ab_striped6.shuffle::<SHUFFLE_MASK>(ab_striped7);
-    let pair_7_6 = ab_striped7.shuffle::<SHUFFLE_MASK>(ab_striped6);
-
-    let c_col_0 = pair_0_1.permute2f128::<FINAL_PERMUTATION_1>(pair_2_3);
-    let c_col_1 = pair_4_5.permute2f128::<FINAL_PERMUTATION_1>(pair_6_7);
-    let c_col_2 = pair_1_0.permute2f128::<FINAL_PERMUTATION_1>(pair_3_2);
-    let c_col_3 = pair_5_4.permute2f128::<FINAL_PERMUTATION_1>(pair_7_6);
-    let mut c_col_4 = pair_0_1.permute2f128::<FINAL_PERMUTATION_2>(pair_2_3);
-    let mut c_col_5 = pair_4_5.permute2f128::<FINAL_PERMUTATION_2>(pair_6_7);
-    let mut c_col_6 = pair_1_0.permute2f128::<FINAL_PERMUTATION_2>(pair_3_2);
-    let mut c_col_7 = pair_5_4.permute2f128::<FINAL_PERMUTATION_2>(pair_7_6);
-
-    c_col_4 = c_col_4.permute2f128::<0x01>(c_col_4);
-    c_col_5 = c_col_5.permute2f128::<0x01>(c_col_5);
-    c_col_6 = c_col_6.permute2f128::<0x01>(c_col_6);
-    c_col_7 = c_col_7.permute2f128::<0x01>(c_col_7);
-
-    // Store the results back to the micro panel.
-
-    match mr {
-        MR => {
-            // For 8 rows, we can store directly.
-            c_col_0.store_at(c_micropanel.add(0));
-            c_col_1.store_at(c_micropanel.add(m));
-            c_col_2.store_at(c_micropanel.add(m * 2));
-            c_col_3.store_at(c_micropanel.add(m * 3));
-            c_col_4.store_at(c_micropanel.add(m * 4));
-            c_col_5.store_at(c_micropanel.add(m * 5));
-            c_col_6.store_at(c_micropanel.add(m * 6));
-            c_col_7.store_at(c_micropanel.add(m * 7));
-        }
-        _ => {
-            // // For 8 rows, we can store directly.
-            // c_col_0.store_at_partial(c_micropanel.add(0));
-            // c_col_1.store_at_partial(c_micropanel.add(m));
-            // c_col_2.store_at_partial(c_micropanel.add(m * 2));
-            // c_col_3.store_at_partial(c_micropanel.add(m * 3));
-            // c_col_4.store_at_partial(c_micropanel.add(m * 4));
-            // c_col_5.store_at_partial(c_micropanel.add(m * 5));
-            // c_col_6.store_at_partial(c_micropanel.add(m * 6));
-            // c_col_7.store_at_partial(c_micropanel.add(m * 7));
-        }
-    }
+    c0.store_at(c_micropanel);
+    c1.store_at(c_micropanel.add(m));
+    c2.store_at(c_micropanel.add(2 * m));
+    c3.store_at(c_micropanel.add(3 * m));
+    c4.store_at(c_micropanel.add(4 * m));
+    c5.store_at(c_micropanel.add(5 * m));
+    c6.store_at(c_micropanel.add(6 * m));
+    c7.store_at(c_micropanel.add(7 * m));
 }
 
 fn naive_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
@@ -498,9 +460,8 @@ fn naive_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usiz
             let mut sum = 0.0;
             for inner in 0..k {
                 // Column-major index: i + j * rows
-                let a_idx = row + inner * m;
-                let b_idx = inner + col * k;
-                sum += a[a_idx] * b[b_idx];
+
+                sum += a[at(row, inner, m)] * b[at(inner, col, k)];
             }
             let c_idx = row + col * m;
             c[c_idx] = sum;
@@ -509,9 +470,9 @@ fn naive_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usiz
 }
 
 fn main() {
-    let m = 8;
-    let k = 8;
-    let n = 8;
+    let m = 8 * 10;
+    let k = 8 * 10;
+    let n = 8 * 10;
 
     let a = (0..m * k).map(|i| i as f32).collect::<Vec<f32>>();
     let b = (0..k * n).map(|i| i as f32).collect::<Vec<f32>>();
@@ -519,13 +480,19 @@ fn main() {
     let mut c_matmul = (0..m * n).map(|i| 0 as f32).collect::<Vec<f32>>();
     let mut c_naive_matmul = (0..m * n).map(|i| 0 as f32).collect::<Vec<f32>>();
 
-    display_matrix_column_major(m, n, m, c_naive_matmul.as_slice());
-    display_matrix_row_major(m, n, m, c_naive_matmul.as_slice());
-
     matmul(&a, &b, &mut c_matmul, m, n, k);
     naive_matmul(&a, &b, &mut c_naive_matmul, m, n, k);
 
-    // display_matrix_column_major(m, n, m, c_naive_matmul.as_slice());
-    display_matrix_column_major(m, n, m, c_matmul.as_slice());
-    display_matrix_column_major(m, n, m, c_naive_matmul.as_slice());
+    for i in 0..m {
+        for j in 0..n {
+            let idx = at(i, j, m);
+            if c_matmul[idx] != c_naive_matmul[idx] {
+                println!(
+                    "Mismatch at ({}, {}): {} != {}",
+                    i, j, c_matmul[idx], c_naive_matmul[idx]
+                );
+            }
+        }
+    }
+    println!("All values match between optimized and naive matmul implementations.");
 }
