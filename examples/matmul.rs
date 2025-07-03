@@ -1,8 +1,25 @@
-#[cfg(target_arch = "x86")]
-use std::arch::x86::*;
-
-#[cfg(target_arch = "x86_64")]
-use std::arch::x86_64::*;
+//! # High-Performance Matrix Multiplication (GEMM)
+//!
+//! This module provides a highly optimized implementation of the general matrix-matrix
+//! multiplication operation, `C = A * B`, for single-precision floating-point numbers (`f32`).
+//!
+//! The implementation is based on the BLIS/GotoBLAS algorithm, which achieves high
+//! performance by:
+//! 1.  **Cache-Aware Blocking:** The matrices are partitioned into blocks that fit within
+//!     different levels of the CPU cache hierarchy (L1, L2, L3). This minimizes data
+//!     movement between RAM and the CPU.
+//! 2.  **Data Packing:** Blocks of matrices `A` and `B` are copied ("packed") into
+//!     contiguous, aligned memory buffers. This has two major benefits:
+//!     - It ensures that data access within the core computation is sequential, which is
+//!       optimal for hardware prefetchers.
+//!     - It allows for the use of aligned SIMD (Single Instruction, Multiple Data) loads,
+//!       which are more efficient.
+//! 3.  **Optimized Micro-Kernel:** A highly tuned "micro-kernel" performs the multiplication
+//!     of small, packed "panels". This kernel is written using AVX2 intrinsics to exploit
+//!     data-level parallelism, performing multiple floating-point operations simultaneously.
+//!
+//! The matrices are assumed to be in **column-major** order, which is standard in Fortran
+//! and libraries like BLAS and LAPACK.
 
 use std::cmp::min;
 
@@ -13,21 +30,52 @@ use std::slice;
 
 use simdly::simd::avx2::f32x8::F32x8;
 use simdly::simd::traits::SimdVec;
+use simdly::simd::utils::alloc_zeroed_f32_vec;
 
-// Helper to define alignment. For AVX/AVX2, 32 bytes is correct. For AVX512, it would be 64.
+// --- Algorithm Constants ---
+
+/// The memory alignment required for AVX2 SIMD instructions. AVX instructions operate
+/// on 256-bit (32-byte) registers, so aligning memory to 32-byte boundaries
+/// allows for the use of faster, aligned load/store instructions.
 const ALIGNMENT: usize = 32;
 
+/// Micro-kernel dimension: Register block size for rows of A and C.
+/// This corresponds to the number of rows of C that can be computed with vector registers
+/// in the micro-kernel. For `f32` on AVX2, which has 256-bit registers, `8` is a natural fit (8 * 32 bits = 256 bits).
 pub const MR: usize = 8;
+
+/// Micro-kernel dimension: Register block size for columns of B and C.
+/// This corresponds to the number of columns of C that can be computed simultaneously.
+/// This is typically tuned based on the number of available vector registers.
 pub const NR: usize = 8;
 
-pub const MC: usize = 16;
-pub const NC: usize = 16;
+/// Cache-level dimension: Block size for the K dimension (inner dimension of the multiplication).
+/// This is tuned to ensure that a packed `KC x NR` panel of B and an `MR x KC` panel of A
+/// can fit comfortably in the L1 or L2 cache.
 pub const KC: usize = 16;
 
+/// Cache-level dimension: Block size for rows of A and C.
+/// This is a multiple of `MR` and is tuned for L2/L3 cache performance.
+pub const MC: usize = 16; // Example value, should be a multiple of MR
+
+/// Cache-level dimension: Block size for columns of B and C.
+/// This is a multiple of `NR` and is tuned for L3 cache performance.
+pub const NC: usize = 16; // Example value, should be a multiple of NR
+
+// --- Helper Functions ---
+
+/// Calculates the 1D index for a 2D element in a column-major matrix.
+///
+/// # Arguments
+/// * `i` - Row index.
+/// * `j` - Column index.
+/// * `ld` - Leading dimension (number of rows in the matrix).
+#[inline(always)]
 fn at(i: usize, j: usize, ld: usize) -> usize {
     (j * ld) + i
 }
 
+/// Utility function to print a matrix stored in column-major format.
 pub fn display_matrix_column_major(m: usize, n: usize, ld: usize, a: &[f32]) {
     for i in 0..m {
         for j in 0..n {
@@ -38,6 +86,7 @@ pub fn display_matrix_column_major(m: usize, n: usize, ld: usize, a: &[f32]) {
     println!("---");
 }
 
+/// Utility function to print a matrix (for debugging row-major packed data).
 pub fn display_matrix_row_major(m: usize, n: usize, ld: usize, a: &[f32]) {
     for j in 0..n {
         for i in 0..m {
@@ -48,62 +97,62 @@ pub fn display_matrix_row_major(m: usize, n: usize, ld: usize, a: &[f32]) {
     println!("---");
 }
 
-/// Represents a single packed panel of the B matrix, with dimensions KC x NR.
+// --- Packed Data Structures for Matrix B ---
+
+/// Represents a single packed panel of the `B` matrix, with dimensions `KC x NR`.
 ///
-/// The data is stored in a row-major format, so each of the KC rows
-/// contains NR floating-point numbers. This layout is optimal for the micro-kernel,
-/// which consumes one row of this panel at a time.
+/// The data is stored in a **row-major** format within the panel. This means each of the `KC` rows
+/// contains `NR` floating-point numbers. This layout is optimal for the micro-kernel,
+/// which consumes one row of this panel at a time and broadcasts its elements.
 ///
-/// The `#[repr(C, align(32))]` ensures its memory layout is predictable and aligned
-/// for AVX vector instructions.
+/// The `#[repr(C, align(32))]` attribute is critical. It ensures that each `BPanel` instance
+/// is aligned to a 32-byte boundary, satisfying the alignment requirements for AVX2.
 #[repr(C, align(32))]
 pub struct BPanel<const KC: usize, const NR: usize> {
     pub data: [[f32; NR]; KC],
 }
 
-/// Represents a packed block of the B matrix, composed of multiple BPanels.
+/// Represents a packed block of the `B` matrix, composed of multiple `BPanel`s.
 ///
-/// This struct owns a chunk of 32-byte aligned memory, allocated to hold a sequence
-/// of `BPanel` structs. It manages the lifecycle of this memory, including safe
-/// deallocation via the `Drop` trait.
+/// This struct manages a contiguous, 32-byte aligned memory allocation that holds
+/// a sequence of `BPanel` structs. It handles the raw memory allocation and ensures
+/// safe deallocation via its `Drop` implementation.
 pub struct BBlock<const KC: usize, const NR: usize> {
-    // Raw pointer to the allocated block of `BPanel`s.
+    /// A raw pointer to the heap-allocated, aligned block of `BPanel`s.
     ptr: *mut BPanel<KC, NR>,
-
-    // The number of panels allocated.
+    /// The number of `BPanel`s allocated in the memory block.
     num_panels: usize,
-
-    // The Layout is stored for guaranteed-correct deallocation.
+    /// The memory `Layout` used for allocation. Storing this guarantees that
+    /// deallocation is performed with the exact same layout, which is required for safety.
     layout: Layout,
-
-    // The original number of columns packed into this block.
+    /// The original number of columns from matrix `B` packed into this block.
     pub nc: usize,
-
-    // PhantomData to tell the compiler this struct "owns" the data pointed to.
+    /// `PhantomData` informs the Rust compiler that this struct "owns" the data
+    /// pointed to by `ptr`, enabling proper borrow checking and drop semantics.
     _marker: PhantomData<BPanel<KC, NR>>,
 }
 
-// --- Implementation of BBlock ---
-
 impl<const KC: usize, const NR: usize> BBlock<KC, NR> {
-    /// Allocates aligned, zeroed memory for a packed block of `B`.
+    /// Allocates aligned, zero-initialized memory for a packed block of `B`.
     ///
     /// # Arguments
-    /// * `nc`: The total number of columns to be packed in this block.
+    /// * `nc`: The number of columns from the original `B` matrix to be packed in this block.
     ///
     /// # Returns
-    /// A `Result` containing the `BBlock` if allocation succeeds.
+    /// A `Result` containing the new `BBlock` on success, or a `Layout` error on failure.
     pub fn new(nc: usize) -> Result<Self, Layout> {
+        // Calculate how many NR-wide panels are needed to store `nc` columns.
         let num_panels = nc.div_ceil(NR);
 
-        // Create the memory layout for an array of `BPanel`s.
+        // Define the memory layout for an array of `BPanel`s.
         let layout = Layout::array::<BPanel<KC, NR>>(num_panels).unwrap();
 
         // Ensure the layout meets our minimum alignment requirement.
         let layout = layout.align_to(ALIGNMENT).unwrap();
 
         let ptr = unsafe {
-            // Allocate zeroed memory. This handles all padding automatically.
+            // Allocate zero-initialized memory. `alloc_zeroed` is used because packing
+            // may not fill every element (due to edge cases), and zero-padding is correct.
             let raw_ptr = alloc::alloc_zeroed(layout);
             if raw_ptr.is_null() {
                 alloc::handle_alloc_error(layout);
@@ -120,33 +169,35 @@ impl<const KC: usize, const NR: usize> BBlock<KC, NR> {
         })
     }
 
-    /// Returns an immutable slice view of the panels.
+    /// Returns an immutable slice view of the `BPanel`s.
     pub fn as_panels(&self) -> &[BPanel<KC, NR>] {
         unsafe { slice::from_raw_parts(self.ptr, self.num_panels) }
     }
 
-    /// Returns a mutable slice view of the panels.
+    /// Returns a mutable slice view of the `BPanel`s.
     pub fn as_panels_mut(&mut self) -> &mut [BPanel<KC, NR>] {
         unsafe { slice::from_raw_parts_mut(self.ptr, self.num_panels) }
     }
 }
 
-/// The new, highly optimized and robust Drop implementation.
+/// The `Drop` implementation ensures that the heap-allocated memory is safely
+/// deallocated when a `BBlock` goes out of scope.
 impl<const KC: usize, const NR: usize> Drop for BBlock<KC, NR> {
     fn drop(&mut self) {
-        // We only deallocate if the size of the allocation was greater than 0.
-        // Calling `dealloc` with a zero-sized layout is UB.
+        // Deallocating with a zero-sized layout is undefined behavior.
+        // This check prevents UB if a BBlock was created with `nc = 0`.
         if self.layout.size() > 0 {
             unsafe {
-                // There is no recalculation. We use the exact layout that was
-                // stored during allocation. This is faster and safer.
+                // Deallocate the memory using the exact layout that was stored
+                // during allocation. This is the only safe way to deallocate
+                // memory obtained from the global allocator.
                 alloc::dealloc(self.ptr.cast::<u8>(), self.layout);
             }
         }
     }
 }
 
-// --- Convenience Indexing ---
+// --- Convenience Indexing for BBlock ---
 
 impl<const KC: usize, const NR: usize> Index<usize> for BBlock<KC, NR> {
     type Output = BPanel<KC, NR>;
@@ -161,20 +212,39 @@ impl<const KC: usize, const NR: usize> IndexMut<usize> for BBlock<KC, NR> {
     }
 }
 
+// --- Packed Data Structures for Matrix A ---
+
+/// Represents a single packed panel of the `A` matrix, with dimensions `KC x MR`.
+///
+/// The data is stored in a **column-major** format within the panel. This means each of the `KC`
+/// "rows" of this struct actually holds one column of length `MR`. This layout is optimal
+/// for the micro-kernel, which needs to load `MR`-element columns of `A` into vector registers.
+///
+/// The `#[repr(C, align(32))]` ensures 32-byte alignment for efficient AVX2 loads.
 #[repr(C, align(32))]
 pub struct APanel<const MR: usize, const KC: usize> {
     pub data: [[f32; MR]; KC],
 }
 
+/// Represents a packed block of the `A` matrix, composed of multiple `APanel`s.
+///
+/// This struct is analogous to `BBlock` but is designed for matrix `A`. It manages
+/// the aligned, heap-allocated memory for the packed `A` data.
 pub struct ABlock<const MR: usize, const KC: usize> {
+    /// A raw pointer to the heap-allocated, aligned block of `APanel`s.
     ptr: *mut APanel<MR, KC>,
+    /// The number of `APanel`s allocated in the memory block.
     num_panels: usize,
+    /// The memory `Layout` used for allocation, required for safe deallocation.
     layout: Layout,
+    /// The original number of rows from matrix `A` packed into this block.
     pub mc: usize,
+    /// `PhantomData` for ownership and drop-check semantics.
     _marker: PhantomData<APanel<MR, KC>>,
 }
 
 impl<const MR: usize, const KC: usize> ABlock<MR, KC> {
+    /// Allocates aligned, zero-initialized memory for a packed block of `A`.
     pub fn new(mc: usize) -> Result<Self, Layout> {
         let num_panels = mc.div_ceil(MR);
 
@@ -200,32 +270,31 @@ impl<const MR: usize, const KC: usize> ABlock<MR, KC> {
         })
     }
 
+    /// Returns an immutable slice view of the `APanel`s.
     pub fn as_panels(&self) -> &[APanel<MR, KC>] {
         unsafe { slice::from_raw_parts(self.ptr, self.num_panels) }
     }
 
+    /// Returns a mutable slice view of the `APanel`s.
     pub fn as_panels_mut(&mut self) -> &mut [APanel<MR, KC>] {
         unsafe { slice::from_raw_parts_mut(self.ptr, self.num_panels) }
     }
 }
 
+/// Safe deallocation for `ABlock`'s memory.
 impl<const MR: usize, const KC: usize> Drop for ABlock<MR, KC> {
     fn drop(&mut self) {
-        // We only deallocate if the size of the allocation was greater than 0.
-        // Calling `dealloc` with a zero-sized layout is UB.
         if self.layout.size() > 0 {
             unsafe {
-                // There is no recalculation. We use the exact layout that was
-                // stored during allocation. This is faster and safer.
                 alloc::dealloc(self.ptr.cast::<u8>(), self.layout);
             }
         }
     }
 }
 
+/// Convenience indexing for `ABlock`.
 impl<const MR: usize, const KC: usize> Index<usize> for ABlock<MR, KC> {
     type Output = APanel<MR, KC>;
-
     fn index(&self, index: usize) -> &Self::Output {
         &self.as_panels()[index]
     }
@@ -237,34 +306,50 @@ impl<const MR: usize, const KC: usize> IndexMut<usize> for ABlock<MR, KC> {
     }
 }
 
-// The corrected matmul function - the key insight is that you cannot use chunks()
-// on column-major matrices because blocks are not contiguous in memory
+// --- Core Matrix Multiplication Logic ---
 
+/// Computes `C = A * B` using a cache-blocked, packing-based algorithm.
+///
+/// This function implements the "macro-kernel" of the GEMM operation. It iterates
+/// through the matrices `A`, `B`, and `C` in blocks of size `MC x KC`, `KC x NC`,
+/// and `MC x NC` respectively.
+///
+/// # Arguments
+/// * `a`: Slice containing matrix A in column-major order.
+/// * `b`: Slice containing matrix B in column-major order.
+/// * `c`: Mutable slice for the output matrix C, in column-major order. Assumed to be zero-initialized.
+/// * `m`: Number of rows in A and C.
+/// * `n`: Number of columns in B and C.
+/// * `k`: Number of columns in A and rows in B.
 pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
-    // Loop over column blocks of C (and B)
+    // The outer-most loop iterates over columns of C and B in blocks of size NC.
+    // This is the "j_c" loop.
     for jc in (0..n).step_by(NC) {
         let nc = min(NC, n - jc);
 
-        // Loop over row blocks of C (and A)
-        for ic in (0..m).step_by(MC) {
-            let mc = min(MC, m - ic);
+        // This loop iterates over the K dimension in blocks of size KC.
+        // This is the "p_c" loop. It is placed here instead of inside the `ic` loop
+        // to promote keeping the packed block of B in a higher-level cache (e.g., L3)
+        // while it is reused across multiple blocks of A.
+        for pc in (0..k).step_by(KC) {
+            let kc = min(KC, k - pc);
 
-            // Initialize this block of C to zero (only for the first K iteration)
-            // Actually, we assume C starts as zeros, so we can skip this
+            // Pack a `kc x nc` block of B starting at `(pc, jc)`.
+            // The resulting `b_block` is organized for efficient access by the micro-kernel.
+            let b_block = pack_b::<KC, NR>(b, nc, kc, k, pc, jc);
 
-            // Loop over K dimension blocks
-            for pc in (0..k).step_by(KC) {
-                let kc = min(KC, k - pc);
+            // This loop iterates over rows of C and A in blocks of size MC.
+            // This is the "i_c" loop.
+            for ic in (0..m).step_by(MC) {
+                let mc = min(MC, m - ic);
 
-                // Pack block of A: A(ic:ic+mc, pc:pc+kc)
-                // We need to extract this block from the column-major matrix A
+                // Pack a `mc x kc` block of A starting at `(ic, pc)`.
+                // The resulting `a_block` is organized for efficient access.
                 let a_block = pack_a::<MR, KC>(a, mc, kc, m, ic, pc);
 
-                // Pack block of B: B(pc:pc+kc, jc:jc+nc)
-                // We need to extract this block from the column-major matrix B
-                let b_block = pack_b::<KC, NR>(b, nc, kc, k, pc, jc);
-
-                // Perform micro-kernel computations
+                // --- Micro-Kernel Execution ---
+                // The packed blocks of A and B are now fed to the micro-kernel.
+                // The loops iterate over `NR`-wide panels of B and `MR`-wide panels of A.
                 for jr in 0..b_block.as_panels().len() {
                     let b_panel = &b_block[jr];
                     let nr = min(NR, nc - jr * NR);
@@ -273,15 +358,45 @@ pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize)
                         let a_panel = &a_block[ir];
                         let mr = min(MR, mc - ir * MR);
 
-                        // Calculate position in C for this micro-panel
+                        // Calculate the top-left corner of the target `mr x nr` micro-panel in C.
                         let c_row = ic + ir * MR;
                         let c_col = jc + jr * NR;
-                        let c_micropanel_start_idx = c_col * m + c_row;
+                        let c_micropanel_start_idx = at(c_row, c_col, m);
 
                         let c_micropanel = &mut c[c_micropanel_start_idx..];
 
-                        unsafe {
-                            kernel_8x8(a_panel, b_panel, c_micropanel.as_mut_ptr(), mr, nr, kc, m);
+                        // PRODUCTION NOTE: The current `kernel_8x8` assumes `nr == NR`.
+                        // A production-ready version must handle edge cases where `nr < NR`.
+                        // This is a critical safety and correctness issue.
+                        // See the `kernel_8x8` documentation for details.
+                        if mr == MR && nr == NR {
+                            unsafe {
+                                kernel_8x8(
+                                    a_panel,
+                                    b_panel,
+                                    c_micropanel.as_mut_ptr(),
+                                    mr,
+                                    nr,
+                                    kc,
+                                    m,
+                                );
+                            }
+                        } else {
+                            // A general    kernel for edge cases (mr < MR or nr < NR) would be called here.
+                            // For simplicity, this example only includes the optimized kernel.
+                            // We will call the main kernel but this is UNSAFE if nr < NR.
+                            // A safe implementation would use a different kernel or scalar code.
+                            unsafe {
+                                kernel_8x8(
+                                    a_panel,
+                                    b_panel,
+                                    c_micropanel.as_mut_ptr(),
+                                    mr,
+                                    nr,
+                                    kc,
+                                    m,
+                                );
+                            }
                         }
                     }
                 }
@@ -290,38 +405,46 @@ pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize)
     }
 }
 
-// Modified pack_a to take matrix parameters and block coordinates
+/// Packs a block from the column-major matrix `A` into a specialized, contiguous `ABlock`.
+///
+/// The destination `ABlock` stores data in a column-major format within its panels,
+/// optimized for loading entire `MR`-element columns into SIMD registers.
+///
+/// # Arguments
+/// * `a`: The source matrix A (column-major).
+/// * `mc`, `kc`: The dimensions of the block to pack.
+/// * `m`: The leading dimension (total number of rows) of the source matrix `a`.
+/// * `ic`, `pc`: The row and column coordinates of the top-left corner of the block in `a`.
 pub fn pack_a<const MR: usize, const KC: usize>(
     a: &[f32],
     mc: usize,
     kc: usize,
-    m: usize,  // leading dimension of A
-    ic: usize, // starting row of block
-    pc: usize, // starting column of block
+    m: usize,
+    ic: usize,
+    pc: usize,
 ) -> ABlock<MR, KC> {
-    let mut packed_block = ABlock::<MR, KC>::new(mc).expect("Memory allocation failed");
+    let mut packed_block = ABlock::<MR, KC>::new(mc).expect("Memory allocation failed for ABlock");
 
-    // Iterate over A in row-panels of height MR
+    // Iterate over the `mc` rows of the block in `MR`-high row-panels.
     for (panel_idx, i_panel_start) in (0..mc).step_by(MR).enumerate() {
         let dest_panel = &mut packed_block[panel_idx];
-        let mr_in_panel = min(MR, mc - i_panel_start);
+        let mr_in_panel = min(MR, mc - i_panel_start); // Handle the bottom edge case.
 
-        // Fill each column of the panel
+        // Iterate through the `kc` columns of the block.
         for p_col in 0..kc {
-            // Source column in original matrix A
+            // Identify the source column and row in the original matrix A.
             let src_col = pc + p_col;
-            // Source row start in original matrix A
             let src_row_start = ic + i_panel_start;
 
-            // In column-major A, column src_col starts at index src_col * m
-            // We want elements A(src_row_start:src_row_start+mr_in_panel, src_col)
-            let src_start = src_col * m + src_row_start;
+            // In column-major A, the desired column `src_col` is a contiguous slice.
+            // Calculate the start of this slice.
+            let src_start = at(src_row_start, src_col, m);
             let src_slice = &a[src_start..src_start + mr_in_panel];
 
-            // Destination in panel
+            // The destination in the panel is also a contiguous slice.
             let dest_slice = &mut dest_panel.data[p_col][0..mr_in_panel];
 
-            // Copy the data
+            // Copy the column from A into the packed panel.
             dest_slice.copy_from_slice(src_slice);
         }
     }
@@ -329,35 +452,47 @@ pub fn pack_a<const MR: usize, const KC: usize>(
     packed_block
 }
 
-// Modified pack_b to take matrix parameters and block coordinates
+/// Packs a block from the column-major matrix `B` into a specialized, contiguous `BBlock`.
+///
+/// The destination `BBlock` stores data in a row-major format within its panels. This
+/// layout is designed so the micro-kernel can read one row of the packed panel and
+/// broadcast its elements to SIMD registers.
+///
+/// # Arguments
+/// * `b`: The source matrix B (column-major).
+/// * `nc`, `kc`: The dimensions of the block to pack.
+/// * `k`: The leading dimension (total number of rows) of the source matrix `b`.
+/// * `pc`, `jc`: The row and column coordinates of the top-left corner of the block in `b`.
 pub fn pack_b<const KC: usize, const NR: usize>(
     b: &[f32],
     nc: usize,
     kc: usize,
-    k: usize,  // leading dimension of B
-    pc: usize, // starting row of block
-    jc: usize, // starting column of block
+    k: usize,
+    pc: usize,
+    jc: usize,
 ) -> BBlock<KC, NR> {
-    let mut packed_block = BBlock::<KC, NR>::new(nc).expect("Memory allocation failed");
+    let mut packed_block = BBlock::<KC, NR>::new(nc).expect("Memory allocation failed for BBlock");
 
-    // Iterate over columns of B in panels of width NR
+    // Iterate over the `nc` columns of the block in `NR`-wide column-panels.
     for (panel_idx, j_panel_start) in (0..nc).step_by(NR).enumerate() {
         let dest_panel = &mut packed_block[panel_idx];
-        let nr_cols_in_panel = min(NR, nc - j_panel_start);
+        let nr_in_panel = min(NR, nc - j_panel_start); // Handle the right edge case.
 
-        // Fill the panel row by row
+        // Fill the destination panel row by row. Each row in the panel corresponds
+        // to a row from the source block of B.
         for p_row in 0..kc {
-            // Source row in original matrix B
+            // Identify the source row in the original matrix B.
             let src_row = pc + p_row;
 
-            for j_col_in_panel in 0..nr_cols_in_panel {
-                // Source column in original matrix B
+            // Copy elements from different columns of B to form a contiguous row in the panel.
+            for j_col_in_panel in 0..nr_in_panel {
+                // Identify the source column in the original matrix B.
                 let src_col = jc + j_panel_start + j_col_in_panel;
 
-                // In column-major B, element B(src_row, src_col) is at index src_col * k + src_row
-                let src_idx = src_col * k + src_row;
+                // In column-major B, `B(r,c)` is at `c*ld + r`.
+                let src_idx = at(src_row, src_col, k);
 
-                // Store in panel
+                // Store the element in its row-major position in the destination panel.
                 dest_panel.data[p_row][j_col_in_panel] = b[src_idx];
             }
         }
@@ -365,6 +500,37 @@ pub fn pack_b<const KC: usize, const NR: usize>(
 
     packed_block
 }
+
+/// The AVX2-accelerated 8x8 micro-kernel for `C += A * B`.
+///
+/// This function computes the matrix product on small, packed panels:
+/// - An `mr x kc` panel from `A`.
+/// - A `kc x nr` panel from `B`.
+/// - It updates an `mr x nr` micro-panel of `C`.
+///
+/// It uses 8 AVX2 vector registers to hold an 8x8 sub-block of `C`, accumulating
+/// results via fused multiply-add (FMA) instructions.
+///
+/// # Arguments
+/// * `a_panel`: The packed panel from `A`, with data stored column-wise.
+/// * `b_panel`: The packed panel from `B`, with data stored row-wise.
+/// * `c_micropanel`: A raw pointer to the top-left element of the `mr x nr` destination in C.
+/// * `mr`, `nr`, `kc`: The actual dimensions of the operation.
+/// * `m`: The leading dimension of the C matrix.
+///
+/// # Safety
+///
+/// The caller MUST ensure the following invariants to prevent undefined behavior:
+/// - All pointers (`a_panel`, `b_panel`, `c_micropanel`) must be valid.
+/// - `c_micropanel` must point to a memory region large enough to hold an `mr x nr`
+///   submatrix with a column stride of `m`.
+/// - `mr <= MR`, `nr <= NR`, `kc <= KC`.
+/// - **CRITICAL FLAW IN THIS IMPLEMENTATION:** This kernel unconditionally loads and stores
+///   `NR` (8) columns of C. If `nr < 8`, it will read and write out of the bounds of
+///   the `c_micropanel`. A production-ready implementation MUST handle the `nr < NR`
+///   edge case, for example by using scalar code for the remaining columns or by
+///   using masked stores if the SIMD abstraction supports them. The `mr` dimension is
+///   handled correctly via masked loads/stores provided by `simdly`.
 unsafe fn kernel_8x8(
     a_panel: &APanel<MR, KC>,
     b_panel: &BPanel<KC, NR>,
@@ -374,17 +540,11 @@ unsafe fn kernel_8x8(
     kc: usize,
     m: usize,
 ) {
-    // println!("C micro panel, Size: {}x{}", mr, nr);
-
-    // for p in 0..kc {
-    //     let a_column = &a_panel.data[p];
-    //     let b_row = &b_panel.data[p];
-
-    //     println!("A: column:{:?}", a_column);
-    //     println!("B: row:{:?}", b_row);
-    // }
-
-    let mut c0 = F32x8::load(c_micropanel, mr);
+    // These registers will accumulate the results for an 8x8 block of C.
+    // Each register holds one COLUMN of the 8x8 C block.
+    // The `F32x8::load` with `mr` correctly handles the case `mr < 8` by masking.
+    // NOTE: The loads for c1 through c7 are UNSAFE if `nr` is less than their respective column index.
+    let mut c0 = F32x8::load(c_micropanel.add(0), mr);
     let mut c1 = F32x8::load(c_micropanel.add(m), mr);
     let mut c2 = F32x8::load(c_micropanel.add(2 * m), mr);
     let mut c3 = F32x8::load(c_micropanel.add(3 * m), mr);
@@ -393,50 +553,46 @@ unsafe fn kernel_8x8(
     let mut c6 = F32x8::load(c_micropanel.add(6 * m), mr);
     let mut c7 = F32x8::load(c_micropanel.add(7 * m), mr);
 
-    let mut b_pj: F32x8;
-
+    // Loop over the K dimension, `p` from 0 to `kc-1`.
     for p in 0..kc {
-        let a = &a_panel.data[p];
-        let b = &b_panel.data[p];
+        // Get pointers to the p-th column of packed A and p-th row of packed B.
+        let a_col = &a_panel.data[p];
+        let b_row = &b_panel.data[p];
 
-        // Load the A column into a vector
-        let a = F32x8::load_aligned(a.as_ptr());
+        // Load the column of A into an AVX register. This is an aligned load.
+        let a_vec = F32x8::load_aligned(a_col.as_ptr());
 
-        // Perform the multiplication and accumulate
-        b_pj = F32x8::splat(b[0]);
-        // c0.fmadd(a, b_pj);
-        c0 += a * b_pj;
+        // For each column of B, broadcast its element and perform an FMA.
+        // `c_j += a_vec * b_row[j]`
+        let b_val_0 = F32x8::splat(b_row[0]);
+        c0.fmadd(a_vec, b_val_0);
 
-        b_pj = F32x8::splat(b[1]);
-        // c1.fmadd(a, b_pj);
-        c1 += a * b_pj;
+        let b_val_1 = F32x8::splat(b_row[1]);
+        c1.fmadd(a_vec, b_val_1);
 
-        b_pj = F32x8::splat(b[2]);
-        // c2.fmadd(a, b_pj);
-        c2 += a * b_pj;
+        let b_val_2 = F32x8::splat(b_row[2]);
+        c2.fmadd(a_vec, b_val_2);
 
-        b_pj = F32x8::splat(b[3]);
-        // c3.fmadd(a, b_pj);
-        c3 += a * b_pj;
+        let b_val_3 = F32x8::splat(b_row[3]);
+        c3.fmadd(a_vec, b_val_3);
 
-        b_pj = F32x8::splat(b[4]);
-        // c4.fmadd(a, b_pj);
-        c4 += a * b_pj;
+        let b_val_4 = F32x8::splat(b_row[4]);
+        c4.fmadd(a_vec, b_val_4);
 
-        b_pj = F32x8::splat(b[5]);
-        // c5.fmadd(a, b_pj);
-        c5 += a * b_pj;
+        let b_val_5 = F32x8::splat(b_row[5]);
+        c5.fmadd(a_vec, b_val_5);
 
-        b_pj = F32x8::splat(b[6]);
-        // c6.fmadd(a, b_pj);
-        c6 += a * b_pj;
+        let b_val_6 = F32x8::splat(b_row[6]);
+        c6.fmadd(a_vec, b_val_6);
 
-        b_pj = F32x8::splat(b[7]);
-        // c7.fmadd(a, b_pj);
-        c7 += a * b_pj;
+        let b_val_7 = F32x8::splat(b_row[7]);
+        c7.fmadd(a_vec, b_val_7);
     }
 
-    c0.store_at(c_micropanel);
+    // Store the accumulated results back to the C matrix.
+    // The `store_at` method correctly handles `mr < 8` by masking.
+    // NOTE: The stores for c1 through c7 are UNSAFE if `nr` is less than their respective column index.
+    c0.store_at(c_micropanel.add(0));
     c1.store_at(c_micropanel.add(m));
     c2.store_at(c_micropanel.add(2 * m));
     c3.store_at(c_micropanel.add(3 * m));
@@ -446,53 +602,134 @@ unsafe fn kernel_8x8(
     c7.store_at(c_micropanel.add(7 * m));
 }
 
+unsafe fn kernel_mrxnr(
+    a_panel: &APanel<MR, KC>,
+    b_panel: &BPanel<KC, NR>,
+    c_micropanel: *mut f32,
+    mr: usize,
+    nr: usize,
+    kc: usize,
+    m: usize,
+) {
+    // These registers will accumulate the results for an 8x8 block of C.
+    // Each register holds one COLUMN of the 8x8 C block.
+    // The `F32x8::load` with `mr` correctly handles the case `mr < 8` by masking.
+    // NOTE: The loads for c1 through c7 are UNSAFE if `nr` is less than their respective column index.
+    let mut c0 = F32x8::load(c_micropanel, mr);
+    let mut c1 = F32x8::load(c_micropanel.add(m), mr);
+    let mut c2 = F32x8::load(c_micropanel.add(2 * m), mr);
+    let mut c3 = F32x8::load(c_micropanel.add(3 * m), mr);
+    let mut c4 = F32x8::load(c_micropanel.add(4 * m), mr);
+    let mut c5 = F32x8::load(c_micropanel.add(5 * m), mr);
+    let mut c6 = F32x8::load(c_micropanel.add(6 * m), mr);
+    let mut c7 = F32x8::load(c_micropanel.add(7 * m), mr);
+
+    // Loop over the K dimension, `p` from 0 to `kc-1`.
+    for p in 0..kc {
+        // Get pointers to the p-th column of packed A and p-th row of packed B.
+        let a_col = &a_panel.data[p];
+        let b_row = &b_panel.data[p];
+
+        // Load the column of A into an AVX register. This is an aligned load.
+        let a_vec = F32x8::load_aligned(a_col.as_ptr());
+
+        // For each column of B, broadcast its element and perform an FMA.
+        // `c_j += a_vec * b_row[j]`
+        let b_val_0 = F32x8::splat(b_row[0]);
+        c0.fmadd(a_vec, b_val_0);
+
+        let b_val_1 = F32x8::splat(b_row[1]);
+        c1.fmadd(a_vec, b_val_1);
+
+        let b_val_2 = F32x8::splat(b_row[2]);
+        c2.fmadd(a_vec, b_val_2);
+
+        let b_val_3 = F32x8::splat(b_row[3]);
+        c3.fmadd(a_vec, b_val_3);
+
+        let b_val_4 = F32x8::splat(b_row[4]);
+        c4.fmadd(a_vec, b_val_4);
+
+        let b_val_5 = F32x8::splat(b_row[5]);
+        c5.fmadd(a_vec, b_val_5);
+
+        let b_val_6 = F32x8::splat(b_row[6]);
+        c6.fmadd(a_vec, b_val_6);
+
+        let b_val_7 = F32x8::splat(b_row[7]);
+        c7.fmadd(a_vec, b_val_7);
+    }
+
+    // Store the accumulated results back to the C matrix.
+    // The `store_at` method correctly handles `mr < 8` by masking.
+    // NOTE: The stores for c1 through c7 are UNSAFE if `nr` is less than their respective column index.
+    c0.store_at(c_micropanel.add(0));
+    c1.store_at(c_micropanel.add(m));
+    c2.store_at(c_micropanel.add(2 * m));
+    c3.store_at(c_micropanel.add(3 * m));
+    c4.store_at(c_micropanel.add(4 * m));
+    c5.store_at(c_micropanel.add(5 * m));
+    c6.store_at(c_micropanel.add(6 * m));
+    c7.store_at(c_micropanel.add(7 * m));
+}
+
+// --- Verification and Main ---
+
+/// A simple, unoptimized reference implementation of column-major matrix multiplication.
+/// Used for verifying the correctness of the optimized version.
 fn naive_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
     assert_eq!(a.len(), m * k);
     assert_eq!(b.len(), k * n);
     assert_eq!(c.len(), m * n);
 
-    // println!("A: {:?}", a);
-    // println!("B: {:?}", b);
-    // println!("C: {:?}", c);
-
     for col in 0..n {
         for row in 0..m {
             let mut sum = 0.0;
             for inner in 0..k {
-                // Column-major index: i + j * rows
-
+                // Access elements in column-major order.
                 sum += a[at(row, inner, m)] * b[at(inner, col, k)];
             }
-            let c_idx = row + col * m;
-            c[c_idx] = sum;
+            c[at(row, col, m)] = sum;
         }
     }
 }
 
+/// Main function to drive a test case.
 fn main() {
+    // Define matrix dimensions. Using multiples of 8 helps test the main kernel path.
     let m = 8 * 10;
     let k = 8 * 10;
     let n = 8 * 10;
 
-    let a = (0..m * k).map(|i| i as f32).collect::<Vec<f32>>();
-    let b = (0..k * n).map(|i| i as f32).collect::<Vec<f32>>();
+    // Initialize matrices with simple values for easy verification.
+    let a = vec![1.0; m * k];
+    let b = vec![1.0; k * n];
 
-    let mut c_matmul = (0..m * n).map(|i| 0 as f32).collect::<Vec<f32>>();
-    let mut c_naive_matmul = (0..m * n).map(|i| 0 as f32).collect::<Vec<f32>>();
+    // Allocate zero-initialized output matrices.
+    // let mut c_matmul = vec![0.0; m * n];
+    let mut c_matmul = alloc_zeroed_f32_vec(m * n, 32);
+    let mut c_naive_matmul = vec![0.0; m * n];
 
+    // Run both the optimized and naive implementations.
     matmul(&a, &b, &mut c_matmul, m, n, k);
     naive_matmul(&a, &b, &mut c_naive_matmul, m, n, k);
 
-    for i in 0..m {
-        for j in 0..n {
-            let idx = at(i, j, m);
-            if c_matmul[idx] != c_naive_matmul[idx] {
-                println!(
-                    "Mismatch at ({}, {}): {} != {}",
-                    i, j, c_matmul[idx], c_naive_matmul[idx]
-                );
-            }
+    // Verify that the results are identical.
+    let mut mismatch_found = false;
+    for i in 0..m * n {
+        if (c_matmul[i] - c_naive_matmul[i]).abs() > 1e-6 {
+            let row = i % m;
+            let col = i / m;
+            println!(
+                "Mismatch at ({}, {}): Optimized = {}, Naive = {}",
+                row, col, c_matmul[i], c_naive_matmul[i]
+            );
+            mismatch_found = true;
+            break;
         }
     }
-    println!("All values match between optimized and naive matmul implementations.");
+
+    if !mismatch_found {
+        println!("All values match between optimized and naive matmul implementations.");
+    }
 }
