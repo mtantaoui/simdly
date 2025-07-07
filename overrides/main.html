@@ -1,0 +1,16 @@
+{% extends "base.html" %} {# This block adds the hero section ONLY on the
+homepage. #} {% block hero %} {% if page.is_homepage %}
+<div class="mdx-hero">
+  <div class="mdx-hero__image"></div>
+  <div class="mdx-hero__content">
+    <h1>{{ config.site_name }}</h1>
+    <p>{{ config.site_description }}</p>
+    <a
+      href="{{ 'getting-started/' | url }}"
+      class="md-button md-button--primary"
+    >
+      Getting Started
+    </a>
+  </div>
+</div>
+{% endif %} {% endblock %}

@@ -1,0 +1,76 @@
+/*
+  Styles the main hero container. This is the key to the layout.
+*/
+.mdx-hero {
+  /* It's a normal block in the page flow. */
+  position: relative; 
+  display: block;
+
+  /* CRITICAL: Makes the hero exactly as tall as the browser window. */
+  height: 100vh;
+
+  /* Hides parts of the image that move outside this container during parallax. */
+  overflow: hidden;
+  background-color: #1a1a1a; /* A dark fallback color in case the image is slow to load. */
+}
+
+/*
+  Styles the background image. It sits inside the .mdx-hero container.
+*/
+.mdx-hero__image {
+  /* Positioned relative to the .mdx-hero container. */
+  position: absolute; 
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1; /* Sits BEHIND the text content. */
+
+  /* IMPORTANT: Make sure this path is correct for your project! */
+  background-image: url('../assets/images/logo.svg');
+  background-size: cover;      /* Makes the image fill the container. */
+  background-position: center; /* Centers the image. */
+
+  /* A performance hint for the browser to expect animation. */
+  will-change: transform, opacity;
+}
+
+/*
+  Styles the text and button, and centers them perfectly.
+*/
+.mdx-hero__content {
+  position: relative;  /* Sits on top of the image. */
+  z-index: 2;          /* Ensures it's above the z-index: 1 image. */
+  height: 100%;        /* Fills the parent .mdx-hero. */
+  display: flex;
+  flex-direction: column;
+  justify-content: center; /* Vertically centers the content. */
+  align-items: center;     /* Horizontally centers the content. */
+  text-align: center;
+  color: white;
+  padding: 0 1rem;
+}
+
+.mdx-hero h1 {
+  font-size: 4rem;
+  font-weight: 700;
+  color: white;
+  text-shadow: 2px 2px 5px rgba(0, 0, 0, 0.6); /* Adds a shadow for readability. */
+}
+
+.mdx-hero p {
+  font-size: 1.5rem;
+  margin-bottom: 2.5rem;
+  color: #f0f0f0;
+  text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+/*
+  Optional but recommended: This makes the header transparent on the homepage.
+*/
+body[data-md-template="index.html"] .md-header {
+  position: absolute; /* Takes the header out of the normal flow so the hero can sit behind it. */
+  width: 100%;
+  background-color: transparent;
+  box-shadow: none; /* Removes the header's bottom border/shadow. */
+}
