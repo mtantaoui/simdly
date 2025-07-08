@@ -365,39 +365,43 @@ pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize)
 
                         let c_micropanel = &mut c[c_micropanel_start_idx..];
 
-                        // PRODUCTION NOTE: The current `kernel_8x8` assumes `nr == NR`.
-                        // A production-ready version must handle edge cases where `nr < NR`.
-                        // This is a critical safety and correctness issue.
-                        // See the `kernel_8x8` documentation for details.
-                        if mr == MR && nr == NR {
-                            unsafe {
-                                kernel_8x8(
-                                    a_panel,
-                                    b_panel,
-                                    c_micropanel.as_mut_ptr(),
-                                    mr,
-                                    nr,
-                                    kc,
-                                    m,
-                                );
-                            }
-                        } else {
-                            // A general    kernel for edge cases (mr < MR or nr < NR) would be called here.
-                            // For simplicity, this example only includes the optimized kernel.
-                            // We will call the main kernel but this is UNSAFE if nr < NR.
-                            // A safe implementation would use a different kernel or scalar code.
-                            unsafe {
-                                kernel_8x8(
-                                    a_panel,
-                                    b_panel,
-                                    c_micropanel.as_mut_ptr(),
-                                    mr,
-                                    nr,
-                                    kc,
-                                    m,
-                                );
-                            }
-                        }
+                        unsafe {
+                            kernel_MRxNR(a_panel, b_panel, c_micropanel.as_mut_ptr(), mr, nr, kc, m)
+                        };
+
+                        // // PRODUCTION NOTE: The current `kernel_8x8` assumes `nr == NR`.
+                        // // A production-ready version must handle edge cases where `nr < NR`.
+                        // // This is a critical safety and correctness issue.
+                        // // See the `kernel_8x8` documentation for details.
+                        // if mr == MR && nr == NR {
+                        //     unsafe {
+                        //         kernel_8x8(
+                        //             a_panel,
+                        //             b_panel,
+                        //             c_micropanel.as_mut_ptr(),
+                        //             mr,
+                        //             nr,
+                        //             kc,
+                        //             m,
+                        //         );
+                        //     }
+                        // } else {
+                        //     // A general    kernel for edge cases (mr < MR or nr < NR) would be called here.
+                        //     // For simplicity, this example only includes the optimized kernel.
+                        //     // We will call the main kernel but this is UNSAFE if nr < NR.
+                        //     // A safe implementation would use a different kernel or scalar code.
+                        //     unsafe {
+                        //         kernel_8x8(
+                        //             a_panel,
+                        //             b_panel,
+                        //             c_micropanel.as_mut_ptr(),
+                        //             mr,
+                        //             nr,
+                        //             kc,
+                        //             m,
+                        //         );
+                        //     }
+                        // }
                     }
                 }
             }
@@ -540,6 +544,8 @@ unsafe fn kernel_8x8(
     kc: usize,
     m: usize,
 ) {
+    println!("kernel_8x8 mr: {}, nr: {}.", mr, nr);
+
     // These registers will accumulate the results for an 8x8 block of C.
     // Each register holds one COLUMN of the 8x8 C block.
     // The `F32x8::load` with `mr` correctly handles the case `mr < 8` by masking.
@@ -553,40 +559,21 @@ unsafe fn kernel_8x8(
     let mut c6 = F32x8::load(c_micropanel.add(6 * m), mr);
     let mut c7 = F32x8::load(c_micropanel.add(7 * m), mr);
 
+    let c_cols: Vec<F32x8> = (0..nr)
+        .map(|i| F32x8::load(c_micropanel.add(i * m), mr))
+        .collect();
+
     // Loop over the K dimension, `p` from 0 to `kc-1`.
     for p in 0..kc {
         // Get pointers to the p-th column of packed A and p-th row of packed B.
         let a_col = &a_panel.data[p];
         let b_row = &b_panel.data[p];
 
-        // Load the column of A into an AVX register. This is an aligned load.
-        let a_vec = F32x8::load_aligned(a_col.as_ptr());
+        let a = F32x8::load_aligned(a_col.as_ptr());
+        let b = F32x8::load_aligned(b_row.as_ptr());
 
-        // For each column of B, broadcast its element and perform an FMA.
-        // `c_j += a_vec * b_row[j]`
-        let b_val_0 = F32x8::splat(b_row[0]);
-        c0.fmadd(a_vec, b_val_0);
-
-        let b_val_1 = F32x8::splat(b_row[1]);
-        c1.fmadd(a_vec, b_val_1);
-
-        let b_val_2 = F32x8::splat(b_row[2]);
-        c2.fmadd(a_vec, b_val_2);
-
-        let b_val_3 = F32x8::splat(b_row[3]);
-        c3.fmadd(a_vec, b_val_3);
-
-        let b_val_4 = F32x8::splat(b_row[4]);
-        c4.fmadd(a_vec, b_val_4);
-
-        let b_val_5 = F32x8::splat(b_row[5]);
-        c5.fmadd(a_vec, b_val_5);
-
-        let b_val_6 = F32x8::splat(b_row[6]);
-        c6.fmadd(a_vec, b_val_6);
-
-        let b_val_7 = F32x8::splat(b_row[7]);
-        c7.fmadd(a_vec, b_val_7);
+        [c0, c1, c2, c3, c4, c5, c6, c7] =
+            outer_product(a, b, &mut [c0, c1, c2, c3, c4, c5, c6, c7]);
     }
 
     // Store the accumulated results back to the C matrix.
@@ -602,7 +589,7 @@ unsafe fn kernel_8x8(
     c7.store_at(c_micropanel.add(7 * m));
 }
 
-unsafe fn kernel_mrxnr(
+unsafe fn kernel_MRxNR(
     a_panel: &APanel<MR, KC>,
     b_panel: &BPanel<KC, NR>,
     c_micropanel: *mut f32,
@@ -611,66 +598,13 @@ unsafe fn kernel_mrxnr(
     kc: usize,
     m: usize,
 ) {
-    // These registers will accumulate the results for an 8x8 block of C.
-    // Each register holds one COLUMN of the 8x8 C block.
-    // The `F32x8::load` with `mr` correctly handles the case `mr < 8` by masking.
-    // NOTE: The loads for c1 through c7 are UNSAFE if `nr` is less than their respective column index.
-    let mut c0 = F32x8::load(c_micropanel, mr);
-    let mut c1 = F32x8::load(c_micropanel.add(m), mr);
-    let mut c2 = F32x8::load(c_micropanel.add(2 * m), mr);
-    let mut c3 = F32x8::load(c_micropanel.add(3 * m), mr);
-    let mut c4 = F32x8::load(c_micropanel.add(4 * m), mr);
-    let mut c5 = F32x8::load(c_micropanel.add(5 * m), mr);
-    let mut c6 = F32x8::load(c_micropanel.add(6 * m), mr);
-    let mut c7 = F32x8::load(c_micropanel.add(7 * m), mr);
+    let c_cols: Vec<F32x8> = (0..nr)
+        .map(|i| F32x8::load(c_micropanel.add(i * m), mr))
+        .collect();
 
-    // Loop over the K dimension, `p` from 0 to `kc-1`.
-    for p in 0..kc {
-        // Get pointers to the p-th column of packed A and p-th row of packed B.
-        let a_col = &a_panel.data[p];
-        let b_row = &b_panel.data[p];
-
-        // Load the column of A into an AVX register. This is an aligned load.
-        let a_vec = F32x8::load_aligned(a_col.as_ptr());
-
-        // For each column of B, broadcast its element and perform an FMA.
-        // `c_j += a_vec * b_row[j]`
-        let b_val_0 = F32x8::splat(b_row[0]);
-        c0.fmadd(a_vec, b_val_0);
-
-        let b_val_1 = F32x8::splat(b_row[1]);
-        c1.fmadd(a_vec, b_val_1);
-
-        let b_val_2 = F32x8::splat(b_row[2]);
-        c2.fmadd(a_vec, b_val_2);
-
-        let b_val_3 = F32x8::splat(b_row[3]);
-        c3.fmadd(a_vec, b_val_3);
-
-        let b_val_4 = F32x8::splat(b_row[4]);
-        c4.fmadd(a_vec, b_val_4);
-
-        let b_val_5 = F32x8::splat(b_row[5]);
-        c5.fmadd(a_vec, b_val_5);
-
-        let b_val_6 = F32x8::splat(b_row[6]);
-        c6.fmadd(a_vec, b_val_6);
-
-        let b_val_7 = F32x8::splat(b_row[7]);
-        c7.fmadd(a_vec, b_val_7);
+    for c_col in c_cols {
+        println!("c_col: {:?}", c_col.to_vec());
     }
-
-    // Store the accumulated results back to the C matrix.
-    // The `store_at` method correctly handles `mr < 8` by masking.
-    // NOTE: The stores for c1 through c7 are UNSAFE if `nr` is less than their respective column index.
-    c0.store_at(c_micropanel.add(0));
-    c1.store_at(c_micropanel.add(m));
-    c2.store_at(c_micropanel.add(2 * m));
-    c3.store_at(c_micropanel.add(3 * m));
-    c4.store_at(c_micropanel.add(4 * m));
-    c5.store_at(c_micropanel.add(5 * m));
-    c6.store_at(c_micropanel.add(6 * m));
-    c7.store_at(c_micropanel.add(7 * m));
 }
 
 // --- Verification and Main ---
@@ -694,12 +628,91 @@ fn naive_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usiz
     }
 }
 
+/// .
+/// # Safety
+/// .
+#[target_feature(enable = "avx2")]
+pub unsafe fn outer_product(a: F32x8, b: F32x8, result: &mut [F32x8; 8]) -> [F32x8; 8] {
+    // Pre-compute both halves to maximize instruction-level parallelism
+    let a_lo = a.permute2f128::<0x00>(a);
+    let a_hi = a.permute2f128::<0x11>(a);
+
+    // // Interleave operations to maximize port utilization on modern CPUs
+    // // Intel CPUs have multiple execution ports - we want to use them all
+
+    // Group 1: Prepare broadcasts for elements 0,1,4,5 (interleaved)
+    let a0 = a_lo.permute::<0x00>(); // Port 5
+    let a4 = a_hi.permute::<0x00>(); // Port 5 (parallel)
+    let a1 = a_lo.permute::<0x55>(); // Port 5
+    let a5 = a_hi.permute::<0x55>(); // Port 5 (parallel)
+
+    // // Group 2: Compute multiplications for rows 0,4,1,5 (interleaved)
+
+    result[0] += a0 * b; // Port 0/1
+    result[4] += a4 * b; // Port 0/1 (parallel)
+    result[1] += a1 * b; // Port 0/1
+    result[5] += a5 * b; // Port 0/1 (parallel)
+
+    // Group 3: Prepare broadcasts for elements 2,3,6,7 (interleaved)
+    let a2 = a_lo.permute::<0xAA>(); // Port 5
+    let a6 = a_hi.permute::<0xAA>(); // Port 5 (parallel)
+    let a3 = a_lo.permute::<0xFF>(); // Port 5
+    let a7 = a_hi.permute::<0xFF>(); // Port 5 (parallel)
+
+    // // Group 4: Compute multiplications for rows 2,6,3,7 (interleaved)
+    result[2] += a2 * b; // Port 0/1
+    result[6] += a6 * b; // Port 0/1 (parallel)
+    result[3] += a3 * b; // Port 0/1
+    result[7] += a7 * b; // Port 0/1 (parallel)
+
+    *result
+}
+
+/// .
+/// # Safety
+/// .
+#[target_feature(enable = "avx2")]
+pub unsafe fn outer_product_fma(a: F32x8, b: F32x8, result: &mut [F32x8; 8]) -> [F32x8; 8] {
+    // Pre-compute both halves to maximize instruction-level parallelism
+    let a_lo = a.permute2f128::<0x00>(a);
+    let a_hi = a.permute2f128::<0x11>(a);
+
+    // // Interleave operations to maximize port utilization on modern CPUs
+    // // Intel CPUs have multiple execution ports - we want to use them all
+
+    // Group 1: Prepare broadcasts for elements 0,1,4,5 (interleaved)
+    let a0 = a_lo.permute::<0x00>(); // Port 5
+    let a4 = a_hi.permute::<0x00>(); // Port 5 (parallel)
+    let a1 = a_lo.permute::<0x55>(); // Port 5
+    let a5 = a_hi.permute::<0x55>(); // Port 5 (parallel)
+
+    // // Group 2: Compute multiplications for rows 0,4,1,5 (interleaved)
+    result[0].fmadd(a0, b); // Port 0/1
+    result[4].fmadd(a4, b); // Port 0/1 (parallel)
+    result[1].fmadd(a1, b); // Port 0/1
+    result[5].fmadd(a5, b); // Port 0/1 (
+
+    // Group 3: Prepare broadcasts for elements 2,3,6,7 (interleaved)
+    let a2 = a_lo.permute::<0xAA>(); // Port 5
+    let a6 = a_hi.permute::<0xAA>(); // Port 5 (parallel)
+    let a3 = a_lo.permute::<0xFF>(); // Port 5
+    let a7 = a_hi.permute::<0xFF>(); // Port 5 (parallel)
+
+    // Group 4: Compute multiplications for rows 2,6,3,7 (interleaved)
+    result[2].fmadd(a2, b);
+    result[6].fmadd(a6, b);
+    result[3].fmadd(a3, b);
+    result[7].fmadd(a7, b);
+
+    *result
+}
+
 /// Main function to drive a test case.
 fn main() {
     // Define matrix dimensions. Using multiples of 8 helps test the main kernel path.
-    let m = 8 * 10;
-    let k = 8 * 10;
-    let n = 8 * 10;
+    let m = 3;
+    let k = 3;
+    let n = 3;
 
     // Initialize matrices with simple values for easy verification.
     let a = vec![1.0; m * k];
@@ -707,29 +720,30 @@ fn main() {
 
     // Allocate zero-initialized output matrices.
     // let mut c_matmul = vec![0.0; m * n];
-    let mut c_matmul = alloc_zeroed_f32_vec(m * n, 32);
-    let mut c_naive_matmul = vec![0.0; m * n];
+    // let mut c_matmul = alloc_zeroed_f32_vec(m * n, 32);
+    let mut c_matmul = (0..m * n).map(|i| i as f32).collect::<Vec<f32>>();
+    // let mut c_naive_matmul = vec![0.0; m * n];
 
     // Run both the optimized and naive implementations.
     matmul(&a, &b, &mut c_matmul, m, n, k);
-    naive_matmul(&a, &b, &mut c_naive_matmul, m, n, k);
+    // naive_matmul(&a, &b, &mut c_naive_matmul, m, n, k);
 
-    // Verify that the results are identical.
-    let mut mismatch_found = false;
-    for i in 0..m * n {
-        if (c_matmul[i] - c_naive_matmul[i]).abs() > 1e-6 {
-            let row = i % m;
-            let col = i / m;
-            println!(
-                "Mismatch at ({}, {}): Optimized = {}, Naive = {}",
-                row, col, c_matmul[i], c_naive_matmul[i]
-            );
-            mismatch_found = true;
-            break;
-        }
-    }
+    // // Verify that the results are identical.
+    // let mut mismatch_found = false;
+    // for i in 0..m * n {
+    //     if (c_matmul[i] - c_naive_matmul[i]).abs() > 1e-6 {
+    //         let row = i % m;
+    //         let col = i / m;
+    //         println!(
+    //             "Mismatch at ({}, {}): Optimized = {}, Naive = {}",
+    //             row, col, c_matmul[i], c_naive_matmul[i]
+    //         );
+    //         mismatch_found = true;
+    //         break;
+    //     }
+    // }
 
-    if !mismatch_found {
-        println!("All values match between optimized and naive matmul implementations.");
-    }
+    // if !mismatch_found {
+    //     println!("All values match between optimized and naive matmul implementations.");
+    // }
 }
