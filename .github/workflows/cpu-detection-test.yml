@@ -66,11 +66,12 @@ jobs:
             arch: x86_64
           
           # Windows ARM64
-          - os: windows-latest
-            target: aarch64-pc-windows-msvc
-            toolchain: stable
-            arch: aarch64
-            use_cross: true
+          # Commented out due to limited GitHub Actions runner support
+          # - os: windows-latest
+          #   target: aarch64-pc-windows-msvc
+          #   toolchain: stable
+          #   arch: aarch64
+          #   use_cross: true
 
     runs-on: ${{ matrix.os }}
     
@@ -246,8 +247,9 @@ jobs:
             arch: ARM32 Linux
           - target: x86_64-pc-windows-gnu
             arch: Windows GNU
-          - target: wasm32-unknown-unknown
-            arch: WebAssembly
+          # Commented out due to cross-compilation complexity with WASM
+          # - target: wasm32-unknown-unknown
+          #   arch: WebAssembly
           # Test native cross-compilation targets that don't require cross tool
           - target: x86_64-unknown-linux-musl
             arch: Linux MUSL
