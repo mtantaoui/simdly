@@ -239,17 +239,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Cross-compile to different architectures
+          # Cross-compile to different architectures (only those supported by cross)
           - target: aarch64-unknown-linux-gnu
-            arch: ARM64
+            arch: ARM64 Linux
           - target: armv7-unknown-linux-gnueabihf
-            arch: ARM32
+            arch: ARM32 Linux
           - target: x86_64-pc-windows-gnu
-            arch: Windows
-          - target: x86_64-apple-darwin
-            arch: macOS
+            arch: Windows GNU
           - target: wasm32-unknown-unknown
             arch: WebAssembly
+          # Test native cross-compilation targets that don't require cross tool
+          - target: x86_64-unknown-linux-musl
+            arch: Linux MUSL
+            use_native: true
 
     steps:
     - name: Checkout code
@@ -261,8 +263,16 @@ jobs:
         targets: ${{ matrix.target }}
 
     - name: Install cross-compilation tools
+      if: '!matrix.use_native'
       run: |
         cargo install cross --git https://github.com/cross-rs/cross
+
+    - name: Install native cross-compilation tools
+      if: matrix.use_native
+      run: |
+        # Install musl tools for MUSL targets
+        sudo apt-get update
+        sudo apt-get install -y musl-tools
 
     - name: Create test project
       shell: bash
@@ -287,7 +297,22 @@ jobs:
       run: |
         cd test-project
         echo "Cross-compiling to ${{ matrix.target }} (${{ matrix.arch }})"
-        cross build --target ${{ matrix.target }} --verbose 2>&1 | tee cross-build.log
+        
+        # Verify we're not trying to compile Apple targets on Linux
+        if [[ "${{ matrix.target }}" == *"apple-darwin"* ]]; then
+          echo "❌ ERROR: Apple targets should not be in Linux cross-compilation matrix"
+          exit 1
+        fi
+        
+        if [ "${{ matrix.use_native }}" = "true" ]; then
+          # Use native cargo for supported targets
+          echo "Using native cargo for ${{ matrix.target }}"
+          cargo build --target ${{ matrix.target }} --verbose 2>&1 | tee cross-build.log
+        else
+          # Use cross tool for Docker-based targets
+          echo "Using cross tool for ${{ matrix.target }}"
+          cross build --target ${{ matrix.target }} --verbose 2>&1 | tee cross-build.log
+        fi
         
         echo "=== CROSS-COMPILATION ANALYSIS ==="
         if grep -q "Cross-compiling detected" cross-build.log; then
@@ -307,6 +332,76 @@ jobs:
       if: always()
       with:
         name: cross-build-logs-${{ matrix.target }}
+        path: test-project/cross-build.log
+
+  # Test Apple cross-compilation (requires macOS runner)
+  test-apple-cross-compilation:
+    name: Test Apple Cross-Compilation
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Cross-compile between Apple architectures
+          - host_target: aarch64-apple-darwin
+            cross_target: x86_64-apple-darwin
+            arch: Intel macOS from ARM64
+          - host_target: x86_64-apple-darwin
+            cross_target: aarch64-apple-darwin
+            arch: ARM64 macOS from x86_64
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.cross_target }}
+
+    - name: Create test project
+      shell: bash
+      run: |
+        mkdir -p test-project/src
+        echo 'fn main() { println!("Testing Apple cross-compilation"); }' > test-project/src/main.rs
+        cat > test-project/Cargo.toml << 'EOF'
+        [package]
+        name = "cpu-test-apple"
+        version = "0.1.0"
+        edition = "2021"
+        build = "build.rs"
+        EOF
+
+    - name: Copy build script
+      shell: bash
+      run: |
+        cp build.rs test-project/
+
+    - name: Test Apple cross-compilation
+      shell: bash
+      run: |
+        cd test-project
+        echo "Cross-compiling to ${{ matrix.cross_target }} (${{ matrix.arch }})"
+        cargo build --target ${{ matrix.cross_target }} --verbose 2>&1 | tee apple-cross-build.log
+        
+        echo "=== APPLE CROSS-COMPILATION ANALYSIS ==="
+        if grep -q "Cross-compiling detected" apple-cross-build.log; then
+          echo "✅ Apple cross-compilation properly detected"
+        else
+          echo "❌ Apple cross-compilation not detected"
+        fi
+        
+        if grep -q "using fallback implementation" apple-cross-build.log; then
+          echo "✅ Fallback implementation used for Apple cross-compilation"
+        else
+          echo "❌ Fallback not used"
+        fi
+
+    - name: Upload Apple cross-compilation logs
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: apple-cross-build-logs-${{ matrix.cross_target }}
         path: test-project/cross-build.log
 
   # Test detection robustness
@@ -409,7 +504,7 @@ jobs:
   test-summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: [test-native, test-cross-compilation, test-detection-robustness]
+    needs: [test-native, test-cross-compilation, test-apple-cross-compilation, test-detection-robustness]
     if: always()
 
     steps:
