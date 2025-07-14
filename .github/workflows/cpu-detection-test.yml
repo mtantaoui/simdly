@@ -99,6 +99,7 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Create test project
+      shell: bash
       run: |
         mkdir -p test-project/src
         echo 'fn main() { println!("Testing CPU detection"); }' > test-project/src/main.rs
@@ -111,6 +112,7 @@ jobs:
         EOF
 
     - name: Copy build script
+      shell: bash
       run: |
         cp build.rs test-project/
 
@@ -146,6 +148,7 @@ jobs:
         rustc --version --verbose
 
     - name: Test native build
+      shell: bash
       if: '!matrix.use_cross'
       run: |
         cd test-project
@@ -155,6 +158,7 @@ jobs:
         grep -E "(cargo:warning|cargo:rustc)" build.log || echo "No detection warnings found"
 
     - name: Test cross-compilation build
+      shell: bash
       if: matrix.use_cross
       run: |
         cd test-project
@@ -164,6 +168,7 @@ jobs:
         grep -E "(cargo:warning|cargo:rustc)" build.log || echo "No detection warnings found"
 
     - name: Test nightly-specific features
+      shell: bash
       if: matrix.toolchain == 'nightly'
       run: |
         cd test-project
@@ -173,6 +178,7 @@ jobs:
         grep -E "(avx512|rustc_channel.*nightly)" nightly-build.log || echo "No nightly-specific features found"
 
     - name: Verify feature detection output
+      shell: bash
       run: |
         cd test-project
         echo "=== ANALYZING DETECTION RESULTS ==="
@@ -201,6 +207,7 @@ jobs:
         fi
 
     - name: Test error handling
+      shell: bash
       run: |
         cd test-project
         echo "Testing error handling scenarios"
@@ -258,6 +265,7 @@ jobs:
         cargo install cross --git https://github.com/cross-rs/cross
 
     - name: Create test project
+      shell: bash
       run: |
         mkdir -p test-project/src
         echo 'fn main() { println!("Testing cross-compilation"); }' > test-project/src/main.rs
@@ -270,10 +278,12 @@ jobs:
         EOF
 
     - name: Copy build script
+      shell: bash
       run: |
         cp build.rs test-project/
 
     - name: Test cross-compilation
+      shell: bash
       run: |
         cd test-project
         echo "Cross-compiling to ${{ matrix.target }} (${{ matrix.arch }})"
@@ -316,6 +326,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Create test project
+      shell: bash
       run: |
         mkdir -p test-project/src
         echo 'fn main() { println!("Testing robustness"); }' > test-project/src/main.rs
@@ -328,6 +339,7 @@ jobs:
         EOF
 
     - name: Copy build script
+      shell: bash
       run: |
         cp build.rs test-project/
 
@@ -349,6 +361,7 @@ jobs:
         fi
 
     - name: Test with missing commands
+      shell: bash
       run: |
         cd test-project
         echo "=== Testing with missing system commands ==="
@@ -404,6 +417,7 @@ jobs:
       uses: actions/download-artifact@v4
 
     - name: Generate test summary
+      shell: bash
       run: |
         echo "# CPU Feature Detection Test Summary" > summary.md
         echo "" >> summary.md
@@ -477,6 +491,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Create benchmark project
+      shell: bash
       run: |
         mkdir -p bench-project/src
         cat > bench-project/src/main.rs << 'EOF'
@@ -527,10 +542,12 @@ jobs:
         EOF
 
     - name: Copy build script
+      shell: bash
       run: |
         cp build.rs bench-project/
 
     - name: Run benchmark
+      shell: bash
       run: |
         cd bench-project
         echo "=== Building benchmark ==="
