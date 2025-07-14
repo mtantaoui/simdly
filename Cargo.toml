@@ -12,24 +12,7 @@ documentation = "https://docs.rs/simdly/"
 readme = "README.md"
 keywords = ["math", "SIMD", "functions", "performance",  "Numerical"]
 
-[dependencies]
-chrono = "0.4.41"
-ndarray = "0.16.1"
-num = "0.4.3"
-rand = "0.9.1"
-rayon = "1.10.0"
 
-[dev-dependencies]
-criterion = "0.6.0"
-ndarray = "0.16.1"
-ndarray-stats = "0.6.0"
-rand = "0.9.1"
-statrs = "0.18.0"
-time-graph = { version = "0.3.2", features = ["json", "table"] }
-
-[[bench]]
-name = "f32"
-harness = false
 
 [profile.release]
 lto = "fat" 
