@@ -1,16 +1,10 @@
-name: Publish to crates.io
+name: Test Publish (Dry Run)
 
 on:
   push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      dry_run:
-        description: 'Dry run (test without publishing)'
-        required: false
-        default: false
-        type: boolean
+    branches: [ develop ]
+  pull_request:
+    branches: [ develop ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -62,10 +56,9 @@ jobs:
         run: |
           RUSTDOCFLAGS="--cfg avx2" cargo doc --all-features --no-deps
 
-  publish:
+  dry-run-publish:
     needs: build-and-test
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -74,13 +67,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Dry run publish
-        if: github.event.inputs.dry_run == 'true'
         run: |
-          echo "🔍 DRY RUN MODE - Testing crate publication"
+          echo "🔍 DRY RUN MODE - Testing crate publication for develop branch"
           cargo publish --dry-run --token ${{ secrets.CRATE_TOKEN }}
-
-      - name: Publish to crates.io
-        if: github.event.inputs.dry_run != 'true'
-        run: |
-          echo "🚀 Publishing to crates.io"
-          cargo publish --token ${{ secrets.CRATE_TOKEN }}
