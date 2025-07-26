@@ -1,0 +1,48 @@
+---
+title: Welcome to simdly
+description: High-performance Rust library leveraging SIMD for fast computations.
+template: splash
+hero:
+  tagline: 🚀 High-performance Rust library leveraging SIMD and Rayon for fast computations
+  actions:
+    - text: Get Started
+      link: /getting-started/installation/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/mtantaoui/simdly
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Why simdly?
+
+<CardGrid stagger>
+	<Card title="SIMD Optimized" icon="rocket">
+		Leverages AVX2 instructions for 256-bit vector operations, delivering exceptional performance for numerical computations.
+	</Card>
+	<Card title="Memory Efficient" icon="setting">
+		Supports both aligned and unaligned memory access patterns with optimized data structures.
+	</Card>
+	<Card title="Safe Abstractions" icon="approve-check">
+		Wraps unsafe SIMD operations in safe, ergonomic APIs that are easy to use and maintain.
+	</Card>
+	<Card title="Generic Traits" icon="puzzle">
+		Provides consistent interfaces across different SIMD implementations for maximum flexibility.
+	</Card>
+</CardGrid>
+
+## Features
+
+- **SIMD Optimized**: Leverages AVX2 instructions for 256-bit vector operations
+- **Memory Efficient**: Supports both aligned and unaligned memory access patterns  
+- **Generic Traits**: Provides consistent interfaces across different SIMD implementations
+- **Safe Abstractions**: Wraps unsafe SIMD operations in safe, ergonomic APIs
+- **Performance**: Optimized for high-throughput numerical computations
+
+## Architecture Support
+
+Currently supports **x86/x86_64** with AVX2 (256-bit vectors).
+
+Future support planned for SSE and ARM NEON architectures.
