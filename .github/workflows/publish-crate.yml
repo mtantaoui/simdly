@@ -2,6 +2,9 @@ name: Publish to crates.io
 
 on:
   push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
     tags:
       - 'v*'
   workflow_dispatch:
@@ -60,7 +63,7 @@ jobs:
 
       - name: Build documentation
         run: |
-          RUSTDOCFLAGS="--cfg docsrs" cargo doc --all-features --no-deps
+          RUSTDOCFLAGS="--cfg avx2" cargo doc --all-features --no-deps
 
   publish:
     needs: build-and-test
