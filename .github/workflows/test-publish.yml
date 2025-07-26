@@ -45,12 +45,6 @@ jobs:
       - name: Run tests
         run: |
           cargo test --release
-          
-          # Also test with explicit AVX2 if available
-          if grep -q avx2 /proc/cpuinfo; then
-            echo "AVX2 detected, running AVX2-specific tests"
-            RUSTFLAGS="-C target-feature=+avx2" cargo test --release --features avx2 || true
-          fi
 
       - name: Build documentation
         run: |

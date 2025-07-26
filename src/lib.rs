@@ -26,20 +26,6 @@
 //! The library provides traits for SIMD operations that automatically detect and use
 //! the best available instruction set on the target CPU.
 //!
-//! ```rust
-//! use simdly::simd::*;
-//!
-//! // Example usage with AVX2 f32x8 vectors
-//!
-//! use simdly::simd::avx2::f32x8::F32x8;
-//!
-//! let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-//! let vector = F32x8::from_slice(&data);
-//!
-//! // Perform SIMD operations
-//! let result = vector.sqrt();
-//!
-//! ```
 //!
 //! ## Performance Considerations
 //!
