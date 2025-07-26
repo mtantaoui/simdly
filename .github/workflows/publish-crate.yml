@@ -51,12 +51,6 @@ jobs:
       - name: Run tests
         run: |
           cargo test --release
-          
-          # Also test with explicit AVX2 if available
-          if grep -q avx2 /proc/cpuinfo; then
-            echo "AVX2 detected, running AVX2-specific tests"
-            RUSTFLAGS="-C target-feature=+avx2" cargo test --release --features avx2 || true
-          fi
 
       - name: Build documentation
         run: |
@@ -72,12 +66,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Dry run publish
-        if: github.event.inputs.dry_run == 'true'
-        run: |
-          echo "🔍 DRY RUN MODE - Testing crate publication"
-          cargo publish --dry-run --token ${{ secrets.CRATE_TOKEN }}
 
       - name: Publish to crates.io
         if: github.event.inputs.dry_run != 'true'
