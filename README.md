@@ -18,9 +18,11 @@
 ## 🏗️ Architecture Support
 
 ### Currently Supported
+
 - **x86/x86_64** with AVX2 (256-bit vectors)
 
 ### Planned Support
+
 - SSE (128-bit vectors for older x86 processors)
 - ARM NEON (128-bit vectors for ARM/AArch64)
 
