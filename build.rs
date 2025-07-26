@@ -126,7 +126,7 @@ impl CpuFeatureDetector for LinuxDetector {
                 }
                 DetectionResult::Success
             }
-            Err(e) => DetectionResult::Failure(format!("Failed to read /proc/cpuinfo: {}", e)),
+            Err(e) => DetectionResult::Failure(format!("Failed to read /proc/cpuinfo: {e}")),
         }
     }
 
@@ -186,7 +186,7 @@ impl CpuFeatureDetector for MacOSDetector {
                     )
                 }
             }
-            Err(e) => DetectionResult::Failure(format!("Failed to execute sysctl: {}", e)),
+            Err(e) => DetectionResult::Failure(format!("Failed to execute sysctl: {e}")),
         }
     }
 
@@ -381,7 +381,7 @@ impl WindowsDetector {
                     DetectionResult::PartialFailure("No CPU features detected via wmic".to_string())
                 }
             }
-            Err(e) => DetectionResult::Failure(format!("Failed to execute wmic: {}", e)),
+            Err(e) => DetectionResult::Failure(format!("Failed to execute wmic: {e}")),
         }
     }
 }
@@ -403,7 +403,7 @@ impl PlatformDetector {
         let output = Command::new(&rustc)
             .args(["--version", "--verbose"])
             .output()
-            .map_err(|e| format!("Failed to execute rustc ({}): {}", rustc, e))?;
+            .map_err(|e| format!("Failed to execute rustc ({rustc}): {e}"))?;
 
         if !output.status.success() {
             return Err(format!(
@@ -439,15 +439,12 @@ impl PlatformDetector {
                         return DetectionResult::Success;
                     }
                     DetectionResult::PartialFailure(msg) => {
-                        println!(
-                            "cargo:warning=CPU feature detection partial failure: {}",
-                            msg
-                        );
+                        println!("cargo:warning=CPU feature detection partial failure: {msg}");
                         return DetectionResult::PartialFailure(msg);
                     }
                     DetectionResult::Failure(msg) => {
                         last_error = msg;
-                        println!("cargo:warning=CPU feature detection failed: {}", last_error);
+                        println!("cargo:warning=CPU feature detection failed: {last_error}");
                         continue;
                     }
                 }
@@ -486,7 +483,7 @@ impl PlatformDetector {
                 "fallback"
             });
 
-        println!("cargo:rustc-cfg={}", cfg_flag);
+        println!("cargo:rustc-cfg={cfg_flag}");
 
         // Configure check-cfg for all possible configurations
         println!("cargo::rustc-check-cfg=cfg(avx512)");
@@ -502,14 +499,14 @@ fn main() {
     let rustc_channel = match PlatformDetector::compiler_channel() {
         Ok(channel) => channel,
         Err(e) => {
-            println!("cargo:warning=Failed to detect rustc channel: {}", e);
+            println!("cargo:warning=Failed to detect rustc channel: {e}");
             println!("cargo:warning=Defaulting to stable channel");
             "stable".to_string()
         }
     };
 
     // Create a flag for modules that can be used in nightly build only
-    println!("cargo:rustc-cfg=rustc_channel=\"{}\"", rustc_channel);
+    println!("cargo:rustc-cfg=rustc_channel=\"{rustc_channel}\"");
     println!("cargo::rustc-check-cfg=cfg(rustc_channel, values(\"nightly\", \"stable\"))");
 
     let nightly_build = rustc_channel == "nightly";
@@ -533,14 +530,11 @@ fn main() {
                 // Features detected successfully
             }
             DetectionResult::PartialFailure(msg) => {
-                println!(
-                    "cargo:warning=CPU feature detection partially failed: {}",
-                    msg
-                );
+                println!("cargo:warning=CPU feature detection partially failed: {msg}",);
                 println!("cargo:warning=Some optimizations may not be available");
             }
             DetectionResult::Failure(msg) => {
-                println!("cargo:warning=CPU feature detection failed: {}", msg);
+                println!("cargo:warning=CPU feature detection failed: {msg}");
                 println!("cargo:warning=Falling back to default implementation");
 
                 // Reset all features to undetected for safety
@@ -550,10 +544,7 @@ fn main() {
             }
         }
     } else {
-        println!(
-            "cargo:warning=Cross-compiling detected (host: {}, target: {})",
-            host, target
-        );
+        println!("cargo:warning=Cross-compiling detected (host: {host}, target: {target})",);
         println!("cargo:warning=Skipping CPU feature detection, using fallback implementation");
     }
 

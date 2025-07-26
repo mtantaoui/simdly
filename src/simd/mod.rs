@@ -102,7 +102,7 @@ pub trait SimdLoad<T> {
     /// # Safety
     ///
     /// Pointer must be valid and point to at least `size` elements.
-    fn load(ptr: *const T, size: usize) -> Self::Output;
+    unsafe fn load(ptr: *const T, size: usize) -> Self::Output;
 
     /// Loads data from aligned memory.
     ///
@@ -116,7 +116,7 @@ pub trait SimdLoad<T> {
     /// # Safety
     ///
     /// Pointer must be properly aligned and point to sufficient data.
-    fn load_aligned(ptr: *const T) -> Self::Output;
+    unsafe fn load_aligned(ptr: *const T) -> Self::Output;
 
     /// Loads data from unaligned memory.
     ///
@@ -129,7 +129,7 @@ pub trait SimdLoad<T> {
     /// # Safety
     ///
     /// Pointer must point to sufficient valid data.
-    fn load_unaligned(ptr: *const T) -> Self::Output;
+    unsafe fn load_unaligned(ptr: *const T) -> Self::Output;
 
     /// Loads fewer elements than the vector's full capacity.
     ///
@@ -144,7 +144,7 @@ pub trait SimdLoad<T> {
     /// # Safety
     ///
     /// Pointer must point to at least `size` valid elements.
-    fn load_partial(ptr: *const T, size: usize) -> Self::Output;
+    unsafe fn load_partial(ptr: *const T, size: usize) -> Self::Output;
 }
 
 /// Trait for storing SIMD vector data to memory.
@@ -192,7 +192,7 @@ pub trait SimdStore<T> {
     /// # Safety
     ///
     /// Pointer must point to sufficient writable memory.
-    fn stream_at(&self, ptr: *mut T);
+    unsafe fn stream_at(&self, ptr: *mut T);
 
     /// Stores data to aligned memory.
     ///
@@ -206,7 +206,7 @@ pub trait SimdStore<T> {
     /// # Safety
     ///
     /// Pointer must be properly aligned and point to sufficient writable memory.
-    fn store_aligned_at(&self, ptr: *mut T);
+    unsafe fn store_aligned_at(&self, ptr: *mut T);
 
     /// Stores data to unaligned memory.
     ///
@@ -219,7 +219,7 @@ pub trait SimdStore<T> {
     /// # Safety
     ///
     /// Pointer must point to sufficient writable memory.
-    fn store_unaligned_at(&self, ptr: *mut T);
+    unsafe fn store_unaligned_at(&self, ptr: *mut T);
 
     /// Stores only the valid elements using masked operations.
     ///
@@ -233,7 +233,7 @@ pub trait SimdStore<T> {
     /// # Safety
     ///
     /// Pointer must point to sufficient writable memory for the valid elements.
-    fn store_at_partial(&self, ptr: *mut T);
+    unsafe fn store_at_partial(&self, ptr: *mut T);
 }
 
 pub trait SimdMath<T> {

@@ -99,10 +99,10 @@ impl SimdLoad<f32> for F32x8 {
         let size = slice.len();
 
         match slice.len().cmp(&LANE_COUNT) {
-            std::cmp::Ordering::Less => Self::load_partial(slice.as_ptr(), size),
-            std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => {
+            std::cmp::Ordering::Less => unsafe { Self::load_partial(slice.as_ptr(), size) },
+            std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => unsafe {
                 Self::load(slice.as_ptr(), LANE_COUNT)
-            }
+            },
         }
     }
 
@@ -123,13 +123,13 @@ impl SimdLoad<f32> for F32x8 {
     /// # Panics
     ///
     /// Panics in debug builds if size != 8 or if pointer is null.
-    fn load(ptr: *const f32, size: usize) -> Self::Output {
+    unsafe fn load(ptr: *const f32, size: usize) -> Self::Output {
         debug_assert!(size == LANE_COUNT, "Size must be == {LANE_COUNT}");
         debug_assert!(!ptr.is_null(), "Pointer must not be null");
 
         match F32x8::is_aligned(ptr) {
-            true => Self::load_aligned(ptr),
-            false => Self::load_unaligned(ptr),
+            true => unsafe { Self::load_aligned(ptr) },
+            false => unsafe { Self::load_unaligned(ptr) },
         }
     }
 
@@ -145,9 +145,9 @@ impl SimdLoad<f32> for F32x8 {
     /// # Safety
     ///
     /// Pointer must be 32-byte aligned and point to at least 8 valid f32 values.
-    fn load_aligned(ptr: *const f32) -> Self::Output {
+    unsafe fn load_aligned(ptr: *const f32) -> Self::Output {
         Self {
-            elements: unsafe { _mm256_load_ps(ptr) },
+            elements: _mm256_load_ps(ptr),
             size: LANE_COUNT,
         }
     }
@@ -164,9 +164,9 @@ impl SimdLoad<f32> for F32x8 {
     /// # Safety
     ///
     /// Pointer must point to at least 8 valid f32 values.
-    fn load_unaligned(ptr: *const f32) -> Self::Output {
+    unsafe fn load_unaligned(ptr: *const f32) -> Self::Output {
         Self {
-            elements: unsafe { _mm256_loadu_ps(ptr) },
+            elements: _mm256_loadu_ps(ptr),
             size: LANE_COUNT,
         }
     }
@@ -194,7 +194,7 @@ impl SimdLoad<f32> for F32x8 {
     /// # Panics
     ///
     /// Panics in debug builds if size >= 8 or if pointer is null.
-    fn load_partial(ptr: *const f32, size: usize) -> Self::Output {
+    unsafe fn load_partial(ptr: *const f32, size: usize) -> Self::Output {
         debug_assert!(
             size < LANE_COUNT,
             "{}",
@@ -204,19 +204,19 @@ impl SimdLoad<f32> for F32x8 {
         debug_assert!(!ptr.is_null(), "Pointer must not be null");
 
         let mask = match size {
-            1 => unsafe { _mm256_setr_epi32(-1, 0, 0, 0, 0, 0, 0, 0) },
-            2 => unsafe { _mm256_setr_epi32(-1, -1, 0, 0, 0, 0, 0, 0) },
-            3 => unsafe { _mm256_setr_epi32(-1, -1, -1, 0, 0, 0, 0, 0) },
-            4 => unsafe { _mm256_setr_epi32(-1, -1, -1, -1, 0, 0, 0, 0) },
-            5 => unsafe { _mm256_setr_epi32(-1, -1, -1, -1, -1, 0, 0, 0) },
-            6 => unsafe { _mm256_setr_epi32(-1, -1, -1, -1, -1, -1, 0, 0) },
-            7 => unsafe { _mm256_setr_epi32(-1, -1, -1, -1, -1, -1, -1, 0) },
+            1 => _mm256_setr_epi32(-1, 0, 0, 0, 0, 0, 0, 0),
+            2 => _mm256_setr_epi32(-1, -1, 0, 0, 0, 0, 0, 0),
+            3 => _mm256_setr_epi32(-1, -1, -1, 0, 0, 0, 0, 0),
+            4 => _mm256_setr_epi32(-1, -1, -1, -1, 0, 0, 0, 0),
+            5 => _mm256_setr_epi32(-1, -1, -1, -1, -1, 0, 0, 0),
+            6 => _mm256_setr_epi32(-1, -1, -1, -1, -1, -1, 0, 0),
+            7 => _mm256_setr_epi32(-1, -1, -1, -1, -1, -1, -1, 0),
             _ => unreachable!(),
         };
 
         Self {
-            elements: unsafe { _mm256_maskload_ps(ptr, mask) },
-            size: size,
+            elements: _mm256_maskload_ps(ptr, mask),
+            size,
         }
     }
 }
@@ -281,8 +281,8 @@ impl SimdStore<f32> for F32x8 {
     /// - Large array initialization
     /// - Data export operations  
     /// - Streaming computations with sequential access patterns
-    fn stream_at(&self, ptr: *mut f32) {
-        unsafe { _mm256_stream_ps(ptr, self.elements) }
+    unsafe fn stream_at(&self, ptr: *mut f32) {
+        _mm256_stream_ps(ptr, self.elements)
     }
 
     /// Stores 8 elements to 32-byte aligned memory.
@@ -298,8 +298,8 @@ impl SimdStore<f32> for F32x8 {
     ///
     /// Pointer must be 32-byte aligned and point to at least 8 valid f32
     /// memory locations.
-    fn store_aligned_at(&self, ptr: *mut f32) {
-        unsafe { _mm256_store_ps(ptr, self.elements) }
+    unsafe fn store_aligned_at(&self, ptr: *mut f32) {
+        _mm256_store_ps(ptr, self.elements)
     }
 
     /// Stores 8 elements to unaligned memory.
@@ -314,8 +314,8 @@ impl SimdStore<f32> for F32x8 {
     /// # Safety
     ///
     /// Pointer must point to at least 8 valid f32 memory locations.
-    fn store_unaligned_at(&self, ptr: *mut f32) {
-        unsafe { _mm256_storeu_ps(ptr, self.elements) }
+    unsafe fn store_unaligned_at(&self, ptr: *mut f32) {
+        _mm256_storeu_ps(ptr, self.elements)
     }
 
     /// Stores only the valid elements using masked store operations.
@@ -341,7 +341,7 @@ impl SimdStore<f32> for F32x8 {
     /// # Panics
     ///
     /// Panics in debug builds if size >= 8 or if pointer is null.
-    fn store_at_partial(&self, ptr: *mut f32) {
+    unsafe fn store_at_partial(&self, ptr: *mut f32) {
         debug_assert!(
             self.size < LANE_COUNT,
             "{}",
@@ -350,17 +350,17 @@ impl SimdStore<f32> for F32x8 {
         debug_assert!(!ptr.is_null(), "Pointer must not be null");
 
         let mask: __m256i = match self.size {
-            1 => unsafe { _mm256_setr_epi32(-1, 0, 0, 0, 0, 0, 0, 0) },
-            2 => unsafe { _mm256_setr_epi32(-1, -1, 0, 0, 0, 0, 0, 0) },
-            3 => unsafe { _mm256_setr_epi32(-1, -1, -1, 0, 0, 0, 0, 0) },
-            4 => unsafe { _mm256_setr_epi32(-1, -1, -1, -1, 0, 0, 0, 0) },
-            5 => unsafe { _mm256_setr_epi32(-1, -1, -1, -1, -1, 0, 0, 0) },
-            6 => unsafe { _mm256_setr_epi32(-1, -1, -1, -1, -1, -1, 0, 0) },
-            7 => unsafe { _mm256_setr_epi32(-1, -1, -1, -1, -1, -1, -1, 0) },
+            1 => _mm256_setr_epi32(-1, 0, 0, 0, 0, 0, 0, 0),
+            2 => _mm256_setr_epi32(-1, -1, 0, 0, 0, 0, 0, 0),
+            3 => _mm256_setr_epi32(-1, -1, -1, 0, 0, 0, 0, 0),
+            4 => _mm256_setr_epi32(-1, -1, -1, -1, 0, 0, 0, 0),
+            5 => _mm256_setr_epi32(-1, -1, -1, -1, -1, 0, 0, 0),
+            6 => _mm256_setr_epi32(-1, -1, -1, -1, -1, -1, 0, 0),
+            7 => _mm256_setr_epi32(-1, -1, -1, -1, -1, -1, -1, 0),
             _ => unreachable!("Size must be < LANE_COUNT"),
         };
 
-        unsafe { _mm256_maskstore_ps(ptr, mask, self.elements) };
+        _mm256_maskstore_ps(ptr, mask, self.elements);
     }
 }
 
@@ -414,7 +414,7 @@ mod tests {
             let is_aligned = F32x8::is_aligned(data.as_ptr());
             // We don't assert a specific result since stack alignment varies
             // but the function should not panic
-            println!("Stack array aligned: {}", is_aligned);
+            println!("Stack array aligned: {is_aligned}");
         }
     }
 
@@ -461,7 +461,7 @@ mod tests {
                 std::ptr::copy_nonoverlapping(test_data.as_ptr(), aligned_ptr, 8);
             }
 
-            let vec = F32x8::load_aligned(aligned_ptr);
+            let vec = unsafe { F32x8::load_aligned(aligned_ptr) };
             assert_eq!(vec.size, 8);
 
             let elements = extract_elements(&vec);
@@ -475,7 +475,7 @@ mod tests {
             let data = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
             let unaligned_ptr = unsafe { data.as_ptr().add(1) }; // Skip first element
 
-            let vec = F32x8::load_unaligned(unaligned_ptr);
+            let vec = unsafe { F32x8::load_unaligned(unaligned_ptr) };
             assert_eq!(vec.size, 8);
 
             let elements = extract_elements(&vec);
@@ -491,7 +491,7 @@ mod tests {
                 std::ptr::copy_nonoverlapping(test_data.as_ptr(), aligned_ptr, 8);
             }
 
-            let vec = F32x8::load(aligned_ptr, 8);
+            let vec = unsafe { F32x8::load(aligned_ptr, 8) };
             assert_eq!(vec.size, 8);
 
             let elements = extract_elements(&vec);
@@ -503,7 +503,7 @@ mod tests {
         #[test]
         fn test_load_partial_single_element() {
             let data = [42.0f32];
-            let vec = F32x8::load_partial(data.as_ptr(), 1);
+            let vec = unsafe { F32x8::load_partial(data.as_ptr(), 1) };
 
             assert_eq!(vec.size, 1);
             let elements = extract_elements(&vec);
@@ -514,17 +514,14 @@ mod tests {
         fn test_load_partial_multiple_elements() {
             for size in 1..8 {
                 let data: Vec<f32> = (0..size).map(|i| i as f32).collect();
-                let vec = F32x8::load_partial(data.as_ptr(), size);
+                let vec = unsafe { F32x8::load_partial(data.as_ptr(), size) };
 
                 assert_eq!(vec.size, size);
                 let elements = extract_elements(&vec);
 
-                for i in 0..size {
-                    assert_eq!(
-                        elements[i], i as f32,
-                        "Mismatch at index {} for size {}",
-                        i, size
-                    );
+                // for i in 0..size {
+                for (i, e) in elements.iter().enumerate().take(size) {
+                    assert_eq!(*e, i as f32, "Mismatch at index {i} for size {size}");
                 }
             }
         }
@@ -532,7 +529,7 @@ mod tests {
         #[test]
         fn test_load_partial_seven_elements() {
             let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
-            let vec = F32x8::load_partial(data.as_ptr(), 7);
+            let vec = unsafe { F32x8::load_partial(data.as_ptr(), 7) };
 
             assert_eq!(vec.size, 7);
             let elements = extract_elements(&vec);
@@ -549,7 +546,7 @@ mod tests {
             let vec = F32x8::from_slice(&test_data);
 
             let aligned_ptr = alloc_aligned(8, 32);
-            vec.store_aligned_at(aligned_ptr);
+            unsafe { vec.store_aligned_at(aligned_ptr) };
 
             let result = unsafe { std::slice::from_raw_parts(aligned_ptr, 8) };
             assert_eq!(result, &test_data);
@@ -565,7 +562,7 @@ mod tests {
             let mut buffer = [0.0f32; 10];
             let unaligned_ptr = unsafe { buffer.as_mut_ptr().add(1) };
 
-            vec.store_unaligned_at(unaligned_ptr);
+            unsafe { vec.store_unaligned_at(unaligned_ptr) };
 
             assert_eq!(&buffer[1..9], &test_data);
             assert_eq!(buffer[0], 0.0); // Should be unchanged
@@ -579,28 +576,13 @@ mod tests {
 
             // Use properly aligned memory for streaming store
             let aligned_ptr = alloc_aligned(8, 32);
-            vec.stream_at(aligned_ptr);
+            unsafe { vec.stream_at(aligned_ptr) };
 
             let result = unsafe { std::slice::from_raw_parts(aligned_ptr, 8) };
             assert_eq!(result, &test_data);
 
             dealloc_aligned(aligned_ptr, 8, 32);
         }
-
-        // #[test]
-        // fn test_stream_at_unaligned_may_work() {
-        //     // Note: This test documents that unaligned streaming may work on some processors
-        //     // but is not guaranteed and may have undefined behavior according to Intel docs
-        //     let test_data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-        //     let vec = F32x8::from_slice(&test_data);
-
-        //     let mut buffer = [0.0f32; 8];
-        //     // This may work on some processors but is technically undefined behavior
-        //     vec.stream_at(buffer.as_mut_ptr());
-
-        //     // We still test it works, but document the caveat
-        //     assert_eq!(buffer, test_data);
-        // }
 
         #[test]
         fn test_stream_at_alignment_check() {
@@ -614,7 +596,7 @@ mod tests {
                 "Allocated memory should be aligned"
             );
 
-            vec.stream_at(aligned_ptr);
+            unsafe { vec.stream_at(aligned_ptr) };
             let result = unsafe { std::slice::from_raw_parts(aligned_ptr, 8) };
             assert_eq!(result, &test_data);
 
@@ -632,15 +614,15 @@ mod tests {
         #[test]
         fn test_store_partial_single_element() {
             let test_data = [42.0];
-            let vec = F32x8::load_partial(test_data.as_ptr(), 1);
+            let vec = unsafe { F32x8::load_partial(test_data.as_ptr(), 1) };
 
             let mut buffer = [0.0f32; 8];
-            vec.store_at_partial(buffer.as_mut_ptr());
+            unsafe { vec.store_at_partial(buffer.as_mut_ptr()) };
 
             assert_eq!(buffer[0], 42.0);
             // Rest should remain zero
-            for i in 1..8 {
-                assert_eq!(buffer[i], 0.0, "Non-zero value at index {}", i);
+            for (i, e) in buffer.iter().enumerate().skip(1) {
+                assert_eq!(*e, 0.0, "Non-zero value at index {i}");
             }
         }
 
@@ -648,29 +630,19 @@ mod tests {
         fn test_store_partial_multiple_elements() {
             for size in 1..8 {
                 let test_data: Vec<f32> = (0..size).map(|i| (i + 1) as f32).collect();
-                let vec = F32x8::load_partial(test_data.as_ptr(), size);
+                let vec = unsafe { F32x8::load_partial(test_data.as_ptr(), size) };
 
                 let mut buffer = [0.0f32; 8];
-                vec.store_at_partial(buffer.as_mut_ptr());
+                unsafe { vec.store_at_partial(buffer.as_mut_ptr()) };
 
                 // Check stored elements
-                for i in 0..size {
-                    assert_eq!(
-                        buffer[i],
-                        (i + 1) as f32,
-                        "Mismatch at index {} for size {}",
-                        i,
-                        size
-                    );
+                for (i, e) in buffer.iter().enumerate().take(size) {
+                    assert_eq!(*e, (i + 1) as f32, "Mismatch at index {i} for size {size}");
                 }
 
                 // Check remaining elements are zero
-                for i in size..8 {
-                    assert_eq!(
-                        buffer[i], 0.0,
-                        "Non-zero value at index {} for size {}",
-                        i, size
-                    );
+                for (i, e) in buffer.iter().enumerate().skip(size) {
+                    assert_eq!(*e, 0.0, "Non-zero value at index {i} for size {size}");
                 }
             }
         }
@@ -678,10 +650,10 @@ mod tests {
         #[test]
         fn test_store_partial_seven_elements() {
             let test_data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
-            let vec = F32x8::load_partial(test_data.as_ptr(), 7);
+            let vec = unsafe { F32x8::load_partial(test_data.as_ptr(), 7) };
 
             let mut buffer = [0.0f32; 8];
-            vec.store_at_partial(buffer.as_mut_ptr());
+            unsafe { vec.store_at_partial(buffer.as_mut_ptr()) };
 
             assert_eq!(&buffer[..7], &test_data);
             assert_eq!(buffer[7], 0.0);
@@ -697,7 +669,7 @@ mod tests {
             let vec = F32x8::from_slice(&original);
 
             let mut result = [0.0f32; 8];
-            vec.store_unaligned_at(result.as_mut_ptr());
+            unsafe { vec.store_unaligned_at(result.as_mut_ptr()) };
 
             assert_eq!(result, original);
         }
@@ -706,16 +678,15 @@ mod tests {
         fn test_load_store_roundtrip_partial() {
             for size in 1..8 {
                 let original: Vec<f32> = (0..size).map(|i| (i + 1) as f32).collect();
-                let vec = F32x8::load_partial(original.as_ptr(), size);
+                let vec = unsafe { F32x8::load_partial(original.as_ptr(), size) };
 
                 let mut result = [0.0f32; 8];
-                vec.store_at_partial(result.as_mut_ptr());
+                unsafe { vec.store_at_partial(result.as_mut_ptr()) };
 
                 assert_eq!(
                     &result[..size],
                     &original[..],
-                    "Roundtrip failed for size {}",
-                    size
+                    "Roundtrip failed for size {size}"
                 );
             }
         }
@@ -731,8 +702,8 @@ mod tests {
                 std::ptr::copy_nonoverlapping(original.as_ptr(), aligned_src, 8);
             }
 
-            let vec = F32x8::load_aligned(aligned_src);
-            vec.store_aligned_at(aligned_dst);
+            let vec = unsafe { F32x8::load_aligned(aligned_src) };
+            unsafe { vec.store_aligned_at(aligned_dst) };
 
             let result = unsafe { std::slice::from_raw_parts(aligned_dst, 8) };
             assert_eq!(result, &original);
@@ -748,7 +719,7 @@ mod tests {
 
             // Stream to aligned memory
             let aligned_dst = alloc_aligned(8, 32);
-            vec.stream_at(aligned_dst);
+            unsafe { vec.stream_at(aligned_dst) };
 
             let result = unsafe { std::slice::from_raw_parts(aligned_dst, 8) };
             assert_eq!(result, &original);
@@ -766,7 +737,7 @@ mod tests {
             let vec = F32x8::from_slice(&zeros);
 
             let mut result = [1.0f32; 8]; // Initialize with non-zero
-            vec.store_unaligned_at(result.as_mut_ptr());
+            unsafe { vec.store_unaligned_at(result.as_mut_ptr()) };
 
             assert_eq!(result, zeros);
         }
@@ -777,7 +748,7 @@ mod tests {
             let vec = F32x8::from_slice(&negatives);
 
             let mut result = [0.0f32; 8];
-            vec.store_unaligned_at(result.as_mut_ptr());
+            unsafe { vec.store_unaligned_at(result.as_mut_ptr()) };
 
             assert_eq!(result, negatives);
         }
@@ -797,7 +768,7 @@ mod tests {
 
             let vec = F32x8::from_slice(&special);
             let mut result = [0.0f32; 8];
-            vec.store_unaligned_at(result.as_mut_ptr());
+            unsafe { vec.store_unaligned_at(result.as_mut_ptr()) };
 
             assert_eq!(result[0], f32::INFINITY);
             assert_eq!(result[1], f32::NEG_INFINITY);
@@ -811,12 +782,12 @@ mod tests {
 
         #[test]
         fn test_very_small_partial_load() {
-            let single = [3.14159f32];
-            let vec = F32x8::load_partial(single.as_ptr(), 1);
+            let single = [std::f32::consts::PI];
+            let vec = unsafe { F32x8::load_partial(single.as_ptr(), 1) };
 
             assert_eq!(vec.size, 1);
             let elements = extract_elements(&vec);
-            assert_eq!(elements[0], 3.14159);
+            assert_eq!(elements[0], std::f32::consts::PI);
         }
 
         #[test]
@@ -824,11 +795,11 @@ mod tests {
             let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
 
             // Load unaligned
-            let vec = F32x8::load_unaligned(data.as_ptr());
+            let vec = unsafe { F32x8::load_unaligned(data.as_ptr()) };
 
             // Store aligned
             let aligned_ptr = alloc_aligned(8, 32);
-            vec.store_aligned_at(aligned_ptr);
+            unsafe { vec.store_aligned_at(aligned_ptr) };
 
             // Verify
             let result = unsafe { std::slice::from_raw_parts(aligned_ptr, 8) };
@@ -851,10 +822,10 @@ mod tests {
             ];
 
             let vec = F32x8::from_slice(&special);
-            
+
             // Stream to aligned memory
             let aligned_ptr = alloc_aligned(8, 32);
-            vec.stream_at(aligned_ptr);
+            unsafe { vec.stream_at(aligned_ptr) };
 
             let result = unsafe { std::slice::from_raw_parts(aligned_ptr, 8) };
             assert_eq!(result[0], f32::INFINITY);
@@ -885,14 +856,14 @@ mod tests {
         #[should_panic(expected = "Size must be == 8")]
         fn test_load_wrong_size_panic() {
             let data = [1.0f32; 4];
-            F32x8::load(data.as_ptr(), 4); // Wrong size
+            unsafe { F32x8::load(data.as_ptr(), 4) }; // Wrong size
         }
 
         #[test]
         #[should_panic(expected = "Size must be < 8")]
         fn test_load_partial_full_size_panic() {
             let data = [1.0f32; 8];
-            F32x8::load_partial(data.as_ptr(), 8); // Should be < 8
+            unsafe { F32x8::load_partial(data.as_ptr(), 8) }; // Should be < 8
         }
     }
 }
