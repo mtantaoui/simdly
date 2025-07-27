@@ -1065,7 +1065,7 @@ mod tests {
         // Convert to integer representation for ULP calculation
         let a_bits = a.to_bits() as i32;
         let b_bits = b.to_bits() as i32;
-        let ulp_diff = (a_bits - b_bits).abs() as u32;
+        let ulp_diff = (a_bits - b_bits).unsigned_abs();
 
         assert!(
             ulp_diff <= max_ulp,
@@ -1076,9 +1076,7 @@ mod tests {
     /// Assert that vector elements are approximately equal within ULP tolerance
     fn assert_vector_approx_eq_ulp(actual: __m256, expected: [f32; 8], max_ulp: u32) {
         let actual_values = extract_f32x8(actual);
-        for (_i, (&actual_val, &expected_val)) in
-            actual_values.iter().zip(expected.iter()).enumerate()
-        {
+        for (&actual_val, &expected_val) in actual_values.iter().zip(expected.iter()) {
             assert_approx_eq_ulp(actual_val, expected_val, max_ulp);
         }
     }
@@ -1118,23 +1116,23 @@ mod tests {
 
         #[test]
         fn test_abs_positive_values() {
-            let input = [1.0, 2.5, 3.14, 100.0, 0.001, 1e6, 42.0, 7.5];
+            let input = [1.0, 2.5, PI, 100.0, 0.001, 1e6, 42.0, 7.5];
             let result = unsafe { _mm256_abs_ps(create_f32x8(input)) };
             assert_vector_approx_eq_ulp(result, input, 0); // Should be exact
         }
 
         #[test]
         fn test_abs_negative_values() {
-            let input = [-1.0, -2.5, -3.14, -100.0, -0.001, -1e6, -42.0, -7.5];
-            let expected = [1.0, 2.5, 3.14, 100.0, 0.001, 1e6, 42.0, 7.5];
+            let input = [-1.0, -2.5, -PI, -100.0, -0.001, -1e6, -42.0, -7.5];
+            let expected = [1.0, 2.5, PI, 100.0, 0.001, 1e6, 42.0, 7.5];
             let result = unsafe { _mm256_abs_ps(create_f32x8(input)) };
             assert_vector_approx_eq_ulp(result, expected, 0); // Should be exact
         }
 
         #[test]
         fn test_abs_mixed_values() {
-            let input = [-1.0, 2.5, -3.14, 100.0, -0.001, 1e6, -42.0, 7.5];
-            let expected = [1.0, 2.5, 3.14, 100.0, 0.001, 1e6, 42.0, 7.5];
+            let input = [-1.0, 2.5, -PI, 100.0, -0.001, 1e6, -42.0, 7.5];
+            let expected = [1.0, 2.5, PI, 100.0, 0.001, 1e6, 42.0, 7.5];
             let result = unsafe { _mm256_abs_ps(create_f32x8(input)) };
             assert_vector_approx_eq_ulp(result, expected, 0); // Should be exact
         }
@@ -1631,8 +1629,9 @@ mod tests {
             let actual = extract_f32x8(result);
 
             // All negative values except -0 should produce NaN
-            for i in 0..7 {
-                assert!(actual[i].is_nan(), "rsqrt of negative should be NaN");
+            // for i in 0..7 {
+            for item in actual.iter().take(7) {
+                assert!(item.is_nan(), "rsqrt of negative should be NaN");
             }
             assert!(actual[7].is_infinite() && actual[7].is_sign_negative()); // rsqrt(-0) = -∞
         }
@@ -1882,7 +1881,8 @@ mod tests {
 
             // All values should be within [-π/2, π/2] (inclusive for infinite inputs)
             for &val in &values {
-                assert!(val >= -FRAC_PI_2 && val <= FRAC_PI_2);
+                // assert!(val >= -FRAC_PI_2 && val <= FRAC_PI_2);
+                assert!((-FRAC_PI_2..=FRAC_PI_2).contains(&val));
             }
 
             // Large negative values should approach -π/2
@@ -1943,6 +1943,8 @@ mod tests {
     }
 
     mod atan2_tests {
+        use core::f32;
+
         use super::*;
 
         #[test]
@@ -2019,13 +2021,13 @@ mod tests {
         #[test]
         fn test_atan2_consistency_with_scalar() {
             // Test various combinations to ensure consistency with scalar atan2
-            let y_values = [1.5, -2.3, 0.7, -0.8, 3.2, -1.1, 4.5, -0.2];
-            let x_values = [2.1, -1.5, -0.9, 1.3, -2.8, 0.6, -1.7, 3.4];
+            let y_values: [f32; 8] = [1.5, -2.3, 0.7, -0.8, 3.2, -1.1, 4.5, -0.2];
+            let x_values: [f32; 8] = [2.1, -1.5, -0.9, 1.3, -2.8, 0.6, -1.7, 3.4];
 
             let expected: Vec<f32> = y_values
                 .iter()
                 .zip(x_values.iter())
-                .map(|(&y, &x)| (y as f32).atan2(x as f32))
+                .map(|(&y, &x)| y.atan2(x))
                 .collect();
 
             let result = unsafe { _mm256_atan2_ps(create_f32x8(y_values), create_f32x8(x_values)) };
@@ -2129,9 +2131,8 @@ mod tests {
 
             for &val in &values {
                 assert!(
-                    val >= -PI && val <= PI,
-                    "atan2 result {} outside range [-π, π]",
-                    val
+                    (-PI..=PI).contains(&val),
+                    "atan2 result {val} outside range [-π, π]"
                 );
             }
         }
@@ -2178,6 +2179,8 @@ mod tests {
     }
 
     mod comprehensive_tests {
+        use std::f32::consts::FRAC_1_SQRT_2;
+
         use super::*;
 
         #[test]
@@ -2244,16 +2247,18 @@ mod tests {
             }
         }
 
+        #[allow(clippy::excessive_precision)]
         #[test]
         fn test_performance_consistency() {
             // Test that all functions handle the same input consistently
             let input = [
                 0.5,
-                0.7071067811865476,
+                FRAC_1_SQRT_2,
                 0.8660254037844387,
                 1.0,
                 -0.5,
-                -0.7071067811865476,
+                // -0.7071067811865476,
+                -FRAC_1_SQRT_2,
                 -0.8660254037844387,
                 -1.0,
             ];
@@ -2293,7 +2298,8 @@ mod tests {
 
             // Test that all atan values are within expected range
             for &val in &atan_vals {
-                assert!(val >= -FRAC_PI_2 && val <= FRAC_PI_2);
+                // assert!(val >= -FRAC_PI_2 && val <= FRAC_PI_2);
+                assert!((-FRAC_PI_2..=FRAC_PI_2).contains(&val));
             }
         }
 
@@ -2317,7 +2323,7 @@ mod tests {
 
             // Test that all atan2 values are within expected range
             for &val in &atan2_vals {
-                assert!(val >= -PI && val <= PI);
+                assert!((-PI..=PI).contains(&val));
             }
         }
     }
@@ -2419,8 +2425,8 @@ mod tests {
         fn test_cbrt_precision_comparison() {
             // Test against standard library implementation
             let test_values = [
-                0.1, 0.5, 0.9, 1.1, 2.0, 3.14159, E, 10.0, 100.0, 1000.0, -0.1, -2.0, -10.0,
-                -100.0, -0.5, -1.5,
+                0.1, 0.5, 0.9, 1.1, 2.0, PI, E, 10.0, 100.0, 1000.0, -0.1, -2.0, -10.0, -100.0,
+                -0.5, -1.5,
             ];
 
             for chunk in test_values.chunks(8) {
