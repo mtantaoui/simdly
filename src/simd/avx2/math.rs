@@ -207,45 +207,45 @@ unsafe fn cbrt_initial_guess_precise(x: __m256) -> __m256 {
 
     // For x >= 512: Use bit-shift based scaling for very large values
     // This uses the mathematical property: cbrt(a * 10^(3k)) = cbrt(a) * 10^k
-    
+
     // For very large numbers, we need to scale down to avoid numerical issues
     // and then scale the result back up appropriately
-    
+
     // Simple approach: use x^(1/3) ≈ x^(0.333) for large values
     // For better precision, we'll use a hybrid approach
-    
+
     let large_threshold = _mm256_set1_ps(1e6);
     let is_very_large = _mm256_cmp_ps(x, large_threshold, _CMP_GE_OQ);
-    
+
     // For very large values: use the fact that cbrt(x) grows slowly
     // We'll use a power approximation: x^(1/3) ≈ x^(0.33333)
     // This can be approximated as multiple sqrt operations
-    
+
     // For x >= 1e6, use better power approximation
     // x^(1/3) ≈ x^(0.33333) needs a closer approximation than x^(5/16) = x^(0.3125)
     // Use x^(1/3) ≈ x^(1/4) * x^(1/12) = x^(1/4) * (x^(1/4))^(1/3) ≈ x^(1/4) * x^(1/12)
     // Better: x^(1/3) = x^(21/64) ≈ x^(0.328125) which is closer to 1/3
-    
-    let sqrt_x_large = _mm256_sqrt_ps(x);              // x^(1/2)
+
+    let sqrt_x_large = _mm256_sqrt_ps(x); // x^(1/2)
     let sqrt_sqrt_x_large = _mm256_sqrt_ps(sqrt_x_large); // x^(1/4)
-    let x_eighth = _mm256_sqrt_ps(sqrt_sqrt_x_large);   // x^(1/8)
-    let x_sixteenth = _mm256_sqrt_ps(x_eighth);         // x^(1/16)
-    
+    let x_eighth = _mm256_sqrt_ps(sqrt_sqrt_x_large); // x^(1/8)
+    let x_sixteenth = _mm256_sqrt_ps(x_eighth); // x^(1/16)
+
     // Construct x^(21/64) = x^(16/64) * x^(4/64) * x^(1/64)
     // = x^(1/4) * x^(1/16) * x^(1/64)
-    let x_sixtyfourth = _mm256_sqrt_ps(x_sixteenth);    // x^(1/64)
-    let term1 = sqrt_sqrt_x_large;                      // x^(1/4) = x^(16/64)
-    let term2 = x_sixteenth;                            // x^(1/16) = x^(4/64)
-    let term3 = x_sixtyfourth;                          // x^(1/64)
-    
+    let x_sixtyfourth = _mm256_sqrt_ps(x_sixteenth); // x^(1/64)
+    let term1 = sqrt_sqrt_x_large; // x^(1/4) = x^(16/64)
+    let term2 = x_sixteenth; // x^(1/16) = x^(4/64)
+    let term3 = x_sixtyfourth; // x^(1/64)
+
     let guess_very_large = _mm256_mul_ps(_mm256_mul_ps(term1, term2), term3); // x^(21/64) ≈ x^(1/3)
-    
+
     // For 512 <= x < 1e6: Use previous scaling method
     let scaled_x = _mm256_div_ps(x, five_twelve);
     let scaled_sqrt = _mm256_sqrt_ps(_mm256_sqrt_ps(scaled_x)); // (x/512)^(1/4)
     let scaled_cbrt = _mm256_mul_ps(scaled_sqrt, _mm256_sqrt_ps(scaled_sqrt)); // (x/512)^(3/8) ≈ (x/512)^(1/3)
     let guess_moderately_large = _mm256_mul_ps(scaled_cbrt, eight); // Scale back up
-    
+
     let guess_large = _mm256_blendv_ps(guess_moderately_large, guess_very_large, is_very_large);
 
     // Chain the selection with precise blending
@@ -2562,7 +2562,5 @@ mod tests {
                 }
             }
         }
-
-       
     }
 }
