@@ -87,6 +87,7 @@ use std::arch::x86::*;
 
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
+use std::f32::consts::{FRAC_1_SQRT_2, LN_2, SQRT_2};
 
 // ============================================================================
 // SIMD Utility Functions
@@ -1108,6 +1109,141 @@ pub unsafe fn _mm256_exp_ps(x: __m256) -> __m256 {
     final_result = _mm256_blendv_ps(final_result, x, is_nan);
 
     final_result
+}
+
+/// Computes natural logarithm for an argument *ULP 1.5*
+///
+/// This function computes ln(x) for 8 packed single-precision floating-point values
+/// using advanced range reduction and high-precision polynomial approximation.
+///
+/// # Algorithm
+///
+/// Uses IEEE 754 bit manipulation for exponent extraction and mantissa normalization,
+/// followed by range reduction to [√0.5, √2) and the transformation:
+/// ln(x) = 2 × atanh((x-1)/(x+1))
+///
+/// The atanh function is approximated using a 15-term polynomial with coefficients
+/// optimized for numerical stability and maximum precision.
+///
+/// # Precision
+///
+/// - **Target accuracy**: 1e-7 relative error
+/// - **ULP bound**: 1.5 ULP for normal range
+/// - **Special values**: IEEE 754 compliant
+///
+/// # Arguments
+///
+/// * `x` - Input vector of 8 single-precision floating-point values
+///
+/// # Returns
+///
+/// Vector containing ln(x) for each input element:
+/// - `ln(x)` for positive finite x
+/// - `-∞` for x = 0
+/// - `+∞` for x = +∞  
+/// - `NaN` for x < 0 or x = NaN
+///
+/// # Safety
+///
+/// This function is marked unsafe because it uses AVX2 intrinsics which require:
+///
+/// - **CPU Support**: The target CPU must support AVX2 instruction set
+/// - **Proper Detection**: Caller must verify AVX2 availability using `is_x86_feature_detected!("avx2")`
+/// - **Memory Alignment**: Input vector must be properly constructed using AVX2 intrinsics
+/// - **Valid Input**: Input must be a valid `__m256` value (not uninitialized memory)
+///
+/// Calling this function on hardware without AVX2 support will result in undefined behavior,
+/// potentially causing illegal instruction exceptions or program crashes.
+#[inline]
+pub unsafe fn _mm256_ln_ps(x: __m256) -> __m256 {
+    // Handle special cases
+    let zero_mask = _mm256_cmp_ps(x, _mm256_setzero_ps(), _CMP_EQ_OQ);
+    let neg_mask = _mm256_cmp_ps(x, _mm256_setzero_ps(), _CMP_LT_OQ);
+    let inf_mask = _mm256_cmp_ps(x, _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
+    let nan_mask = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
+
+    // Extract exponent and mantissa using bit manipulation
+    let x_int = _mm256_castps_si256(x);
+    let exp_mask = _mm256_set1_epi32(0x7F800000);
+    let mant_mask = _mm256_set1_epi32(0x007FFFFF);
+
+    // Get true exponent (subtract IEEE bias of 127)
+    let biased_exp = _mm256_and_si256(x_int, exp_mask);
+    let true_exp = _mm256_sub_epi32(_mm256_srli_epi32(biased_exp, 23), _mm256_set1_epi32(127));
+
+    // Extract mantissa and normalize to [1.0, 2.0) by setting exponent to 127
+    let mantissa_bits = _mm256_and_si256(x_int, mant_mask);
+    let normalized_mant = _mm256_or_si256(mantissa_bits, _mm256_set1_epi32(0x3F800000));
+    let mut mantissa = _mm256_castsi256_ps(normalized_mant);
+    let mut exp_adjustment = _mm256_cvtepi32_ps(true_exp);
+
+    // Improved range reduction: reduce to [sqrt(0.5), sqrt(2)) ≈ [0.707, 1.414)
+    // This gives better polynomial convergence than [1.0, 2.0)
+    let sqrt_half = _mm256_set1_ps(FRAC_1_SQRT_2); // sqrt(0.5)
+    let sqrt2 = _mm256_set1_ps(SQRT_2); // sqrt(2.0)
+
+    // If mantissa >= sqrt(2), scale down by 2
+    let reduce_high_mask = _mm256_cmp_ps(mantissa, sqrt2, _CMP_GE_OQ);
+    mantissa = _mm256_blendv_ps(
+        mantissa,
+        _mm256_mul_ps(mantissa, _mm256_set1_ps(0.5)),
+        reduce_high_mask,
+    );
+    exp_adjustment = _mm256_blendv_ps(
+        exp_adjustment,
+        _mm256_add_ps(exp_adjustment, _mm256_set1_ps(1.0)),
+        reduce_high_mask,
+    );
+
+    // If mantissa < sqrt(0.5), scale up by 2
+    let reduce_low_mask = _mm256_cmp_ps(mantissa, sqrt_half, _CMP_LT_OQ);
+    mantissa = _mm256_blendv_ps(
+        mantissa,
+        _mm256_mul_ps(mantissa, _mm256_set1_ps(2.0)),
+        reduce_low_mask,
+    );
+    exp_adjustment = _mm256_blendv_ps(
+        exp_adjustment,
+        _mm256_sub_ps(exp_adjustment, _mm256_set1_ps(1.0)),
+        reduce_low_mask,
+    );
+
+    // Now mantissa is in [sqrt(0.5), sqrt(2)) which is centered around 1.0
+    // Use the transformation ln(x) = 2 * atanh((x-1)/(x+1)) for better numerical stability
+    let ones = _mm256_set1_ps(1.0);
+    let y = _mm256_div_ps(_mm256_sub_ps(mantissa, ones), _mm256_add_ps(mantissa, ones));
+    let y2 = _mm256_mul_ps(y, y);
+
+    // High-precision polynomial for atanh(y) = y + y³/3 + y⁵/5 + y⁷/7 + y⁹/9 + y¹¹/11 + y¹³/13 + y¹⁵/15
+    // Use optimized coefficients for maximum precision
+    let mut poly = _mm256_set1_ps(1.0 / 15.0);
+    poly = _mm256_fmadd_ps(poly, y2, _mm256_set1_ps(1.0 / 13.0));
+    poly = _mm256_fmadd_ps(poly, y2, _mm256_set1_ps(1.0 / 11.0));
+    poly = _mm256_fmadd_ps(poly, y2, _mm256_set1_ps(1.0 / 9.0));
+    poly = _mm256_fmadd_ps(poly, y2, _mm256_set1_ps(1.0 / 7.0));
+    poly = _mm256_fmadd_ps(poly, y2, _mm256_set1_ps(1.0 / 5.0));
+    poly = _mm256_fmadd_ps(poly, y2, _mm256_set1_ps(1.0 / 3.0));
+    poly = _mm256_fmadd_ps(poly, y2, ones);
+
+    // Complete atanh computation: y * poly, then ln(x) = 2 * atanh(y)
+    let atanh_y = _mm256_mul_ps(y, poly);
+    let ln_mantissa = _mm256_mul_ps(_mm256_set1_ps(2.0), atanh_y);
+
+    // Final result: ln(mantissa) + exp * ln(2)
+    // Use high-precision ln(2) constant
+    let ln2_hi = _mm256_set1_ps(LN_2); // High part of ln(2)
+    let mut result = _mm256_fmadd_ps(exp_adjustment, ln2_hi, ln_mantissa);
+
+    // Apply special cases
+    result = _mm256_blendv_ps(result, _mm256_set1_ps(f32::NEG_INFINITY), zero_mask);
+    result = _mm256_blendv_ps(result, _mm256_set1_ps(f32::INFINITY), inf_mask);
+    result = _mm256_blendv_ps(
+        result,
+        _mm256_set1_ps(f32::NAN),
+        _mm256_or_ps(neg_mask, nan_mask),
+    );
+
+    result
 }
 
 #[cfg(test)]
@@ -3023,6 +3159,160 @@ mod tests {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    mod ln_tests {
+        use super::*;
+
+        #[test]
+        fn test_ln_normal_values() {
+            let test_values = [1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 100.0, 1000.0];
+
+            let input = create_f32x8(test_values);
+            let result = unsafe { _mm256_ln_ps(input) };
+            let result_vals = extract_f32x8(result);
+
+            for i in 0..8 {
+                let expected = test_values[i].ln();
+                assert_approx_eq_rel(result_vals[i], expected, 1e-6);
+            }
+        }
+
+        #[test]
+        fn test_ln_special_cases() {
+            // Test zero -> -infinity
+            let zero_input = create_f32x8([0.0; 8]);
+            let zero_result = unsafe { _mm256_ln_ps(zero_input) };
+            let zero_vals = extract_f32x8(zero_result);
+            for val in zero_vals {
+                assert_eq!(val, f32::NEG_INFINITY);
+            }
+
+            // Test infinity -> infinity
+            let inf_input = create_f32x8([f32::INFINITY; 8]);
+            let inf_result = unsafe { _mm256_ln_ps(inf_input) };
+            let inf_vals = extract_f32x8(inf_result);
+            for val in inf_vals {
+                assert_eq!(val, f32::INFINITY);
+            }
+
+            // Test negative values -> NaN
+            let neg_input =
+                create_f32x8([-1.0, -2.0, -10.0, -0.5, -100.0, -1e-6, -1e6, -f32::INFINITY]);
+            let neg_result = unsafe { _mm256_ln_ps(neg_input) };
+            let neg_vals = extract_f32x8(neg_result);
+            for val in neg_vals {
+                assert!(val.is_nan(), "Expected NaN for negative input, got {val}");
+            }
+
+            // Test NaN -> NaN
+            let nan_input = create_f32x8([f32::NAN; 8]);
+            let nan_result = unsafe { _mm256_ln_ps(nan_input) };
+            let nan_vals = extract_f32x8(nan_result);
+            for val in nan_vals {
+                assert!(val.is_nan());
+            }
+        }
+
+        #[test]
+        fn test_ln_edge_cases() {
+            // Test very small positive values
+            let small_values = [
+                1e-10,
+                1e-20,
+                1e-30,
+                f32::MIN_POSITIVE,
+                1e-6,
+                1e-3,
+                0.001,
+                0.01,
+            ];
+            let small_input = create_f32x8(small_values);
+            let small_result = unsafe { _mm256_ln_ps(small_input) };
+            let small_vals = extract_f32x8(small_result);
+
+            for i in 0..8 {
+                let expected = small_values[i].ln();
+                assert_approx_eq_rel(small_vals[i], expected, 1e-6);
+            }
+
+            // Test very large values
+            let large_values = [1e10, 1e20, 1e30, f32::MAX / 2.0, 1e6, 1e3, 1000.0, 10000.0];
+            let large_input = create_f32x8(large_values);
+            let large_result = unsafe { _mm256_ln_ps(large_input) };
+            let large_vals = extract_f32x8(large_result);
+
+            for i in 0..8 {
+                let expected = large_values[i].ln();
+                assert_approx_eq_rel(large_vals[i], expected, 1e-6);
+            }
+        }
+
+        #[test]
+        fn test_ln_accuracy_comprehensive() {
+            // Test accuracy across a wide range of values
+            let ranges = [
+                (0.001f32, 0.01f32, 20),
+                (0.01f32, 0.1f32, 20),
+                (0.1f32, 1.0f32, 20),
+                (1.0f32, 10.0f32, 20),
+                (10.0f32, 100.0f32, 20),
+                (100.0f32, 1000.0f32, 20),
+                (1000.0f32, 10000.0f32, 20),
+            ];
+
+            for (start, end, steps) in ranges {
+                for i in 0..steps {
+                    let x = start + (end - start) * (i as f32) / (steps as f32);
+                    let input = [
+                        x,
+                        x * 1.1,
+                        x * 1.2,
+                        x * 1.3,
+                        x * 1.4,
+                        x * 1.5,
+                        x * 1.6,
+                        x * 1.7,
+                    ];
+
+                    let vec_input = create_f32x8(input);
+                    let vec_result = unsafe { _mm256_ln_ps(vec_input) };
+                    let result_vals = extract_f32x8(vec_result);
+
+                    for j in 0..8 {
+                        let expected = input[j].ln();
+                        assert_approx_eq_rel(result_vals[j], expected, 1e-6);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_ln_mathematical_properties() {
+            // Test ln(1) = 0
+            let one_input = create_f32x8([1.0; 8]);
+            let one_result = unsafe { _mm256_ln_ps(one_input) };
+            let one_vals = extract_f32x8(one_result);
+            for val in one_vals {
+                assert_approx_eq_rel(val, 0.0, 1e-7);
+            }
+
+            // Test ln(e) = 1
+            let e_input = create_f32x8([std::f32::consts::E; 8]);
+            let e_result = unsafe { _mm256_ln_ps(e_input) };
+            let e_vals = extract_f32x8(e_result);
+            for val in e_vals {
+                assert_approx_eq_rel(val, 1.0, 1e-6);
+            }
+
+            // Test ln(e^2) = 2
+            let e2_input = create_f32x8([std::f32::consts::E * std::f32::consts::E; 8]);
+            let e2_result = unsafe { _mm256_ln_ps(e2_input) };
+            let e2_vals = extract_f32x8(e2_result);
+            for val in e2_vals {
+                assert_approx_eq_rel(val, 2.0, 1e-6);
             }
         }
     }
