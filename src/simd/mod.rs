@@ -236,43 +236,222 @@ pub trait SimdStore<T> {
     unsafe fn store_at_partial(&self, ptr: *mut T);
 }
 
+/// Trait for SIMD mathematical operations.
+///
+/// This trait provides vectorized implementations of common mathematical functions
+/// that operate on SIMD vectors. Each function processes multiple values simultaneously
+/// using optimized CPU instructions for maximum performance.
+///
+/// # Type Parameters
+///
+/// * `T` - The element type (typically f32 or f64)
+///
+/// # Performance Characteristics
+///
+/// - **Vectorization**: All operations process multiple elements per instruction
+/// - **Precision**: Maintains high accuracy comparable to scalar implementations
+/// - **Special Values**: Proper handling of NaN, infinity, and edge cases
+/// - **Domain Validation**: Input range checking where applicable
+///
+/// # Implementation Notes
+///
+/// Implementations should:
+/// - Use optimized SIMD instructions where available
+/// - Handle special values according to IEEE 754 standards
+/// - Provide consistent accuracy across all vector lanes
+/// - Maintain thread safety for concurrent usage
 pub trait SimdMath<T> {
     /// The output type returned by mathematical operations
     type Output;
 
+    /// Computes the absolute value of each element.
+    ///
+    /// Returns |x| for each element x in the vector.
+    /// This operation is typically very fast as it only requires clearing the sign bit.
+    ///
     fn abs(&self) -> Self::Output;
 
+    /// Computes the arccosine (inverse cosine) of each element.
+    ///
+    /// Returns the angle in radians whose cosine is the input value.
+    /// Valid input domain: [-1, 1], output range: [0, π].
+    ///
+    /// # Domain
+    ///
+    /// - Input: [-1, 1]
+    /// - Output: [0, π] radians
+    /// - Invalid inputs (|x| > 1) return NaN
     fn acos(&self) -> Self::Output;
 
+    /// Computes the arcsine (inverse sine) of each element.
+    ///
+    /// Returns the angle in radians whose sine is the input value.
+    /// Valid input domain: [-1, 1], output range: [-π/2, π/2].
+    ///
+    /// # Domain
+    ///
+    /// - Input: [-1, 1]
+    /// - Output: [-π/2, π/2] radians
+    /// - Invalid inputs (|x| > 1) return NaN
     fn asin(&self) -> Self::Output;
 
+    /// Computes the arctangent (inverse tangent) of each element.
+    ///
+    /// Returns the angle in radians whose tangent is the input value.
+    /// Valid for all finite inputs, output range: (-π/2, π/2).
+    ///
+    /// # Domain
+    ///
+    /// - Input: All real numbers
+    /// - Output: (-π/2, π/2) radians
     fn atan(&self) -> Self::Output;
 
+    /// Computes the two-argument arctangent of each element pair.
+    ///
+    /// Computes atan2(y, x) for corresponding elements, returning the angle
+    /// in radians between the positive x-axis and the point (x, y).
+    /// Output range: [-π, π].
+    ///
+    /// # Domain
+    ///
+    /// - Input: All real number pairs (y, x)
+    /// - Output: [-π, π] radians
+    /// - Handles signs correctly for all quadrants
     fn atan2(&self) -> Self::Output;
 
+    /// Computes the cube root of each element.
+    ///
+    /// Returns the value that, when cubed, gives the input value.
+    /// Unlike square root, cube root is defined for negative numbers.
+    ///
+    /// # Domain
+    ///
+    /// - Input: All real numbers
+    /// - Output: All real numbers
+    /// - Preserves sign: cbrt(-x) = -cbrt(x)
     fn cbrt(&self) -> Self::Output;
 
+    /// Computes the floor (round down) of each element.
+    ///
+    /// Returns the largest integer less than or equal to the input value.
+    ///
+    /// # Examples
+    ///
+    /// - floor(2.7) = 2.0
+    /// - floor(-1.3) = -2.0
+    /// - floor(3.0) = 3.0
     fn floor(&self) -> Self::Output;
 
+    /// Computes the natural exponential (e^x) of each element.
+    ///
+    /// Returns e raised to the power of each input element.
+    /// Result grows very rapidly for positive inputs.
+    ///
+    /// # Domain
+    ///
+    /// - Input: All real numbers
+    /// - Output: (0, ∞) for finite inputs
+    /// - exp(±∞) = ∞/0, exp(NaN) = NaN
     fn exp(&self) -> Self::Output;
 
+    /// Computes the natural logarithm of each element.
+    ///
+    /// Returns the logarithm base e of each input element.
+    /// Only defined for positive inputs.
+    ///
+    /// # Domain
+    ///
+    /// - Input: (0, ∞)
+    /// - Output: (-∞, ∞)
+    /// - ln(x) = NaN for x ≤ 0
     fn ln(&self) -> Self::Output;
 
+    /// Computes the Euclidean distance (2D hypotenuse) for element pairs.
+    ///
+    /// Returns sqrt(x² + y²) for corresponding elements, computed in a way
+    /// that avoids overflow for large values and underflow for small values.
+    ///
+    /// # Algorithm
+    ///
+    /// Uses careful scaling to prevent intermediate overflow/underflow.
     fn hypot(&self) -> Self::Output;
 
+    /// Computes x raised to the power y for each element pair.
+    ///
+    /// Returns x^y for corresponding elements.
+    /// Handles special cases according to IEEE 754 standards.
+    ///
+    /// # Domain
+    ///
+    /// Complex rules apply for negative bases and fractional exponents.
+    /// Consult IEEE 754 for complete specification.
     fn pow(&self) -> Self::Output;
 
+    /// Computes the sine of each element.
+    ///
+    /// Returns the sine of each input element (in radians).
+    /// Uses range reduction for large inputs to maintain accuracy.
+    ///
+    /// # Domain
+    ///
+    /// - Input: All real numbers (radians)
+    /// - Output: [-1, 1]
     fn sin(&self) -> Self::Output;
 
+    /// Computes the cosine of each element.
+    ///
+    /// Returns the cosine of each input element (in radians).
+    /// Uses range reduction for large inputs to maintain accuracy.
+    ///
+    /// # Domain
+    ///
+    /// - Input: All real numbers (radians)
+    /// - Output: [-1, 1]
     fn cos(&self) -> Self::Output;
 
+    /// Computes the tangent of each element.
+    ///
+    /// Returns the tangent of each input element (in radians).
+    /// Becomes infinite at odd multiples of π/2.
+    ///
+    /// # Domain
+    ///
+    /// - Input: All real numbers except odd multiples of π/2
+    /// - Output: All real numbers
     fn tan(&self) -> Self::Output;
 
+    /// Computes the square root of each element.
+    ///
+    /// Returns the positive square root of each input element.
+    /// Only defined for non-negative inputs.
+    ///
+    /// # Domain
+    ///
+    /// - Input: [0, ∞)
+    /// - Output: [0, ∞)
+    /// - sqrt(x) = NaN for x < 0
     fn sqrt(&self) -> Self::Output;
 
+    /// Computes the ceiling (round up) of each element.
+    ///
+    /// Returns the smallest integer greater than or equal to the input value.
+    ///
+    /// # Examples
+    ///
+    /// - ceil(2.3) = 3.0
+    /// - ceil(-1.7) = -1.0
+    /// - ceil(4.0) = 4.0
     fn ceil(&self) -> Self::Output;
 
+    /// Computes the 3D Euclidean distance for element triplets.
+    ///
+    /// Returns sqrt(x² + y² + z²) for corresponding elements.
+    /// Computed with care to avoid intermediate overflow/underflow.
     fn hypot3(&self) -> Self::Output;
 
+    /// Computes the 4D Euclidean distance for element quadruplets.
+    ///
+    /// Returns sqrt(x² + y² + z² + w²) for corresponding elements.
+    /// Computed with care to avoid intermediate overflow/underflow.
     fn hypot4(&self) -> Self::Output;
 }
