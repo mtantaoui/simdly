@@ -622,40 +622,40 @@ pub unsafe fn _mm256_acos_ps(d: __m256) -> __m256 {
     _mm256_sub_ps(pi_2, asin_d)
 }
 
-/// Polynomial coefficients for arctangent approximation in domain [0, 1].
-///
-/// These coefficients are optimized for the polynomial approximation:
-/// atan(x) ≈ x * (P1 + x² * (P2 + x² * (P3 + ... + x² * P9)))
-///
-/// The coefficients are derived from the Taylor series of atan(x) with
-/// optimizations for numerical stability and reduced error in the target domain.
+// Polynomial coefficients for arctangent approximation in domain [0, 1].
+//
+// These coefficients are optimized for the polynomial approximation:
+// atan(x) ≈ x * (P1 + x² * (P2 + x² * (P3 + ... + x² * P9)))
+//
+// The coefficients are derived from the Taylor series of atan(x) with
+// optimizations for numerical stability and reduced error in the target domain.
 
 /// First coefficient: approximates the linear term (x)
-const ATAN_POLY_1_F: f32 = 0.999999871164f32;
+const ATAN_POLY_1_F: f32 = 0.999_999_9_f32;
 
 /// Second coefficient: corresponds to -x³/3 term
-const ATAN_POLY_2_F: f32 = -0.333325240026f32;
+const ATAN_POLY_2_F: f32 = -0.333_325_24_f32;
 
 /// Third coefficient: corresponds to x⁵/5 term
-const ATAN_POLY_3_F: f32 = 0.199848846856f32;
+const ATAN_POLY_3_F: f32 = 0.199_848_85_f32;
 
 /// Fourth coefficient: corresponds to -x⁷/7 term
-const ATAN_POLY_4_F: f32 = -0.141548060419f32;
+const ATAN_POLY_4_F: f32 = -0.141_548_07_f32;
 
 /// Fifth coefficient: corresponds to x⁹/9 term
-const ATAN_POLY_5_F: f32 = 0.104775391987f32;
+const ATAN_POLY_5_F: f32 = 0.104_775_39_f32;
 
 /// Sixth coefficient: corresponds to -x¹¹/11 term
-const ATAN_POLY_6_F: f32 = -0.0719438454246f32;
+const ATAN_POLY_6_F: f32 = -0.071_943_84_f32;
 
 /// Seventh coefficient: corresponds to x¹³/13 term
-const ATAN_POLY_7_F: f32 = 0.0393454131479f32;
+const ATAN_POLY_7_F: f32 = 0.039_345_413_f32;
 
 /// Eighth coefficient: corresponds to -x¹⁵/15 term
-const ATAN_POLY_8_F: f32 = -0.0141523480362f32;
+const ATAN_POLY_8_F: f32 = -0.014_152_348_f32;
 
 /// Ninth coefficient: highest order term for fine accuracy
-const ATAN_POLY_9_F: f32 = 0.00239813901251f32;
+const ATAN_POLY_9_F: f32 = 0.002_398_139_f32;
 
 /// Computes the arctangent of 8 packed single-precision floating-point values.
 ///
@@ -746,7 +746,7 @@ pub unsafe fn _mm256_atan_ps(x: __m256) -> __m256 {
 /// This function computes atan2(y, x) which returns the angle θ in radians such that:
 /// - x = r * cos(θ)  
 /// - y = r * sin(θ)
-/// where r = sqrt(x² + y²)
+///   where r = sqrt(x² + y²)
 ///
 /// The function handles all quadrants and special cases correctly, returning values
 /// in the range [-π, π] with proper IEEE 754 compliance.
