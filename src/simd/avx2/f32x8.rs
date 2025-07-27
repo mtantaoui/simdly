@@ -10,7 +10,7 @@ use std::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-use crate::simd::{Alignment, SimdLoad, SimdStore};
+use crate::simd::{Alignment, SimdLoad, SimdMath, SimdStore};
 
 // const AVX_ALIGNMENT: usize = 32;
 const LANE_COUNT: usize = 8;
@@ -226,19 +226,22 @@ impl SimdStore<f32> for F32x8 {
 
     /// Stores vector data at the given pointer location.
     ///
-    /// **Status:** Currently unimplemented (contains `todo!()`)
-    ///
-    /// Intended to store vector data with automatic alignment detection,
-    /// choosing the most appropriate store method based on pointer alignment.
+    /// Automatically chooses the most appropriate store method based on:
+    /// - Vector size (partial vs. full store)
+    /// - Pointer alignment (aligned vs. unaligned store)
     ///
     /// # Arguments
     ///
     /// * `ptr` - Pointer to destination memory
     ///
+    /// # Safety
+    ///
+    /// Pointer must not be null and must point to sufficient writable memory
+    /// for `self.size` elements.
+    ///
     /// # Panics
     ///
-    /// Currently always panics due to unimplemented functionality.
-    /// Also panics in debug builds if size > 8 or if pointer is null.
+    /// Panics in debug builds if size > 8 or if pointer is null.
     fn store_at(&self, ptr: *const f32) {
         debug_assert!(
             self.size <= LANE_COUNT,
@@ -247,9 +250,16 @@ impl SimdStore<f32> for F32x8 {
         );
         debug_assert!(!ptr.is_null(), "Pointer must not be null");
 
-        match F32x8::is_aligned(ptr) {
-            true => todo!(),
-            false => todo!(),
+        // Cast to mutable pointer for store operations
+        let mut_ptr = ptr as *mut f32;
+
+        match self.size.cmp(&LANE_COUNT) {
+            std::cmp::Ordering::Less => unsafe { self.store_at_partial(mut_ptr) },
+            std::cmp::Ordering::Equal => match F32x8::is_aligned(ptr) {
+                true => unsafe { self.store_aligned_at(mut_ptr) },
+                false => unsafe { self.store_unaligned_at(mut_ptr) },
+            },
+            std::cmp::Ordering::Greater => unreachable!("Size cannot exceed LANE_COUNT"),
         }
     }
 
@@ -361,6 +371,82 @@ impl SimdStore<f32> for F32x8 {
         };
 
         _mm256_maskstore_ps(ptr, mask, self.elements);
+    }
+}
+
+impl SimdMath<f32> for F32x8 {
+    type Output = Self;
+
+    fn abs(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn acos(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn asin(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn atan(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn atan2(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn cbrt(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn floor(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn exp(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn ln(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn hypot(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn pow(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn sin(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn cos(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn tan(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn sqrt(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn ceil(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn hypot3(&self) -> Self::Output {
+        todo!()
+    }
+
+    fn hypot4(&self) -> Self::Output {
+        todo!()
     }
 }
 
