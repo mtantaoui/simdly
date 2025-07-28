@@ -45,4 +45,6 @@
 //! scalar implementations.
 
 pub mod f32x8;
+
+#[allow(clippy::excessive_precision, clippy::empty_line_after_doc_comments)]
 pub mod math;
