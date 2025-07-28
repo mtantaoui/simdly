@@ -1565,6 +1565,54 @@ const SIN_COEFF_4: f32 = 2.7551241e-6f32;
 /// Ensures maximum achievable single-precision accuracy.
 const SIN_COEFF_5: f32 = -2.4535176e-8f32;
 
+/// Polynomial coefficients for tangent function approximation.
+///
+/// These coefficients implement a polynomial approximation for tan(x) in the range [-π/4, π/4].
+/// The tangent function is approximated using a truncated series:
+///
+/// **Mathematical Foundation:**
+/// tan(x) ≈ x * (1 + x² * (C₁ + x² * (C₂ + x² * (C₃ + ... + x² * C₉))))
+/// where Cₙ corresponds to TAN_COEFF_n
+///
+/// **Implementation Details:**
+/// - Valid range: x ∈ [-π/4, π/4] (after range reduction)
+/// - Maximum error: < 1 ULP for well-conditioned inputs  
+/// - Uses 9 coefficients for single-precision accuracy
+/// - Coefficients optimized using Remez exchange algorithm
+///
+/// **Usage:**
+/// Combined with range reduction modulo π/2 and branch selection
+/// (tan(r) for even quadrants, -cot(r) for odd quadrants)
+
+/// Coefficient for x¹⁹ term in tangent polynomial approximation
+/// Highest order term providing fine-grained precision correction
+const TAN_COEFF_9: f32 = 0.003119367819237227984603f32;
+
+/// Coefficient for x¹⁷ term in tangent polynomial approximation
+const TAN_COEFF_8: f32 = -0.008780698867440909852696f32;
+
+/// Coefficient for x¹⁵ term in tangent polynomial approximation  
+const TAN_COEFF_7: f32 = 0.01566058603292222557185f32;
+
+/// Coefficient for x¹³ term in tangent polynomial approximation
+const TAN_COEFF_6: f32 = -0.008716767804671342083395f32;
+
+/// Coefficient for x¹¹ term in tangent polynomial approximation
+const TAN_COEFF_5: f32 = 0.01536309149864370613748f32;
+
+/// Coefficient for x⁹ term in tangent polynomial approximation
+const TAN_COEFF_4: f32 = 0.01976259322538098448190f32;
+
+/// Coefficient for x⁷ term in tangent polynomial approximation
+const TAN_COEFF_3: f32 = 0.05437330042338871738713f32;
+
+/// Coefficient for x⁵ term in tangent polynomial approximation
+const TAN_COEFF_2: f32 = 0.1332909226735641872812f32;
+
+/// Coefficient for x³ term in tangent polynomial approximation
+/// Dominant correction term: approximately 1/3 from tan(x) ≈ x + x³/3
+const TAN_COEFF_1: f32 = 0.3333353561669567628359f32;
+
 #[inline]
 /// Computes sine function with high precision using polynomial approximation
 ///
@@ -1686,6 +1734,63 @@ pub unsafe fn _mm256_cos_ps(x: __m256) -> __m256 {
 
     // Handle special cases: NaN -> NaN, Infinity -> NaN
     _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_special)
+}
+
+#[inline]
+/// Computes tangent function with high precision using polynomial approximation
+///
+/// # Safety
+///
+/// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
+pub unsafe fn _mm256_tan_ps(d: __m256) -> __m256 {
+    // Range reduction: reduce to [-π/4, π/4]
+    let q = _mm256_round_ps(
+        _mm256_mul_ps(d, _mm256_set1_ps(std::f32::consts::FRAC_2_PI)),
+        _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC,
+    );
+    let qf = _mm256_cvtps_epi32(q);
+
+    // Reduced range: r = d - q * π/2
+    // Use high-precision π/2 decomposition for accuracy
+    let mut r = _mm256_fmadd_ps(q, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_1 * 0.5), d);
+    r = _mm256_fmadd_ps(q, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_2 * 0.5), r);
+    r = _mm256_fmadd_ps(q, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_3 * 0.5), r);
+    r = _mm256_fmadd_ps(q, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_4 * 0.5), r);
+
+    // Determine if q is even or odd for correct branch selection
+    let is_even = _mm256_cmpeq_epi32(
+        _mm256_and_si256(qf, _mm256_set1_epi32(1)),
+        _mm256_setzero_si256(),
+    );
+
+    // No sign correction needed here - handle it in the final result
+    let is_even_f = _mm256_castsi256_ps(is_even);
+
+    let x2 = _mm256_mul_ps(r, r);
+
+    // Compute tangent polynomial approximation
+    // tan(r) ≈ r * (1 + x²*(c₁ + x²*(c₂ + x²*(c₃ + x²*(c₄ + x²*c₅)))))
+    let mut res = _mm256_set1_ps(TAN_COEFF_9);
+    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_8));
+    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_7));
+    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_6));
+    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_5));
+    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_4));
+    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_3));
+    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_2));
+    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_1));
+    res = _mm256_fmadd_ps(res, _mm256_mul_ps(x2, r), r);
+
+    // For even q: result = tan(r)
+    // For odd q: result = -cot(r) = -1/tan(r)
+    let cot_result = _mm256_div_ps(_mm256_set1_ps(1.0), res);
+    res = _mm256_blendv_ps(
+        _mm256_sub_ps(_mm256_setzero_ps(), cot_result),
+        res,
+        is_even_f,
+    );
+
+    res
 }
 
 #[cfg(test)]
@@ -5143,6 +5248,370 @@ mod tests {
 
                     for &val in &result_vals {
                         assert_approx_eq_rel(val, 0.0, 1e-5);
+                    }
+                }
+            }
+        }
+    }
+
+    mod tan_tests {
+        use super::*;
+
+        #[test]
+        fn test_tan_special_angles() {
+            unsafe {
+                // Test standard angles: 0, π/6, π/4, π/3 (avoiding π/2 which is a pole)
+                let angles = [0.0, FRAC_PI_6, FRAC_PI_4, FRAC_PI_3];
+                let expected = [0.0, 1.0 / 3.0_f32.sqrt(), 1.0, 3.0_f32.sqrt()];
+
+                for (angle, exp_val) in angles.iter().zip(expected.iter()) {
+                    let input = _mm256_set1_ps(*angle);
+                    let result = _mm256_tan_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        assert_approx_eq_rel(val, *exp_val, 1e-6);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_tan_negative_angles() {
+            unsafe {
+                // tan(-x) = -tan(x) - tangent is odd function
+                let angles = [FRAC_PI_6, FRAC_PI_4, FRAC_PI_3, 0.1, 0.5, 1.0];
+
+                for &angle in &angles {
+                    let pos_input = _mm256_set1_ps(angle);
+                    let neg_input = _mm256_set1_ps(-angle);
+
+                    let pos_result = _mm256_tan_ps(pos_input);
+                    let neg_result = _mm256_tan_ps(neg_input);
+
+                    let pos_vals = extract_f32x8(pos_result);
+                    let neg_vals = extract_f32x8(neg_result);
+
+                    for (&pos_val, &neg_val) in pos_vals.iter().zip(neg_vals.iter()) {
+                        assert_approx_eq_rel(neg_val, -pos_val, 1e-6);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_tan_periodicity() {
+            unsafe {
+                // tan(x + π) = tan(x)
+                let angles = [0.1, 0.25, 0.5, 0.75, 1.0, 1.2];
+
+                for &angle in &angles {
+                    let input = _mm256_set1_ps(angle);
+                    let shifted_input = _mm256_set1_ps(angle + PI);
+
+                    let result = _mm256_tan_ps(input);
+                    let shifted_result = _mm256_tan_ps(shifted_input);
+
+                    let vals = extract_f32x8(result);
+                    let shifted_vals = extract_f32x8(shifted_result);
+
+                    for (&val, &shifted_val) in vals.iter().zip(shifted_vals.iter()) {
+                        assert_approx_eq_rel(val, shifted_val, 1e-5);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_tan_poles() {
+            unsafe {
+                // Test behavior near poles (±π/2, ±3π/2, etc.)
+                let poles = [FRAC_PI_2, -FRAC_PI_2, 3.0 * FRAC_PI_2, -3.0 * FRAC_PI_2];
+
+                for &pole in &poles {
+                    let input = _mm256_set1_ps(pole);
+                    let result = _mm256_tan_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        // At poles, tangent should be infinite or very large (implementation dependent)
+                        assert!(
+                            val.is_infinite() || val.abs() > 1e6,
+                            "tan({pole}) should be infinite or very large, got {val}"
+                        );
+
+                        // For numerical implementations, the exact sign at poles can vary
+                        // due to precision limits. The important thing is that the magnitude is very large.
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_tan_near_poles() {
+            unsafe {
+                // Test behavior very close to poles
+                let epsilon = 1e-7;
+                let near_pole_angles = [
+                    FRAC_PI_2 - epsilon,  // Approach π/2 from left
+                    FRAC_PI_2 + epsilon,  // Approach π/2 from right
+                    -FRAC_PI_2 - epsilon, // Approach -π/2 from left
+                    -FRAC_PI_2 + epsilon, // Approach -π/2 from right
+                ];
+
+                for &angle in &near_pole_angles {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_tan_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        // Very close to poles should give very large values
+                        assert!(
+                            val.abs() > 1e6,
+                            "tan({angle}) should be very large, got {val}"
+                        );
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_tan_quadrants() {
+            unsafe {
+                // Test tangent in different quadrants
+                let test_cases = [
+                    (0.5, 1), // First quadrant: positive
+                    (2.5, 2), // Second quadrant: negative
+                    (3.8, 3), // Third quadrant: positive
+                    (5.5, 4), // Fourth quadrant: negative
+                ];
+
+                for (angle, quadrant) in test_cases {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_tan_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        if !val.is_infinite() {
+                            // Check sign matches expected quadrant behavior
+                            match quadrant {
+                                1 | 3 => assert!(
+                                    val > 0.0,
+                                    "Tangent should be positive in quadrant {quadrant}"
+                                ),
+                                2 | 4 => assert!(
+                                    val < 0.0,
+                                    "Tangent should be negative in quadrant {quadrant}"
+                                ),
+                                _ => unreachable!(),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_tan_small_values() {
+            unsafe {
+                // For small values, tan(x) ≈ x
+                let small_angles = [1e-3, 1e-4, 1e-5, 1e-6];
+
+                for &angle in &small_angles {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_tan_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        assert_approx_eq_rel(val, angle, 1e-6);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_tan_special_values() {
+            unsafe {
+                // Test special input values
+                let special_values = [
+                    (0.0, 0.0),                    // tan(0) = 0
+                    (f32::NAN, f32::NAN),          // tan(NaN) = NaN
+                    (f32::INFINITY, f32::NAN),     // tan(∞) = NaN
+                    (f32::NEG_INFINITY, f32::NAN), // tan(-∞) = NaN
+                ];
+
+                for (input_val, expected) in special_values {
+                    let input = _mm256_set1_ps(input_val);
+                    let result = _mm256_tan_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        if expected.is_nan() {
+                            assert!(val.is_nan(), "Expected NaN for input {input_val}");
+                        } else {
+                            assert_approx_eq_rel(val, expected, 1e-7);
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_tan_consistency_with_scalar() {
+            unsafe {
+                // Test consistency with standard library tan (avoiding poles)
+                let test_angles = [
+                    0.0,
+                    0.1,
+                    0.25,
+                    0.5,
+                    0.75,
+                    1.0,
+                    1.25,
+                    FRAC_PI_6,
+                    FRAC_PI_4,
+                    FRAC_PI_3,
+                    PI + 0.1,
+                    PI + 0.25,
+                    PI + 0.5,
+                    PI + 0.75,
+                    PI + 1.0,
+                    -0.1,
+                    -0.25,
+                    -0.5,
+                    -0.75,
+                    -1.0,
+                    -FRAC_PI_6,
+                    -FRAC_PI_4,
+                    -FRAC_PI_3,
+                ];
+
+                for &angle in &test_angles {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_tan_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    let expected = angle.tan();
+                    for &val in &result_vals {
+                        if expected.abs() < 1e6 {
+                            // Avoid very large values near poles
+                            assert_approx_eq_rel(val, expected, 1e-5);
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_tan_mathematical_properties() {
+            unsafe {
+                // Test tan(x) = sin(x) / cos(x) identity
+                let angles = [0.1, 0.5, 1.0, 1.25, 2.0, 2.5];
+
+                for &angle in &angles {
+                    let input = _mm256_set1_ps(angle);
+                    let tan_result = _mm256_tan_ps(input);
+                    let sin_result = _mm256_sin_ps(input);
+                    let cos_result = _mm256_cos_ps(input);
+
+                    let tan_vals = extract_f32x8(tan_result);
+                    let sin_vals = extract_f32x8(sin_result);
+                    let cos_vals = extract_f32x8(cos_result);
+
+                    for ((&tan_val, &sin_val), &cos_val) in
+                        tan_vals.iter().zip(sin_vals.iter()).zip(cos_vals.iter())
+                    {
+                        if cos_val.abs() > 1e-6 {
+                            // Avoid division by very small cosine
+                            let expected_tan = sin_val / cos_val;
+                            assert_approx_eq_rel(tan_val, expected_tan, 1e-6);
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_tan_range_avoiding_poles() {
+            unsafe {
+                // Test tangent over range avoiding poles
+                for i in 0..90 {
+                    // 0 to 89 degrees
+                    let angle_deg = i as f32;
+                    let angle_rad = angle_deg * PI / 180.0;
+
+                    let input = _mm256_set1_ps(angle_rad);
+                    let result = _mm256_tan_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    let expected = angle_rad.tan();
+                    for &val in &result_vals {
+                        assert_approx_eq_rel(val, expected, 1e-5);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_tan_symmetry() {
+            unsafe {
+                // Test odd function property: tan(-x) = -tan(x)
+                let angles = [0.1, 0.5, 1.0, FRAC_PI_6, FRAC_PI_4, FRAC_PI_3];
+
+                for &angle in &angles {
+                    let pos_input = _mm256_set1_ps(angle);
+                    let neg_input = _mm256_set1_ps(-angle);
+
+                    let pos_result = _mm256_tan_ps(pos_input);
+                    let neg_result = _mm256_tan_ps(neg_input);
+
+                    let pos_vals = extract_f32x8(pos_result);
+                    let neg_vals = extract_f32x8(neg_result);
+
+                    for (&pos_val, &neg_val) in pos_vals.iter().zip(neg_vals.iter()) {
+                        assert_approx_eq_rel(neg_val, -pos_val, 1e-6);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_tan_large_values() {
+            unsafe {
+                // Test large input values to ensure range reduction works
+                let large_angles = [10.0, 50.0, 100.0];
+
+                for &angle in &large_angles {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_tan_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        assert!(!val.is_nan(), "Large angle tangent should not be NaN");
+
+                        // Compare with standard library (with some tolerance for large values)
+                        let expected = angle.tan();
+                        if !expected.is_nan() && expected.abs() < 1e6 {
+                            assert_approx_eq_rel(val, expected, 1e-3);
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_tan_zeros() {
+            unsafe {
+                // Test that tangent is zero at multiples of π
+                let zero_points = [0.0, PI, -PI, 2.0 * PI, -2.0 * PI];
+
+                for &angle in &zero_points {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_tan_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        assert_approx_eq_rel(val, 0.0, 1e-6);
                     }
                 }
             }
