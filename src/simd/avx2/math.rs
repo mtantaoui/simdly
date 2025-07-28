@@ -1624,6 +1624,70 @@ pub unsafe fn _mm256_sin_ps(x: __m256) -> __m256 {
     _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_special)
 }
 
+#[inline]
+/// Computes cosine function with high precision using polynomial approximation
+///
+/// # Safety
+///
+/// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
+pub unsafe fn _mm256_cos_ps(x: __m256) -> __m256 {
+    // Handle special cases first
+    let x_is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
+    let x_abs = _mm256_abs_ps(x);
+    let x_is_inf = _mm256_cmp_ps(x_abs, _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
+    let any_special = _mm256_or_ps(x_is_nan, x_is_inf);
+
+    // For cosine, we use the identity: cos(x) = cos(|x|) (cosine is even function)
+    let x_abs = _mm256_abs_ps(x);
+
+    // Use the identity: cos(x) = sin(x + π/2)
+    // Add π/2 to convert cosine to sine
+    let x_shifted = _mm256_add_ps(x_abs, _mm256_set1_ps(std::f32::consts::FRAC_PI_2));
+
+    // Range reduction: reduce to [-π/2, π/2] range
+    // q = round(x_shifted / π)
+    let inv_pi = _mm256_set1_ps(std::f32::consts::FRAC_1_PI);
+    let x_over_pi = _mm256_mul_ps(x_shifted, inv_pi);
+
+    // Round to nearest integer using round-to-even
+    let q_float = _mm256_round_ps(x_over_pi, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+
+    // Convert to integer for sign determination
+    let q_int = _mm256_cvtps_epi32(q_float);
+
+    // Reduced range: r = x_shifted - q * π
+    // Use high-precision π decomposition for accuracy
+    let mut r = _mm256_fmadd_ps(
+        q_float,
+        _mm256_set1_ps(-PI_HIGH_PRECISION_PART_1),
+        x_shifted,
+    );
+    r = _mm256_fmadd_ps(q_float, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_2), r);
+    r = _mm256_fmadd_ps(q_float, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_3), r);
+    r = _mm256_fmadd_ps(q_float, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_4), r);
+
+    // Compute sine polynomial: r * (1 + r²*(c₁ + r²*(c₂ + r²*(c₃ + r²*(c₄ + r²*c₅)))))
+    let r2 = _mm256_mul_ps(r, r);
+    let mut sin_poly = _mm256_set1_ps(SIN_COEFF_5);
+    sin_poly = _mm256_fmadd_ps(sin_poly, r2, _mm256_set1_ps(SIN_COEFF_4));
+    sin_poly = _mm256_fmadd_ps(sin_poly, r2, _mm256_set1_ps(SIN_COEFF_3));
+    sin_poly = _mm256_fmadd_ps(sin_poly, r2, _mm256_set1_ps(SIN_COEFF_2));
+    sin_poly = _mm256_fmadd_ps(sin_poly, r2, _mm256_set1_ps(SIN_COEFF_1));
+    let mut result = _mm256_fmadd_ps(_mm256_mul_ps(sin_poly, r2), r, r);
+
+    // Apply sign based on quadrant (for sine function)
+    // q is odd -> negate result
+    let is_odd = _mm256_cmpeq_epi32(
+        _mm256_and_si256(q_int, _mm256_set1_epi32(1)),
+        _mm256_set1_epi32(1),
+    );
+    let is_odd_f = _mm256_castsi256_ps(is_odd);
+    result = _mm256_blendv_ps(result, _mm256_sub_ps(_mm256_setzero_ps(), result), is_odd_f);
+
+    // Handle special cases: NaN -> NaN, Infinity -> NaN
+    _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_special)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4268,7 +4332,6 @@ mod tests {
 
     mod sin_tests {
         use super::*;
-        use std::f32::consts::{FRAC_PI_2, FRAC_PI_3, FRAC_PI_4, FRAC_PI_6, PI};
 
         #[test]
         fn test_sin_special_angles() {
@@ -4625,6 +4688,463 @@ mod tests {
 
             for &val in &result_vals {
                 assert_approx_eq_rel(val, 0.0, 1e-5);
+            }
+        }
+    }
+
+    mod cos_tests {
+        use super::*;
+
+        #[test]
+        fn test_cos_special_angles() {
+            unsafe {
+                // Test standard angles: 0, π/6, π/4, π/3, π/2
+                let angles = [0.0, FRAC_PI_6, FRAC_PI_4, FRAC_PI_3, FRAC_PI_2];
+                let expected = [1.0, 3.0_f32.sqrt() / 2.0, 2.0_f32.sqrt() / 2.0, 0.5, 0.0];
+
+                for (angle, exp_val) in angles.iter().zip(expected.iter()) {
+                    let input = _mm256_set1_ps(*angle);
+                    let result = _mm256_cos_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        assert_approx_eq_rel(val, *exp_val, 1e-6);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_cos_negative_angles() {
+            unsafe {
+                // cos(-x) = cos(x) - cosine is even function
+                let angles = [-FRAC_PI_2, -FRAC_PI_3, -FRAC_PI_4, -FRAC_PI_6, -0.1];
+                let positive_angles = [FRAC_PI_2, FRAC_PI_3, FRAC_PI_4, FRAC_PI_6, 0.1];
+
+                for (&neg_angle, &pos_angle) in angles.iter().zip(positive_angles.iter()) {
+                    let neg_input = _mm256_set1_ps(neg_angle);
+                    let pos_input = _mm256_set1_ps(pos_angle);
+
+                    let neg_result = _mm256_cos_ps(neg_input);
+                    let pos_result = _mm256_cos_ps(pos_input);
+
+                    let neg_vals = extract_f32x8(neg_result);
+                    let pos_vals = extract_f32x8(pos_result);
+
+                    for (&neg_val, &pos_val) in neg_vals.iter().zip(pos_vals.iter()) {
+                        assert_approx_eq_rel(neg_val, pos_val, 1e-6);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_cos_periodicity() {
+            unsafe {
+                // cos(x + 2π) = cos(x)
+                let angles = [0.1, 0.5, 1.0, 1.5];
+
+                for &angle in &angles {
+                    let input = _mm256_set1_ps(angle);
+                    let shifted_input = _mm256_set1_ps(angle + 2.0 * PI);
+
+                    let result = _mm256_cos_ps(input);
+                    let shifted_result = _mm256_cos_ps(shifted_input);
+
+                    let vals = extract_f32x8(result);
+                    let shifted_vals = extract_f32x8(shifted_result);
+
+                    for (&val, &shifted_val) in vals.iter().zip(shifted_vals.iter()) {
+                        assert_approx_eq_rel(val, shifted_val, 1e-5);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_cos_symmetry() {
+            unsafe {
+                // cos(-x) = cos(x) - even function symmetry
+                let angles = [0.0, 0.1, 0.5, 1.0, PI / 3.0];
+
+                for &angle in &angles {
+                    let pos_input = _mm256_set1_ps(angle);
+                    let neg_input = _mm256_set1_ps(-angle);
+
+                    let pos_result = _mm256_cos_ps(pos_input);
+                    let neg_result = _mm256_cos_ps(neg_input);
+
+                    let pos_vals = extract_f32x8(pos_result);
+                    let neg_vals = extract_f32x8(neg_result);
+
+                    for (&pos_val, &neg_val) in pos_vals.iter().zip(neg_vals.iter()) {
+                        assert_approx_eq_rel(pos_val, neg_val, 1e-6);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_cos_quadrants() {
+            unsafe {
+                // Test cosine in different quadrants
+                let test_cases = [
+                    (0.5, 1), // First quadrant: positive
+                    (2.0, 2), // Second quadrant: negative
+                    (4.0, 3), // Third quadrant: negative
+                    (5.5, 4), // Fourth quadrant: positive
+                ];
+
+                for (angle, quadrant) in test_cases {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_cos_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    let _expected_sign = if quadrant == 2 || quadrant == 3 {
+                        -1.0
+                    } else {
+                        1.0
+                    };
+
+                    for &val in &result_vals {
+                        // Check that sign matches expected quadrant behavior
+                        if quadrant == 2 || quadrant == 3 {
+                            assert!(
+                                val <= 0.0,
+                                "Cosine should be negative in quadrant {quadrant}"
+                            );
+                        } else {
+                            assert!(
+                                val >= 0.0,
+                                "Cosine should be positive in quadrant {quadrant}"
+                            );
+                        }
+                        assert!(val.abs() <= 1.0, "Cosine magnitude should be ≤ 1");
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_cos_large_values() {
+            unsafe {
+                // Test large input values to ensure range reduction works
+                let large_angles = [100.0, 1000.0, 10000.0];
+
+                for &angle in &large_angles {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_cos_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        assert!(!val.is_nan(), "Large angle cosine should not be NaN");
+                        assert!(val.abs() <= 1.0, "Cosine should be bounded by [-1, 1]");
+
+                        // Compare with standard library (with some tolerance for large values)
+                        let expected = angle.cos();
+                        if !expected.is_nan() {
+                            assert_approx_eq_rel(val, expected, 1e-3);
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_cos_small_values() {
+            unsafe {
+                // For small values, cos(x) ≈ 1 - x²/2
+                let small_angles = [1e-3, 1e-4, 1e-5];
+
+                for &angle in &small_angles {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_cos_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    let expected = angle.cos();
+                    for &val in &result_vals {
+                        assert_approx_eq_rel(val, expected, 1e-7);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_cos_special_values() {
+            unsafe {
+                // Test special input values
+                let special_values = [
+                    (0.0, 1.0),                    // cos(0) = 1
+                    (f32::NAN, f32::NAN),          // cos(NaN) = NaN
+                    (f32::INFINITY, f32::NAN),     // cos(∞) = NaN
+                    (f32::NEG_INFINITY, f32::NAN), // cos(-∞) = NaN
+                ];
+
+                for (input_val, expected) in special_values {
+                    let input = _mm256_set1_ps(input_val);
+                    let result = _mm256_cos_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        if expected.is_nan() {
+                            assert!(val.is_nan(), "Expected NaN for input {input_val}");
+                        } else {
+                            assert_approx_eq_rel(val, expected, 1e-7);
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_cos_consistency_with_scalar() {
+            unsafe {
+                // Test consistency with standard library cos
+                let test_angles = [
+                    0.0,
+                    0.1,
+                    0.25,
+                    0.5,
+                    0.75,
+                    1.0,
+                    1.25,
+                    1.5,
+                    1.75,
+                    2.0,
+                    2.5,
+                    3.0,
+                    FRAC_PI_6,
+                    FRAC_PI_4,
+                    FRAC_PI_3,
+                    FRAC_PI_2,
+                    2.0 * FRAC_PI_3,
+                    3.0 * FRAC_PI_4,
+                    5.0 * FRAC_PI_6,
+                    PI,
+                    7.0 * FRAC_PI_6,
+                    5.0 * FRAC_PI_4,
+                    4.0 * FRAC_PI_3,
+                    3.0 * FRAC_PI_2,
+                    5.0 * FRAC_PI_3,
+                    7.0 * FRAC_PI_4,
+                    11.0 * FRAC_PI_6,
+                    2.0 * PI,
+                ];
+
+                for &angle in &test_angles {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_cos_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    let expected = angle.cos();
+                    for &val in &result_vals {
+                        if expected.abs() < 1e-6 {
+                            // Use absolute tolerance for very small values
+                            assert!(
+                                (val - expected).abs() < 1e-6,
+                                "cos({}) = {} vs expected {}, diff = {}",
+                                angle,
+                                val,
+                                expected,
+                                (val - expected).abs()
+                            );
+                        } else {
+                            assert_approx_eq_rel(val, expected, 3e-6);
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_cos_range_comprehensive() {
+            unsafe {
+                // Test cosine over comprehensive range
+                for i in 0..360 {
+                    let angle_deg = i as f32;
+                    let angle_rad = angle_deg * PI / 180.0;
+
+                    let input = _mm256_set1_ps(angle_rad);
+                    let result = _mm256_cos_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    let expected = angle_rad.cos();
+                    for &val in &result_vals {
+                        if expected.abs() < 1e-6 {
+                            // Use absolute tolerance for very small values
+                            assert!(
+                                (val - expected).abs() < 1e-6,
+                                "cos({}) = {} vs expected {}, diff = {}",
+                                angle_rad,
+                                val,
+                                expected,
+                                (val - expected).abs()
+                            );
+                        } else {
+                            assert_approx_eq_rel(val, expected, 5e-5);
+                        }
+                        assert!(
+                            (-1.0..=1.0).contains(&val),
+                            "Cosine out of bounds at {angle_deg} degrees"
+                        );
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_cos_mathematical_properties() {
+            unsafe {
+                // Test cos²(x) + sin²(x) = 1 (Pythagorean identity)
+                let angles = [0.1, 0.5, 1.0, 1.57, 2.0, 3.0];
+
+                for &angle in &angles {
+                    let input = _mm256_set1_ps(angle);
+                    let cos_result = _mm256_cos_ps(input);
+                    let sin_result = _mm256_sin_ps(input);
+
+                    let cos_vals = extract_f32x8(cos_result);
+                    let sin_vals = extract_f32x8(sin_result);
+
+                    for (&cos_val, &sin_val) in cos_vals.iter().zip(sin_vals.iter()) {
+                        let identity = cos_val * cos_val + sin_val * sin_val;
+                        assert_approx_eq_rel(identity, 1.0, 1e-5);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_cos_precision_edge_cases() {
+            unsafe {
+                // Test angles near critical points for precision
+                let critical_angles = [
+                    FRAC_PI_2 - 1e-6,       // Near π/2 from left
+                    FRAC_PI_2 + 1e-6,       // Near π/2 from right
+                    PI - 1e-6,              // Near π from left
+                    PI + 1e-6,              // Near π from right
+                    3.0 * FRAC_PI_2 - 1e-6, // Near 3π/2 from left
+                    3.0 * FRAC_PI_2 + 1e-6, // Near 3π/2 from right
+                ];
+
+                for &angle in &critical_angles {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_cos_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    let expected = angle.cos();
+                    for &val in &result_vals {
+                        if expected.abs() < 1e-6 {
+                            // Use absolute tolerance for very small values
+                            assert!(
+                                (val - expected).abs() < 1e-6,
+                                "cos({}) = {} vs expected {}, diff = {}",
+                                angle,
+                                val,
+                                expected,
+                                (val - expected).abs()
+                            );
+                        } else {
+                            assert_approx_eq_rel(val, expected, 5e-5);
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_cos_monotonicity() {
+            unsafe {
+                // Test monotonicity in intervals where cosine is monotonic
+
+                // Decreasing in [0, π]
+                let angles_0_to_pi = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, PI];
+                let mut prev_val = f32::INFINITY;
+
+                for &angle in &angles_0_to_pi {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_cos_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        if prev_val != f32::INFINITY {
+                            assert!(
+                                val <= prev_val + 1e-6,
+                                "Cosine should be decreasing in [0, π]"
+                            );
+                        }
+                        prev_val = val;
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_cos_bounds() {
+            unsafe {
+                // Test that cosine is always bounded by [-1, 1]
+                let test_angles = [
+                    -10.0, -5.0, -PI, -1.57, -1.0, -0.5, 0.0, 0.5, 1.0, 1.57, PI, 5.0, 10.0,
+                    -100.0, -50.0, 50.0, 100.0, 1000.0, -1000.0,
+                ];
+
+                for &angle in &test_angles {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_cos_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        if !val.is_nan() {
+                            assert!(
+                                (-1.0..=1.0).contains(&val),
+                                "Cosine out of bounds: cos({angle}) = {val}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_cos_extrema() {
+            unsafe {
+                // Test that cosine achieves its extrema at expected points
+
+                // Maximum at x = 0, 2π, -2π, etc.
+                let max_points = [0.0, 2.0 * PI, -2.0 * PI, 4.0 * PI];
+                for &angle in &max_points {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_cos_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        assert_approx_eq_rel(val, 1.0, 1e-5);
+                    }
+                }
+
+                // Minimum at x = π, 3π, -π, etc.
+                let min_points = [PI, 3.0 * PI, -PI, -3.0 * PI];
+                for &angle in &min_points {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_cos_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        assert_approx_eq_rel(val, -1.0, 1e-5);
+                    }
+                }
+
+                // Zero at x = π/2, 3π/2, -π/2, etc.
+                let zero_points = [FRAC_PI_2, 3.0 * FRAC_PI_2, -FRAC_PI_2, -3.0 * FRAC_PI_2];
+                for &angle in &zero_points {
+                    let input = _mm256_set1_ps(angle);
+                    let result = _mm256_cos_ps(input);
+                    let result_vals = extract_f32x8(result);
+
+                    for &val in &result_vals {
+                        assert_approx_eq_rel(val, 0.0, 1e-5);
+                    }
+                }
             }
         }
     }
