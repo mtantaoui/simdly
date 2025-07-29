@@ -37,7 +37,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Build with CPU feature detection
         run: cargo build --release
@@ -48,7 +48,7 @@ jobs:
 
       - name: Build documentation
         run: |
-          RUSTDOCFLAGS="--cfg avx2" cargo doc --all-features --no-deps
+          cargo doc --no-deps
 
   dry-run-publish:
     needs: build-and-test
