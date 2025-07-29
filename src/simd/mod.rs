@@ -10,8 +10,8 @@
 //! CPU features:
 //!
 //! - **AVX2**: 256-bit vectors for x86/x86_64 processors (when compiled with `avx2` feature)
+//! - **NEON**: 128-bit vectors for ARM/AArch64 processors (when compiled with `neon` feature)
 //! - **SSE**: 128-bit vectors for x86/x86_64 processors (future implementation)
-//! - **NEON**: 128-bit vectors for ARM/AArch64 processors (future implementation)
 //!
 //! # Usage
 //!

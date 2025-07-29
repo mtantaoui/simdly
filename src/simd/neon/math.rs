@@ -30,17 +30,52 @@
 //! # Supported Functions
 //!
 //! ## Trigonometric Functions
-//! - **Arcsine**: Polynomial approximation with range reduction for high accuracy
-//! - **Arccosine**: Uses trigonometric identity with arcsine implementation
-//! - **Arctangent**: Polynomial approximation with range reduction for full domain coverage
-//! - **Arctangent2**: Two-argument arctangent with correct quadrant handling for all cases
+//! - [`vsinq_f32`]: Sine function with range reduction
+//! - [`vcosq_f32`]: Cosine function with range reduction
+//! - [`vtanq_f32`]: Tangent function with range reduction
+//! - [`vasinq_f32`]: Arcsine (inverse sine) function
+//! - [`vacosq_f32`]: Arccosine (inverse cosine) function
+//! - [`vatanq_f32`]: Arctangent (inverse tangent) function
+//! - [`vatan2q_f32`]: Two-argument arctangent with quadrant handling
 //!
-//! ## Elementary Functions  
-//! - **Absolute Value**: Fast sign bit manipulation using bitwise operations
-//! - **Square Root**: Hardware-accelerated square root with IEEE 754 compliance
-//! - **Cube Root**: Newton-Raphson iteration with bit manipulation for fast initial guess
-//! - **Reciprocal Square Root**: Fast approximation with ~12-bit precision
-//! - **Reciprocal**: Fast approximation for division optimization
+//! ## Elementary Functions
+//! - [`vabsq_f32`]: Absolute value (sign bit manipulation)  
+//! - [`vsqrtq_f32`]: Square root (hardware accelerated)
+//! - [`vcbrtq_f32`]: Cube root with Newton-Raphson iteration
+//! - [`vexpq_f32`]: Natural exponential function (e^x)
+//! - [`vlnq_f32`]: Natural logarithm function
+//! - [`vpowq_f32`]: Power function (x^y)
+//! - [`vhypotq_f32`]: 2D Euclidean distance (sqrt(x² + y²))
+//! - [`vhypot3q_f32`]: 3D Euclidean distance (sqrt(x² + y² + z²))
+//! - [`vhypot4q_f32`]: 4D Euclidean distance (sqrt(x² + y² + z² + w²))
+//! - [`vfloorq_f32`]: Floor function (round down)
+//! - [`vceilq_f32`]: Ceiling function (round up)
+//!
+//! # Usage Examples
+//!
+//! ```rust
+//! #[cfg(target_arch = "aarch64")]
+//! {
+//!     use std::arch::aarch64::*;
+//!     use simdly::simd::neon::math::*;
+//!
+//!     unsafe {
+//!         // Create a vector with 4 values
+//!         let input = vdupq_n_f32(1.0);
+//!         
+//!         // Compute sine of all values simultaneously
+//!         let sine_result = vsinq_f32(input);
+//!         
+//!         // Compute square root
+//!         let sqrt_result = vsqrtq_f32(input);
+//!         
+//!         // Compute 2D distance
+//!         let x = vdupq_n_f32(3.0);
+//!         let y = vdupq_n_f32(4.0);
+//!         let distance = vhypotq_f32(x, y); // Results in 5.0 for all lanes
+//!     }
+//! }
+//! ```
 //!
 //!
 //! # CPU Feature Detection

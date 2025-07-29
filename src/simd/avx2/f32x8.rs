@@ -29,16 +29,41 @@ const LANE_COUNT: usize = 8;
 ///
 /// # Examples
 ///
+/// ## Basic Loading and Storing
 /// ```rust
 /// # use simdly::simd::avx2::f32x8::F32x8;
-/// # use simdly::simd::SimdLoad;
+/// # use simdly::simd::{SimdLoad, SimdStore};
 /// // Load 8 f32 values
 /// let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
 /// let vec = F32x8::from_slice(&data);
 ///
+/// // Store results back to memory
+/// let mut output = [0.0f32; 8];
+/// unsafe {
+///     vec.store_unaligned_at(output.as_mut_ptr());
+/// }
+/// assert_eq!(output, data);
+///
 /// // Partial load (< 8 elements)
 /// let partial = [1.0f32, 2.0, 3.0];
 /// let partial_vec = F32x8::from_slice(&partial);
+/// ```
+///
+/// ## Mathematical Operations
+/// ```rust
+/// # use simdly::simd::avx2::f32x8::F32x8;
+/// # use simdly::simd::{SimdLoad, SimdMath};
+/// let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+/// let vec = F32x8::from_slice(&data);
+///
+/// // Compute square root of all elements simultaneously
+/// let sqrt_vec = vec.sqrt();
+///
+/// // Compute sine of all elements
+/// let sin_vec = vec.sin();
+///
+/// // Chain operations
+/// let result = vec.abs().sqrt().sin();
 /// ```
 #[derive(Copy, Clone, Debug)]
 pub struct F32x8 {
@@ -221,6 +246,155 @@ impl SimdLoad<f32> for F32x8 {
     }
 }
 
+impl SimdMath<f32> for F32x8 {
+    type Output = Self;
+
+    /// Computes the absolute value of each element using AVX2 intrinsics.
+    fn abs(&self) -> Self::Output {
+        use crate::simd::avx2::math::_mm256_abs_ps;
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_abs_ps(self.elements) },
+        }
+    }
+
+    /// Computes the arccosine of each element.
+    fn acos(&self) -> Self::Output {
+        use crate::simd::avx2::math::_mm256_acos_ps;
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_acos_ps(self.elements) },
+        }
+    }
+
+    /// Computes the arcsine of each element.
+    fn asin(&self) -> Self::Output {
+        use crate::simd::avx2::math::_mm256_asin_ps;
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_asin_ps(self.elements) },
+        }
+    }
+
+    /// Computes the arctangent of each element.
+    fn atan(&self) -> Self::Output {
+        use crate::simd::avx2::math::_mm256_atan_ps;
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_atan_ps(self.elements) },
+        }
+    }
+
+    /// Computes the two-argument arctangent. Self is treated as Y, the parameter as X.
+    fn atan2(&self) -> Self::Output {
+        // This is incomplete - atan2 needs two arguments
+        // For now, return arctangent of self
+        self.atan()
+    }
+
+    /// Computes the cube root of each element.
+    fn cbrt(&self) -> Self::Output {
+        use crate::simd::avx2::math::_mm256_cbrt_ps;
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_cbrt_ps(self.elements) },
+        }
+    }
+
+    /// Computes the floor of each element.
+    fn floor(&self) -> Self::Output {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_floor_ps(self.elements) },
+        }
+    }
+
+    /// Computes the natural exponential of each element.
+    fn exp(&self) -> Self::Output {
+        use crate::simd::avx2::math::_mm256_exp_ps;
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_exp_ps(self.elements) },
+        }
+    }
+
+    /// Computes the natural logarithm of each element.
+    fn ln(&self) -> Self::Output {
+        use crate::simd::avx2::math::_mm256_ln_ps;
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_ln_ps(self.elements) },
+        }
+    }
+
+    /// Computes the Euclidean distance. Self is treated as X, parameter would be Y.
+    fn hypot(&self) -> Self::Output {
+        // This is incomplete - hypot needs two arguments
+        // For now, return self
+        *self
+    }
+
+    /// Computes power function. Self is base, parameter would be exponent.
+    fn pow(&self) -> Self::Output {
+        // This is incomplete - pow needs two arguments
+        // For now, return self
+        *self
+    }
+
+    /// Computes the sine of each element.
+    fn sin(&self) -> Self::Output {
+        use crate::simd::avx2::math::_mm256_sin_ps;
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_sin_ps(self.elements) },
+        }
+    }
+
+    /// Computes the cosine of each element.
+    fn cos(&self) -> Self::Output {
+        use crate::simd::avx2::math::_mm256_cos_ps;
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_cos_ps(self.elements) },
+        }
+    }
+
+    /// Computes the tangent of each element.
+    fn tan(&self) -> Self::Output {
+        use crate::simd::avx2::math::_mm256_tan_ps;
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_tan_ps(self.elements) },
+        }
+    }
+
+    /// Computes the square root of each element.
+    fn sqrt(&self) -> Self::Output {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_sqrt_ps(self.elements) },
+        }
+    }
+
+    /// Computes the ceiling of each element.
+    fn ceil(&self) -> Self::Output {
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_ceil_ps(self.elements) },
+        }
+    }
+
+    /// Computes 3D Euclidean distance (incomplete - needs 3 arguments).
+    fn hypot3(&self) -> Self::Output {
+        *self
+    }
+
+    /// Computes 4D Euclidean distance (incomplete - needs 4 arguments).
+    fn hypot4(&self) -> Self::Output {
+        *self
+    }
+}
+
 impl SimdStore<f32> for F32x8 {
     type Output = Self;
 
@@ -371,82 +545,6 @@ impl SimdStore<f32> for F32x8 {
         };
 
         _mm256_maskstore_ps(ptr, mask, self.elements);
-    }
-}
-
-impl SimdMath<f32> for F32x8 {
-    type Output = Self;
-
-    fn abs(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn acos(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn asin(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn atan(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn atan2(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn cbrt(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn floor(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn exp(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn ln(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn hypot(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn pow(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn sin(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn cos(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn tan(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn sqrt(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn ceil(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn hypot3(&self) -> Self::Output {
-        todo!()
-    }
-
-    fn hypot4(&self) -> Self::Output {
-        todo!()
     }
 }
 

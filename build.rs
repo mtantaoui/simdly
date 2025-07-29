@@ -1,3 +1,27 @@
+//! Build script for automatic CPU feature detection and optimization.
+//!
+//! This build script automatically detects available CPU features on the target system
+//! and enables appropriate SIMD optimizations during compilation. It supports multiple
+//! platforms and provides fallback implementations when advanced features are unavailable.
+//!
+//! # Supported Features
+//!
+//! - **AVX2**: Intel Advanced Vector Extensions 2 (256-bit vectors)
+//! - **NEON**: ARM Advanced SIMD (128-bit vectors)  
+//! - **SSE4.1**: Streaming SIMD Extensions 4.1 (128-bit vectors)
+//! - **AVX-512**: Intel Advanced Vector Extensions 512 (512-bit vectors, nightly only)
+//!
+//! # Platform Support
+//!
+//! - **Linux**: Reads `/proc/cpuinfo` for feature detection
+//! - **macOS**: Uses `sysctl` to query hardware capabilities
+//! - **Windows**: Uses PowerShell and WMI for CPU feature detection
+//!
+//! # Cross-Compilation
+//!
+//! When cross-compiling, the build script skips CPU detection and falls back to
+//! generic implementations to ensure compatibility with the target architecture.
+
 use std::cmp::Ordering;
 use std::env;
 use std::process::Command;

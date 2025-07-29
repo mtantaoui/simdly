@@ -14,7 +14,8 @@
 //!
 //! # Available Types
 //!
-//! - ARM NEON vector types for mathematical operations (work in progress)
+//! - **Mathematical Functions**: Complete set of NEON-optimized math functions
+//! - Vector types: Currently uses native ARM NEON intrinsics (float32x4_t, etc.)
 //!
 //! # Performance Characteristics
 //!
@@ -28,6 +29,25 @@
 //! This module is only compiled when the `neon` CPU feature is available. The build
 //! system automatically detects this and configures the appropriate compilation flags.
 //! When NEON is not available, the library falls back to scalar implementations.
+//!
+//! # Usage Examples
+//!
+//! ```rust
+//! #[cfg(target_arch = "aarch64")]
+//! {
+//!     use simdly::simd::neon::math::{vsinq_f32, vhypotq_f32};
+//!     use std::arch::aarch64::vdupq_n_f32;
+//!
+//!     // 4 parallel sine calculations
+//!     let input = vdupq_n_f32(1.0);
+//!     let result = unsafe { vsinq_f32(input) };
+//!
+//!     // 2D Euclidean distance for 4 point pairs
+//!     let x = vdupq_n_f32(3.0);
+//!     let y = vdupq_n_f32(4.0);
+//!     let distance = unsafe { vhypotq_f32(x, y) }; // sqrt(3² + 4²) = 5.0
+//! }
+//! ```
 //!
 //! # Platform Support
 //!
