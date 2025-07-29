@@ -48,7 +48,7 @@ jobs:
 
       - name: Build documentation
         run: |
-          cargo doc --no-deps
+          RUSTDOCFLAGS='--cfg avx2 --cfg neon' cargo doc --no-deps
 
   dry-run-publish:
     needs: build-and-test
