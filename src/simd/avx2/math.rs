@@ -30,17 +30,49 @@
 //! # Supported Functions
 //!
 //! ## Trigonometric Functions
-//! - **Arcsine**: Polynomial approximation with range reduction for high accuracy
-//! - **Arccosine**: Uses trigonometric identity with arcsine implementation
-//! - **Arctangent**: Polynomial approximation with range reduction for full domain coverage
-//! - **Arctangent2**: Two-argument arctangent with correct quadrant handling for all cases
+//! - [`_mm256_sin_ps`]: Sine function with range reduction
+//! - [`_mm256_cos_ps`]: Cosine function with range reduction  
+//! - [`_mm256_tan_ps`]: Tangent function with range reduction
+//! - [`_mm256_asin_ps`]: Arcsine (inverse sine) function
+//! - [`_mm256_acos_ps`]: Arccosine (inverse cosine) function
+//! - [`_mm256_atan_ps`]: Arctangent (inverse tangent) function
+//! - [`_mm256_atan2_ps`]: Two-argument arctangent with quadrant handling
 //!
-//! ## Elementary Functions  
-//! - **Absolute Value**: Fast sign bit manipulation using bitwise operations
-//! - **Square Root**: Hardware-accelerated square root with IEEE 754 compliance
-//! - **Cube Root**: Newton-Raphson iteration with bit manipulation for fast initial guess
-//! - **Reciprocal Square Root**: Fast approximation with ~12-bit precision
-//! - **Reciprocal**: Fast approximation for division optimization
+//! ## Elementary Functions
+//! - [`_mm256_abs_ps`]: Absolute value (sign bit manipulation)
+//! - [`_mm256_sqrt_ps`]: Square root (hardware accelerated)
+//! - [`_mm256_cbrt_ps`]: Cube root with Newton-Raphson iteration
+//! - [`_mm256_exp_ps`]: Natural exponential function (e^x)
+//! - [`_mm256_ln_ps`]: Natural logarithm function
+//! - [`_mm256_pow_ps`]: Power function (x^y)
+//! - [`_mm256_hypot_ps`]: 2D Euclidean distance (sqrt(x² + y²))
+//! - [`_mm256_hypot3_ps`]: 3D Euclidean distance (sqrt(x² + y² + z²))
+//! - [`_mm256_hypot4_ps`]: 4D Euclidean distance (sqrt(x² + y² + z² + w²))
+//! - [`_mm256_floor_ps`]: Floor function (round down)
+//! - [`_mm256_ceil_ps`]: Ceiling function (round up)
+//!
+//! # Usage Examples
+//!
+//! ```rust
+//! use std::arch::x86_64::*;
+//! use simdly::simd::avx2::math::*;
+//!
+//! unsafe {
+//!     // Create a vector with 8 values
+//!     let input = _mm256_set_ps(8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0);
+//!     
+//!     // Compute sine of all values simultaneously
+//!     let sine_result = _mm256_sin_ps(input);
+//!     
+//!     // Compute square root
+//!     let sqrt_result = _mm256_sqrt_ps(input);
+//!     
+//!     // Compute 2D distance
+//!     let x = _mm256_set1_ps(3.0);
+//!     let y = _mm256_set1_ps(4.0);
+//!     let distance = _mm256_hypot_ps(x, y); // Results in 5.0 for all lanes
+//! }
+//! ```
 //!
 //!
 //! # CPU Feature Detection
