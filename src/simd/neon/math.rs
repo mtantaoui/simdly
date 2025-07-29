@@ -84,6 +84,131 @@
 
 #[cfg(target_arch = "aarch64")]
 use std::arch::aarch64::*;
+
+// Mock types and functions for documentation generation on non-ARM platforms
+#[cfg(not(target_arch = "aarch64"))]
+#[allow(non_camel_case_types)]
+type float32x4_t = [f32; 4];
+#[cfg(not(target_arch = "aarch64"))]
+#[allow(non_camel_case_types)]
+type uint32x4_t = [u32; 4];
+
+// Mock NEON intrinsics for documentation compilation on x86_64
+#[cfg(not(target_arch = "aarch64"))]
+#[allow(non_snake_case)]
+mod mock_neon {
+    use super::*;
+
+    pub unsafe fn vdupq_n_f32(_value: f32) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vdupq_n_u32(_value: u32) -> uint32x4_t {
+        [0; 4]
+    }
+    pub unsafe fn vabsq_f32(_a: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vmulq_f32(_a: float32x4_t, _b: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vaddq_f32(_a: float32x4_t, _b: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vsubq_f32(_a: float32x4_t, _b: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vdivq_f32(_a: float32x4_t, _b: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vsqrtq_f32(_a: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vrsqrteq_f32(_a: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vrecpeq_f32(_a: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vfmaq_f32(_a: float32x4_t, _b: float32x4_t, _c: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vfmsq_f32(_a: float32x4_t, _b: float32x4_t, _c: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vnegq_f32(_a: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vmaxq_f32(_a: float32x4_t, _b: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vminq_f32(_a: float32x4_t, _b: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vcltq_f32(_a: float32x4_t, _b: float32x4_t) -> uint32x4_t {
+        [0; 4]
+    }
+    pub unsafe fn vcgtq_f32(_a: float32x4_t, _b: float32x4_t) -> uint32x4_t {
+        [0; 4]
+    }
+    pub unsafe fn vceqq_f32(_a: float32x4_t, _b: float32x4_t) -> uint32x4_t {
+        [0; 4]
+    }
+    pub unsafe fn vcleq_f32(_a: float32x4_t, _b: float32x4_t) -> uint32x4_t {
+        [0; 4]
+    }
+    pub unsafe fn vcgeq_f32(_a: float32x4_t, _b: float32x4_t) -> uint32x4_t {
+        [0; 4]
+    }
+    pub unsafe fn vbslq_f32(_a: uint32x4_t, _b: float32x4_t, _c: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vreinterpretq_u32_f32(_a: float32x4_t) -> uint32x4_t {
+        [0; 4]
+    }
+    pub unsafe fn vreinterpretq_f32_u32(_a: uint32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vandq_u32(_a: uint32x4_t, _b: uint32x4_t) -> uint32x4_t {
+        [0; 4]
+    }
+    pub unsafe fn vorrq_u32(_a: uint32x4_t, _b: uint32x4_t) -> uint32x4_t {
+        [0; 4]
+    }
+    pub unsafe fn veorq_u32(_a: uint32x4_t, _b: uint32x4_t) -> uint32x4_t {
+        [0; 4]
+    }
+    pub unsafe fn vmvnq_u32(_a: uint32x4_t) -> uint32x4_t {
+        [0; 4]
+    }
+    pub unsafe fn vshlq_n_u32(_a: uint32x4_t, _n: i32) -> uint32x4_t {
+        [0; 4]
+    }
+    pub unsafe fn vshrq_n_u32(_a: uint32x4_t, _n: i32) -> uint32x4_t {
+        [0; 4]
+    }
+    pub unsafe fn vcvtq_f32_u32(_a: uint32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vcvtq_u32_f32(_a: float32x4_t) -> uint32x4_t {
+        [0; 4]
+    }
+    pub unsafe fn vrndmq_f32(_a: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vrndpq_f32(_a: float32x4_t) -> float32x4_t {
+        [0.0; 4]
+    }
+    pub unsafe fn vget_lane_f32(_a: float32x4_t, _lane: i32) -> f32 {
+        0.0
+    }
+    pub unsafe fn vgetq_lane_f32(_a: float32x4_t, _lane: i32) -> f32 {
+        0.0
+    }
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+use mock_neon::*;
+
 use std::f32::consts::{FRAC_1_SQRT_2, LN_2, SQRT_2};
 
 // ============================================================================
@@ -283,44 +408,6 @@ unsafe fn horner_f32x4(x: float32x4_t, coeffs: &[f32]) -> float32x4_t {
 // Public Mathematical Functions (matching AVX2 exactly)
 // ============================================================================
 
-/// Computes the absolute value of 4 packed single-precision floating-point values.
-///
-/// This function efficiently clears the sign bit of each floating-point number
-/// using bitwise operations, providing exact results for all inputs including
-/// special values.
-///
-/// # Arguments
-/// * `f` - Input vector of 4 single-precision floating-point values
-///
-/// # Returns
-/// Vector containing the absolute values of the input elements
-///
-/// # Algorithm Overview
-/// 1. Clears the sign bit (bit 31) using bitwise AND operation
-/// 2. Preserves all other bits including exponent and mantissa
-/// 3. Handles special values (NaN, infinity) correctly
-///
-/// # Performance
-/// - **Latency**: 1 cycle
-/// - **Throughput**: 1 operation per cycle
-/// - **Instructions**: 1 (bitwise AND)
-/// - **Accuracy**: Exact (0 ULP)
-///
-/// # Special Values
-/// | Input | Output | Notes |
-/// |-------|--------|-------|
-/// | ±0.0 | +0.0 | Signed zeros become positive |
-/// | ±∞ | +∞ | Infinities become positive |
-/// | ±NaN | +NaN | NaN sign is cleared |
-///
-/// # Safety
-/// This function is unsafe because it uses NEON intrinsics that require
-/// aarch64 architecture support.
-#[inline(always)]
-pub unsafe fn vabsq_f32_custom(f: float32x4_t) -> float32x4_t {
-    vabsq_f32(f)
-}
-
 /// Computes the arcsine of 4 packed single-precision floating-point values.
 ///
 /// Implements highly optimized polynomial approximation with range reduction
@@ -478,7 +565,7 @@ pub unsafe fn vacosq_f32(d: float32x4_t) -> float32x4_t {
 ///
 /// # Mathematical Foundation  
 /// Uses Remez-optimized polynomial: atan(x) = x·P(x²) where P is degree-8 polynomial.
-/// Coefficients chosen to minimize maximum absolute error over [0,1].
+/// Coefficients chosen to minimize maximum absolute error over \[0,1\].
 ///
 /// # Performance
 /// - **Latency**: 22-27 cycles
@@ -1517,104 +1604,6 @@ pub unsafe fn vtanq_f32(d: float32x4_t) -> float32x4_t {
     vbslq_f32(any_special, vdupq_n_f32(f32::NAN), result)
 }
 
-/// Hardware square root (direct NEON intrinsic wrapper)
-///
-/// Provides IEEE 754 compliant square root computation using dedicated
-/// hardware instructions for optimal performance and precision.
-///
-/// # Arguments
-/// * `x` - Input vector of 4 single-precision floating-point values (≥ 0)
-///
-/// # Returns
-/// Vector containing the square root values
-///
-/// # Performance
-/// - **Latency**: 4-6 cycles (hardware dependent)
-/// - **Throughput**: 1 operation per cycle
-/// - **Instructions**: 1 (vsqrt.f32)
-/// - **Accuracy**: 0.5 ULP (IEEE 754 correctly rounded)
-///
-/// # Special Values
-/// | Input | Output | Notes |
-/// |-------|--------| ------ |
-/// | +0.0 | +0.0 | Exact |
-/// | +∞ | +∞ | IEEE 754 |
-/// | < 0 | NaN | Domain error |
-/// | NaN | NaN | Propagated |
-///
-/// # Safety
-/// This function is unsafe because it uses NEON intrinsics that require
-/// aarch64 architecture support.
-#[inline(always)]
-pub unsafe fn vsqrtq_f32_custom(x: float32x4_t) -> float32x4_t {
-    vsqrtq_f32(x)
-}
-
-/// Hardware reciprocal square root estimate (direct NEON intrinsic wrapper)
-///
-/// Provides fast ~12-bit precision reciprocal square root approximation.
-/// For higher precision, use Newton-Raphson refinement.
-///
-/// # Arguments
-/// * `x` - Input vector of 4 single-precision floating-point values (> 0)
-///
-/// # Returns
-/// Vector containing the reciprocal square root estimates
-///
-/// # Performance
-/// - **Latency**: 2-3 cycles
-/// - **Throughput**: 1 operation per cycle
-/// - **Instructions**: 1 (vrsqrte.f32)
-/// - **Accuracy**: ~12-bit precision (relative error < 1/4096)
-///
-/// # Special Values
-/// | Input | Output | Notes |
-/// |-------|--------| ------ |
-/// | +0.0 | +∞ | IEEE 754 |
-/// | +∞ | +0.0 | IEEE 754 |
-/// | < 0 | NaN | Domain error |
-/// | NaN | NaN | Propagated |
-///
-/// # Safety
-/// This function is unsafe because it uses NEON intrinsics that require
-/// aarch64 architecture support.
-#[inline(always)]
-pub unsafe fn vrsqrteq_f32_custom(x: float32x4_t) -> float32x4_t {
-    vrsqrteq_f32(x)
-}
-
-/// Hardware reciprocal estimate (direct NEON intrinsic wrapper)
-///
-/// Provides fast ~12-bit precision reciprocal approximation.
-/// For higher precision, use Newton-Raphson refinement.
-///
-/// # Arguments
-/// * `x` - Input vector of 4 single-precision floating-point values (≠ 0)
-///
-/// # Returns
-/// Vector containing the reciprocal estimates
-///
-/// # Performance
-/// - **Latency**: 2-3 cycles
-/// - **Throughput**: 1 operation per cycle
-/// - **Instructions**: 1 (vrecpe.f32)
-/// - **Accuracy**: ~12-bit precision (relative error < 1/4096)
-///
-/// # Special Values
-/// | Input | Output | Notes |
-/// |-------|--------| ------ |
-/// | ±0.0 | ±∞ | IEEE 754, preserves sign |
-/// | ±∞ | ±0.0 | IEEE 754, preserves sign |
-/// | NaN | NaN | Propagated |
-///
-/// # Safety
-/// This function is unsafe because it uses NEON intrinsics that require
-/// aarch64 architecture support.
-#[inline(always)]
-pub unsafe fn vrecpeq_f32_custom(x: float32x4_t) -> float32x4_t {
-    vrecpeq_f32(x)
-}
-
 // ============================================================================
 // Unit Tests (comprehensive test coverage matching AVX2)
 // ============================================================================
@@ -1746,7 +1735,7 @@ mod tests {
         fn test_abs_positive_values() {
             let input = [1.0, 2.5, 10.0, f32::MAX];
             let expected = [1.0, 2.5, 10.0, f32::MAX];
-            let result = unsafe { vabsq_f32_custom(create_f32x4(input)) };
+            let result = unsafe { vabsq_f32(create_f32x4(input)) };
             assert_vector_approx_eq_ulp(result, expected, 0);
         }
 
@@ -1754,7 +1743,7 @@ mod tests {
         fn test_abs_negative_values() {
             let input = [-1.0, -2.5, -10.0, -f32::MAX];
             let expected = [1.0, 2.5, 10.0, f32::MAX];
-            let result = unsafe { vabsq_f32_custom(create_f32x4(input)) };
+            let result = unsafe { vabsq_f32(create_f32x4(input)) };
             assert_vector_approx_eq_ulp(result, expected, 0);
         }
 
@@ -1762,14 +1751,14 @@ mod tests {
         fn test_abs_special_values() {
             let input = [0.0, -0.0, f32::INFINITY, f32::NEG_INFINITY];
             let expected = [0.0, 0.0, f32::INFINITY, f32::INFINITY];
-            let result = unsafe { vabsq_f32_custom(create_f32x4(input)) };
+            let result = unsafe { vabsq_f32(create_f32x4(input)) };
             assert_vector_approx_eq_ulp(result, expected, 0);
         }
 
         #[test]
         fn test_abs_nan() {
             let input = [f32::NAN, -f32::NAN, f32::NAN, -f32::NAN];
-            let result = unsafe { vabsq_f32_custom(create_f32x4(input)) };
+            let result = unsafe { vabsq_f32(create_f32x4(input)) };
             let actual_values = extract_f32x4(result);
             for val in actual_values {
                 assert!(val.is_nan());
