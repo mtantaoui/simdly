@@ -1450,8 +1450,8 @@ pub unsafe fn _mm256_hypot4_ps(x: __m256, y: __m256, z: __m256, w: __m256) -> __
     let z_is_inf = _mm256_cmp_ps(z_abs, _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
     let w_is_inf = _mm256_cmp_ps(w_abs, _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
     let any_inf = _mm256_or_ps(
-        _mm256_or_ps(x_is_inf, y_is_inf), 
-        _mm256_or_ps(z_is_inf, w_is_inf)
+        _mm256_or_ps(x_is_inf, y_is_inf),
+        _mm256_or_ps(z_is_inf, w_is_inf),
     );
 
     let x_is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
@@ -1459,15 +1459,12 @@ pub unsafe fn _mm256_hypot4_ps(x: __m256, y: __m256, z: __m256, w: __m256) -> __
     let z_is_nan = _mm256_cmp_ps(z, z, _CMP_NEQ_UQ);
     let w_is_nan = _mm256_cmp_ps(w, w, _CMP_NEQ_UQ);
     let any_nan = _mm256_or_ps(
-        _mm256_or_ps(x_is_nan, y_is_nan), 
-        _mm256_or_ps(z_is_nan, w_is_nan)
+        _mm256_or_ps(x_is_nan, y_is_nan),
+        _mm256_or_ps(z_is_nan, w_is_nan),
     );
 
     // Scale to prevent overflow/underflow - use max for scaling
-    let max_val = _mm256_max_ps(
-        _mm256_max_ps(x_abs, y_abs), 
-        _mm256_max_ps(z_abs, w_abs)
-    );
+    let max_val = _mm256_max_ps(_mm256_max_ps(x_abs, y_abs), _mm256_max_ps(z_abs, w_abs));
 
     // Check for zero case
     let zero = _mm256_setzero_ps();
@@ -1908,7 +1905,7 @@ pub unsafe fn _mm256_tan_ps(d: __m256) -> __m256 {
 mod tests {
     use super::*;
     use std::f32::consts::{FRAC_PI_2, FRAC_PI_3, FRAC_PI_4, FRAC_PI_6, PI, SQRT_2};
-    
+
     const SQRT_3: f32 = 1.7320508075688772935274463415058723669428052538103806280558069794;
 
     /// Helper function to extract vector elements for comparison
@@ -4223,7 +4220,13 @@ mod tests {
             let z_input = [5.0, 6.0, 12.0, 1.0, 0.0, 7.0, 0.0, 1.0];
             let expected = [5.0, 7.0, 13.0, SQRT_3, 5.0, 7.0, 5.0, SQRT_3];
 
-            let result = unsafe { _mm256_hypot3_ps(create_f32x8(x_input), create_f32x8(y_input), create_f32x8(z_input)) };
+            let result = unsafe {
+                _mm256_hypot3_ps(
+                    create_f32x8(x_input),
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                )
+            };
             assert_vector_approx_eq_rel(result, expected, 1e-6);
         }
 
@@ -4235,18 +4238,48 @@ mod tests {
             let z_input = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
             let expected = [0.0; 8];
 
-            let result = unsafe { _mm256_hypot3_ps(create_f32x8(x_input), create_f32x8(y_input), create_f32x8(z_input)) };
+            let result = unsafe {
+                _mm256_hypot3_ps(
+                    create_f32x8(x_input),
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                )
+            };
             assert_vector_approx_eq_ulp(result, expected, 0); // Should be exact
         }
 
         #[test]
         fn test_hypot3_special_values() {
             // Test infinity cases
-            let x_input = [f32::INFINITY, 5.0, f32::INFINITY, f32::NEG_INFINITY, 0.0, f32::INFINITY, 3.0, f32::NEG_INFINITY];
-            let y_input = [3.0, f32::INFINITY, f32::INFINITY, 4.0, f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::NEG_INFINITY];  
+            let x_input = [
+                f32::INFINITY,
+                5.0,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                0.0,
+                f32::INFINITY,
+                3.0,
+                f32::NEG_INFINITY,
+            ];
+            let y_input = [
+                3.0,
+                f32::INFINITY,
+                f32::INFINITY,
+                4.0,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+            ];
             let z_input = [2.0, 1.0, 1.0, 2.0, 1.0, 1.0, 1.0, 1.0];
 
-            let result = unsafe { _mm256_hypot3_ps(create_f32x8(x_input), create_f32x8(y_input), create_f32x8(z_input)) };
+            let result = unsafe {
+                _mm256_hypot3_ps(
+                    create_f32x8(x_input),
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                )
+            };
             let result_vals = extract_f32x8(result);
 
             // All should be infinity when any input is infinity
@@ -4262,14 +4295,24 @@ mod tests {
             let y_input = [3.0, f32::NAN, f32::NAN, 4.0, f32::NAN, 6.0, f32::NAN, 3.0];
             let z_input = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, f32::NAN];
 
-            let result = unsafe { _mm256_hypot3_ps(create_f32x8(x_input), create_f32x8(y_input), create_f32x8(z_input)) };
+            let result = unsafe {
+                _mm256_hypot3_ps(
+                    create_f32x8(x_input),
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                )
+            };
             let result_vals = extract_f32x8(result);
 
             // Check that NaN values are propagated correctly
             assert!(result_vals[0].is_nan()); // NaN, 3.0, 1.0
             assert!(result_vals[1].is_nan()); // 5.0, NaN, 1.0
             assert!(result_vals[2].is_nan()); // NaN, NaN, 1.0
-            assert_approx_eq_rel(result_vals[3], (3.0f32*3.0 + 4.0*4.0 + 1.0*1.0).sqrt(), 1e-6); // 3.0, 4.0, 1.0 = sqrt(26) ≈ 5.099
+            assert_approx_eq_rel(
+                result_vals[3],
+                (3.0f32 * 3.0 + 4.0 * 4.0 + 1.0 * 1.0).sqrt(),
+                1e-6,
+            ); // 3.0, 4.0, 1.0 = sqrt(26) ≈ 5.099
             assert!(result_vals[4].is_nan()); // 0.0, NaN, 1.0
             assert!(result_vals[5].is_nan()); // NaN, 6.0, 1.0
             assert!(result_vals[6].is_nan()); // 2.0, NaN, 1.0
@@ -4282,13 +4325,20 @@ mod tests {
             let x_input = [-3.0, -5.0, 3.0, -8.0, -7.0, 12.0, -9.0, -1.0];
             let y_input = [-4.0, 12.0, -15.0, -15.0, -24.0, -35.0, 40.0, -1.0];
             let z_input = [12.0, -1.0, 8.0, 1.0, 1.0, 1.0, 1.0, -1.0];
-            
-            let result = unsafe { _mm256_hypot3_ps(create_f32x8(x_input), create_f32x8(y_input), create_f32x8(z_input)) };
+
+            let result = unsafe {
+                _mm256_hypot3_ps(
+                    create_f32x8(x_input),
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                )
+            };
             let result_vals = extract_f32x8(result);
 
             // Compute expected values using scalar operations for comparison
             for i in 0..8 {
-                let expected = (x_input[i].powi(2) + y_input[i].powi(2) + z_input[i].powi(2)).sqrt();
+                let expected =
+                    (x_input[i].powi(2) + y_input[i].powi(2) + z_input[i].powi(2)).sqrt();
                 assert_approx_eq_rel(result_vals[i], expected, 1e-6);
             }
         }
@@ -4314,7 +4364,7 @@ mod tests {
                 let result = unsafe { _mm256_hypot3_ps(x_vec, y_vec, z_vec) };
                 let result_vals = extract_f32x8(result);
 
-                let expected = (x*x + y*y + z*z).sqrt();
+                let expected = (x * x + y * y + z * z).sqrt();
                 for &val in &result_vals {
                     assert_approx_eq_rel(val, expected, 1e-6);
                 }
@@ -4328,9 +4378,27 @@ mod tests {
             let y_input = [4.0, 12.0, 15.0, 24.0, 21.0, 35.0, 40.0, 45.0];
             let z_input = [12.0, 1.0, 8.0, 1.0, 1.0, 1.0, 1.0, 1.0];
 
-            let result1 = unsafe { _mm256_hypot3_ps(create_f32x8(x_input), create_f32x8(y_input), create_f32x8(z_input)) };
-            let result2 = unsafe { _mm256_hypot3_ps(create_f32x8(y_input), create_f32x8(z_input), create_f32x8(x_input)) };
-            let result3 = unsafe { _mm256_hypot3_ps(create_f32x8(z_input), create_f32x8(x_input), create_f32x8(y_input)) };
+            let result1 = unsafe {
+                _mm256_hypot3_ps(
+                    create_f32x8(x_input),
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                )
+            };
+            let result2 = unsafe {
+                _mm256_hypot3_ps(
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                    create_f32x8(x_input),
+                )
+            };
+            let result3 = unsafe {
+                _mm256_hypot3_ps(
+                    create_f32x8(z_input),
+                    create_f32x8(x_input),
+                    create_f32x8(y_input),
+                )
+            };
 
             let vals1 = extract_f32x8(result1);
             let vals2 = extract_f32x8(result2);
@@ -4353,10 +4421,10 @@ mod tests {
                 // Very close values
                 (1.0000001, 1.0, 1.0),
                 // Values that could cause precision loss in naive implementation
-                (1e15, 1e15, 1e15),  // Reduced from 1e20 to avoid overflow
+                (1e15, 1e15, 1e15), // Reduced from 1e20 to avoid overflow
                 (1e-20, 1e-20, 1e-20),
                 // Mixed scales
-                (1e10, 1e-10, 1.0),  // Reduced from 1e15 to avoid overflow
+                (1e10, 1e-10, 1.0), // Reduced from 1e15 to avoid overflow
                 (1e-10, 1e10, 1.0),
             ];
 
@@ -4367,7 +4435,7 @@ mod tests {
                 let result = unsafe { _mm256_hypot3_ps(x_vec, y_vec, z_vec) };
                 let result_vals = extract_f32x8(result);
 
-                let expected = (x*x + y*y + z*z).sqrt();
+                let expected = (x * x + y * y + z * z).sqrt();
                 for &val in &result_vals {
                     // Use relative tolerance for precision comparison, with special handling for overflow
                     if expected.is_infinite() && val.is_infinite() {
@@ -4392,7 +4460,14 @@ mod tests {
             let w_input = [5.0, 1.0, 1.0, 2.0, 0.0, 0.0, 9.0, 1.0];
             let expected = [5.0, 2.0, 2.0, 4.0, 5.0, 7.0, 9.0, 2.0];
 
-            let result = unsafe { _mm256_hypot4_ps(create_f32x8(x_input), create_f32x8(y_input), create_f32x8(z_input), create_f32x8(w_input)) };
+            let result = unsafe {
+                _mm256_hypot4_ps(
+                    create_f32x8(x_input),
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                    create_f32x8(w_input),
+                )
+            };
             assert_vector_approx_eq_rel(result, expected, 1e-6);
         }
 
@@ -4405,19 +4480,51 @@ mod tests {
             let w_input = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
             let expected = [0.0; 8];
 
-            let result = unsafe { _mm256_hypot4_ps(create_f32x8(x_input), create_f32x8(y_input), create_f32x8(z_input), create_f32x8(w_input)) };
+            let result = unsafe {
+                _mm256_hypot4_ps(
+                    create_f32x8(x_input),
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                    create_f32x8(w_input),
+                )
+            };
             assert_vector_approx_eq_ulp(result, expected, 0); // Should be exact
         }
 
         #[test]
         fn test_hypot4_special_values() {
             // Test infinity cases
-            let x_input = [f32::INFINITY, 5.0, f32::INFINITY, f32::NEG_INFINITY, 0.0, f32::INFINITY, 3.0, f32::NEG_INFINITY];
-            let y_input = [3.0, f32::INFINITY, f32::INFINITY, 4.0, f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::NEG_INFINITY];  
+            let x_input = [
+                f32::INFINITY,
+                5.0,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                0.0,
+                f32::INFINITY,
+                3.0,
+                f32::NEG_INFINITY,
+            ];
+            let y_input = [
+                3.0,
+                f32::INFINITY,
+                f32::INFINITY,
+                4.0,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+            ];
             let z_input = [2.0, 1.0, 1.0, 2.0, 1.0, 1.0, 1.0, 1.0];
             let w_input = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, f32::INFINITY];
 
-            let result = unsafe { _mm256_hypot4_ps(create_f32x8(x_input), create_f32x8(y_input), create_f32x8(z_input), create_f32x8(w_input)) };
+            let result = unsafe {
+                _mm256_hypot4_ps(
+                    create_f32x8(x_input),
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                    create_f32x8(w_input),
+                )
+            };
             let result_vals = extract_f32x8(result);
 
             // All should be infinity when any input is infinity
@@ -4434,7 +4541,14 @@ mod tests {
             let z_input = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
             let w_input = [1.0, 1.0, 1.0, f32::NAN, 1.0, 1.0, 1.0, 1.0];
 
-            let result = unsafe { _mm256_hypot4_ps(create_f32x8(x_input), create_f32x8(y_input), create_f32x8(z_input), create_f32x8(w_input)) };
+            let result = unsafe {
+                _mm256_hypot4_ps(
+                    create_f32x8(x_input),
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                    create_f32x8(w_input),
+                )
+            };
             let result_vals = extract_f32x8(result);
 
             // Check that NaN values are propagated correctly
@@ -4445,23 +4559,38 @@ mod tests {
             assert!(result_vals[4].is_nan()); // 0.0, NaN, 1.0, 1.0
             assert!(result_vals[5].is_nan()); // NaN, 6.0, 1.0, 1.0
             assert!(result_vals[6].is_nan()); // 2.0, NaN, 1.0, 1.0
-            assert_approx_eq_rel(result_vals[7], (4.0f32*4.0 + 3.0*3.0 + 1.0*1.0 + 1.0*1.0).sqrt(), 1e-6); // 4.0, 3.0, 1.0, 1.0
+            assert_approx_eq_rel(
+                result_vals[7],
+                (4.0f32 * 4.0 + 3.0 * 3.0 + 1.0 * 1.0 + 1.0 * 1.0).sqrt(),
+                1e-6,
+            ); // 4.0, 3.0, 1.0, 1.0
         }
 
         #[test]
         fn test_hypot4_negative_values() {
-            // hypot4 should handle negative values correctly (using absolute values) 
+            // hypot4 should handle negative values correctly (using absolute values)
             let x_input = [-3.0, -5.0, 3.0, -8.0, -7.0, 12.0, -9.0, -1.0];
             let y_input = [-4.0, 12.0, -15.0, -15.0, -24.0, -35.0, 40.0, -1.0];
             let z_input = [12.0, -1.0, 8.0, 1.0, 1.0, 1.0, 1.0, -1.0];
             let w_input = [1.0, 1.0, -1.0, -1.0, 1.0, -1.0, -1.0, -1.0];
-            
-            let result = unsafe { _mm256_hypot4_ps(create_f32x8(x_input), create_f32x8(y_input), create_f32x8(z_input), create_f32x8(w_input)) };
+
+            let result = unsafe {
+                _mm256_hypot4_ps(
+                    create_f32x8(x_input),
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                    create_f32x8(w_input),
+                )
+            };
             let result_vals = extract_f32x8(result);
 
             // Compute expected values using scalar operations for comparison
             for i in 0..8 {
-                let expected = (x_input[i].powi(2) + y_input[i].powi(2) + z_input[i].powi(2) + w_input[i].powi(2)).sqrt();
+                let expected = (x_input[i].powi(2)
+                    + y_input[i].powi(2)
+                    + z_input[i].powi(2)
+                    + w_input[i].powi(2))
+                .sqrt();
                 assert_approx_eq_rel(result_vals[i], expected, 1e-6);
             }
         }
@@ -4488,7 +4617,7 @@ mod tests {
                 let result = unsafe { _mm256_hypot4_ps(x_vec, y_vec, z_vec, w_vec) };
                 let result_vals = extract_f32x8(result);
 
-                let expected = (x*x + y*y + z*z + w*w).sqrt();
+                let expected = (x * x + y * y + z * z + w * w).sqrt();
                 for &val in &result_vals {
                     assert_approx_eq_rel(val, expected, 1e-6);
                 }
@@ -4503,9 +4632,30 @@ mod tests {
             let z_input = [12.0, 1.0, 8.0, 1.0, 1.0, 1.0, 1.0, 1.0];
             let w_input = [5.0, 2.0, 1.0, 2.0, 2.0, 2.0, 2.0, 2.0];
 
-            let result1 = unsafe { _mm256_hypot4_ps(create_f32x8(x_input), create_f32x8(y_input), create_f32x8(z_input), create_f32x8(w_input)) };
-            let result2 = unsafe { _mm256_hypot4_ps(create_f32x8(y_input), create_f32x8(z_input), create_f32x8(w_input), create_f32x8(x_input)) };
-            let result3 = unsafe { _mm256_hypot4_ps(create_f32x8(w_input), create_f32x8(x_input), create_f32x8(y_input), create_f32x8(z_input)) };
+            let result1 = unsafe {
+                _mm256_hypot4_ps(
+                    create_f32x8(x_input),
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                    create_f32x8(w_input),
+                )
+            };
+            let result2 = unsafe {
+                _mm256_hypot4_ps(
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                    create_f32x8(w_input),
+                    create_f32x8(x_input),
+                )
+            };
+            let result3 = unsafe {
+                _mm256_hypot4_ps(
+                    create_f32x8(w_input),
+                    create_f32x8(x_input),
+                    create_f32x8(y_input),
+                    create_f32x8(z_input),
+                )
+            };
 
             let vals1 = extract_f32x8(result1);
             let vals2 = extract_f32x8(result2);
@@ -4529,10 +4679,10 @@ mod tests {
                 // Very close values
                 (1.0000001, 1.0, 1.0, 1.0),
                 // Values that could cause precision loss in naive implementation
-                (1e15, 1e15, 1e15, 1e15),  // Reduced from 1e20 to avoid overflow
+                (1e15, 1e15, 1e15, 1e15), // Reduced from 1e20 to avoid overflow
                 (1e-20, 1e-20, 1e-20, 1e-20),
                 // Mixed scales
-                (1e10, 1e-10, 1.0, 1.0),  // Reduced from 1e15 to avoid overflow
+                (1e10, 1e-10, 1.0, 1.0), // Reduced from 1e15 to avoid overflow
             ];
 
             for &(x, y, z, w) in &test_cases {
@@ -4543,9 +4693,9 @@ mod tests {
                 let result = unsafe { _mm256_hypot4_ps(x_vec, y_vec, z_vec, w_vec) };
                 let result_vals = extract_f32x8(result);
 
-                let expected = (x*x + y*y + z*z + w*w).sqrt();
+                let expected = (x * x + y * y + z * z + w * w).sqrt();
                 for &val in &result_vals {
-                    // Use relative tolerance for precision comparison, with special handling for overflow  
+                    // Use relative tolerance for precision comparison, with special handling for overflow
                     if expected.is_infinite() && val.is_infinite() {
                         assert!(val.is_sign_positive());
                     } else {

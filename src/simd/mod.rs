@@ -22,6 +22,8 @@
 #[cfg(avx2)]
 pub mod avx2;
 
+#[cfg(neon)]
+pub mod neon;
 /// Trait for checking memory alignment requirements.
 ///
 /// Different SIMD instruction sets have different alignment requirements for
