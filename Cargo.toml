@@ -12,6 +12,13 @@ documentation = "https://docs.rs/simdly/"
 readme = "README.md"
 keywords = ["math", "SIMD", "functions", "performance",  "Numerical"]
 
+[package.metadata.docs.rs]
+# Enable all features for documentation
+all-features = true
+# Set target for documentation builds to include both x86_64 and aarch64 docs
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+# Enable cfg options for conditional compilation docs
+rustdoc-args = ["--cfg", "docsrs", "--cfg", "avx2", "--cfg", "neon"]
 
 
 [profile.release]
