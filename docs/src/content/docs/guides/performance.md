@@ -1,32 +1,30 @@
 ---
 title: Performance Tips
-description: Optimize your simdly code for maximum performance.
+description: Optimize your Simdly code for maximum performance across x86 and ARM architectures.
 ---
 
-import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
-
-# Performance Optimization
+# Cross-Platform Performance Optimization
 
 <div class="performance-badge">
   Achieve up to 15x performance improvements
 </div>
 
-This guide covers essential techniques for maximizing performance with simdly.
+This guide covers essential techniques for maximizing performance with Simdly across both x86 (AVX2) and ARM (NEON) architectures.
 
 ## Performance Quick Wins
 
 <CardGrid stagger>
   <Card title="🎯 Compiler Flags" icon="rocket">
-    Enable AVX2 and link-time optimization for immediate 2-4x speedup
+    Enable target-specific optimizations: AVX2 on x86, NEON on ARM for immediate 2-4x speedup
   </Card>
   <Card title="🧮 Memory Alignment" icon="setting">
-    Use 32-byte aligned memory for optimal AVX2 vector performance
+    Use 32-byte alignment (x86) or 16-byte alignment (ARM) for optimal vector performance
   </Card>
   <Card title="🔄 Loop Unrolling" icon="approve-check">
-    Process multiple vectors per iteration to reduce loop overhead
+    Process multiple vectors per iteration to reduce loop overhead across platforms
   </Card>
   <Card title="📊 Data Layout" icon="puzzle">
-    Structure of Arrays (SoA) layout optimizes SIMD operations
+    Structure of Arrays (SoA) layout optimizes SIMD operations on both architectures
   </Card>
 </CardGrid>
 
@@ -34,32 +32,38 @@ This guide covers essential techniques for maximizing performance with simdly.
 
 ### Essential Compiler Flags
 
-Always enable AVX2 support for optimal performance:
+Simdly comes pre-configured with optimal SIMD settings via `.cargo/config.toml` with `target-cpu=native`, but you can customize for specific scenarios:
 
 <Tabs>
-<TabItem label="Cargo.toml">
+<TabItem label="Default (Recommended)">
 
 ```toml
-# Recommended approach - add to Cargo.toml
+# Simdly's built-in .cargo/config.toml (no action needed!)
 [build]
-rustflags = ["-C", "target-feature=+avx2"]
+rustflags = ["-C", "target-cpu=native"]
 ```
 
-</TabItem>
-<TabItem label="Environment">
-
 ```bash
-# Environment variable approach
-export RUSTFLAGS="-C target-feature=+avx2"
+# Just build - automatic optimization included!
 cargo build --release
 ```
 
 </TabItem>
-<TabItem label="Command Line">
+<TabItem label="Custom x86/x86_64">
 
 ```bash
-# Direct command line
-cargo build --release -- -C target-feature=+avx2
+# Force specific AVX2 features
+export RUSTFLAGS="-C target-feature=+avx2,+fma"
+cargo build --release
+```
+
+</TabItem>
+<TabItem label="Custom ARM">
+
+```bash
+# Force specific NEON features
+export RUSTFLAGS="-C target-feature=+neon,+fp-armv8"
+cargo build --release
 ```
 
 </TabItem>
@@ -83,30 +87,47 @@ opt-level = 3            # Maximum optimization
 Compile for your specific CPU architecture:
 
 ```bash
-# For modern Intel/AMD processors
-RUSTFLAGS="-C target-cpu=native" cargo build --release
+# Default: Simdly automatically uses target-cpu=native
+cargo build --release
 
-# For specific CPU features
-RUSTFLAGS="-C target-feature=+avx2,+fma" cargo build --release
+# Override for specific features (advanced)
+RUSTFLAGS="-C target-feature=+avx2,+fma" cargo build --release      # x86
+RUSTFLAGS="-C target-feature=+neon,+fp-armv8" cargo build --release # ARM
+
+# Cross-compilation examples (automatic feature detection)
+cargo build --release --target aarch64-unknown-linux-gnu  # ARM64 Linux
+cargo build --release --target x86_64-pc-windows-msvc     # x86_64 Windows
 ```
 
 ## Memory Optimization
 
 ### Memory Alignment
 
-Properly aligned memory provides significant performance benefits:
+Properly aligned memory provides significant performance benefits across platforms:
 
 ```rust
 use std::alloc::{alloc, dealloc, Layout};
-use simdly::simd::avx2::f32x8::F32x8;
+use simdly::f32x8;  // Works on both AVX2 and NEON
 
-// Allocate 32-byte aligned memory for optimal AVX2 performance
+// Platform-appropriate alignment
+fn get_optimal_alignment() -> usize {
+    if cfg!(target_arch = "x86_64") || cfg!(target_arch = "x86") {
+        32  // AVX2 alignment (256-bit)
+    } else if cfg!(target_arch = "aarch64") {
+        16  // NEON alignment (128-bit) 
+    } else {
+        std::mem::align_of::<f32>()
+    }
+}
+
+// Allocate optimally aligned memory
 fn alloc_aligned_f32(count: usize) -> (*mut f32, Layout) {
+    let alignment = get_optimal_alignment();
     let layout = Layout::from_size_align(
-        count * std::mem::size_of::<f32>(), 
-        32  // AVX2 alignment requirement
+        count * std::mem::size_of::<f32>(),
+        alignment
     ).unwrap();
-    
+
     let ptr = unsafe { alloc(layout) as *mut f32 };
     (ptr, layout)
 }
@@ -115,7 +136,7 @@ fn alloc_aligned_f32(count: usize) -> (*mut f32, Layout) {
 let (aligned_ptr, layout) = alloc_aligned_f32(1024);
 
 // Verify alignment
-assert!(F32x8::is_aligned(aligned_ptr));
+assert!(f32x8::is_aligned(aligned_ptr));
 
 // Use aligned operations for best performance
 // ... your SIMD operations ...
@@ -132,23 +153,31 @@ Organize data for sequential access patterns:
 // Good: Array of Structures (AoS) for simple operations
 struct Point3D {
     x: f32,
-    y: f32, 
+    y: f32,
     z: f32,
 }
 
 // Better: Structure of Arrays (SoA) for SIMD operations
 struct Points3D {
     x: Vec<f32>,  // All x coordinates together
-    y: Vec<f32>,  // All y coordinates together  
+    y: Vec<f32>,  // All y coordinates together
     z: Vec<f32>,  // All z coordinates together
 }
 
 impl Points3D {
     fn process_x_coordinates(&mut self) {
-        for chunk in self.x.chunks_exact_mut(8) {
-            let vec = F32x8::from_slice(chunk);
-            // Process 8 x-coordinates simultaneously
+        // Universal chunk size that works on both platforms
+        let chunk_size = if cfg!(target_arch = "x86_64") || cfg!(target_arch = "x86") {
+            8  // AVX2: 8 f32 elements
+        } else {
+            4  // NEON: 4 f32 elements
+        };
+        
+        for chunk in self.x.chunks_exact_mut(chunk_size) {
+            let vec = f32x8::load_unaligned(chunk);
+            // Process coordinates using universal API
             // ... SIMD operations ...
+            vec.store_unaligned(chunk);
         }
     }
 }
@@ -157,30 +186,32 @@ impl Points3D {
 ### Cache-Friendly Access Patterns
 
 ```rust
-use simdly::simd::avx2::f32x8::F32x8;
+use simdly::f32x8;
 
-// Cache-aware processing
+// Cache-aware processing with cross-platform optimization
 fn cache_optimized_processing(data: &mut [f32]) {
-    const CACHE_LINE_SIZE: usize = 64;  // bytes
+    const CACHE_LINE_SIZE: usize = 64;  // bytes (typical for both x86 and ARM)
     const FLOATS_PER_CACHE_LINE: usize = CACHE_LINE_SIZE / 4;  // 16 f32s
     
+    // Platform-specific vector size
+    let vector_size = f32x8::lanes();
+
     // Process data in cache line chunks
     for cache_chunk in data.chunks_mut(FLOATS_PER_CACHE_LINE) {
         // Process each cache line with SIMD vectors
-        for simd_chunk in cache_chunk.chunks_exact_mut(8) {
-            let vec = F32x8::from_slice(simd_chunk);
+        for simd_chunk in cache_chunk.chunks_exact_mut(vector_size) {
+            let vec = f32x8::load_unaligned(simd_chunk);
             // ... SIMD operations ...
-            unsafe {
-                vec.store_unaligned_at(simd_chunk.as_mut_ptr());
-            }
+            vec.store_unaligned(simd_chunk);
         }
-        
+
         // Handle remainder in cache line
-        let remainder = cache_chunk.len() % 8;
+        let remainder = cache_chunk.len() % vector_size;
         if remainder > 0 {
             let start = cache_chunk.len() - remainder;
-            let vec = F32x8::from_slice(&cache_chunk[start..]);
+            let vec = f32x8::load_partial(&cache_chunk[start..], remainder);
             // ... SIMD operations ...
+            vec.store_partial(&mut cache_chunk[start..], remainder);
         }
     }
 }
@@ -193,20 +224,20 @@ fn cache_optimized_processing(data: &mut [f32]) {
 Prefer in-register operations over memory loads/stores:
 
 ```rust
-// Good: Multiple operations on same vector
-let vec = F32x8::from_slice(&data);
+// Good: Multiple operations on same vector (works on both platforms)
+let vec = f32x8::load_unaligned(&data);
 // Perform multiple operations without storing intermediate results
-let result1 = vec; // operation 1
-let result2 = result1; // operation 2  
-let final_result = result2; // operation 3
+let result1 = vec.add(other_vec);    // operation 1
+let result2 = result1.mul(scale);    // operation 2
+let final_result = result2.abs();    // operation 3
 // Store only final result
+final_result.store_unaligned(&mut output);
 
 // Less efficient: Store/load between operations
-let vec1 = F32x8::from_slice(&data);
-// Store intermediate result
-// Load again for next operation
-// Store intermediate result again
-// ...
+let vec1 = f32x8::load_unaligned(&data);
+vec1.store_unaligned(&mut temp);     // Store intermediate result
+let vec2 = f32x8::load_unaligned(&temp);  // Load again for next operation
+// ... inefficient memory operations
 ```
 
 ### Loop Unrolling
@@ -214,53 +245,55 @@ let vec1 = F32x8::from_slice(&data);
 Process multiple vectors per iteration:
 
 ```rust
-use simdly::simd::avx2::f32x8::F32x8;
+use simdly::f32x8;
 
 fn unrolled_processing(data: &[f32]) -> Vec<f32> {
     let mut result = vec![0.0; data.len()];
     let mut i = 0;
     
-    // Process 4 vectors (32 elements) per iteration
-    while i + 32 <= data.len() {
-        let vec1 = F32x8::from_slice(&data[i..i + 8]);
-        let vec2 = F32x8::from_slice(&data[i + 8..i + 16]);
-        let vec3 = F32x8::from_slice(&data[i + 16..i + 24]);
-        let vec4 = F32x8::from_slice(&data[i + 24..i + 32]);
-        
-        // Process all 4 vectors
-        // ... operations on vec1, vec2, vec3, vec4 ...
-        
+    // Platform-specific vector size
+    let lane_count = f32x8::lanes();
+    let unroll_factor = 4;
+    let unroll_size = lane_count * unroll_factor;
+
+    // Process 4 vectors per iteration (adaptive to platform)
+    while i + unroll_size <= data.len() {
+        let vec1 = f32x8::load_unaligned(&data[i..]);
+        let vec2 = f32x8::load_unaligned(&data[i + lane_count..]);
+        let vec3 = f32x8::load_unaligned(&data[i + lane_count * 2..]);
+        let vec4 = f32x8::load_unaligned(&data[i + lane_count * 3..]);
+
+        // Process all 4 vectors (operations work on both AVX2 and NEON)
+        let result1 = vec1.mul(scale);  // example operation
+        let result2 = vec2.mul(scale);
+        let result3 = vec3.mul(scale);
+        let result4 = vec4.mul(scale);
+
         // Store results
-        unsafe {
-            vec1.store_unaligned_at(result[i..].as_mut_ptr());
-            vec2.store_unaligned_at(result[i + 8..].as_mut_ptr());
-            vec3.store_unaligned_at(result[i + 16..].as_mut_ptr());
-            vec4.store_unaligned_at(result[i + 24..].as_mut_ptr());
-        }
-        
-        i += 32;
+        result1.store_unaligned(&mut result[i..]);
+        result2.store_unaligned(&mut result[i + lane_count..]);
+        result3.store_unaligned(&mut result[i + lane_count * 2..]);
+        result4.store_unaligned(&mut result[i + lane_count * 3..]);
+
+        i += unroll_size;
     }
-    
-    // Handle remaining elements
-    while i + 8 <= data.len() {
-        let vec = F32x8::from_slice(&data[i..i + 8]);
-        // ... operations ...
-        unsafe {
-            vec.store_unaligned_at(result[i..].as_mut_ptr());
-        }
-        i += 8;
+
+    // Handle remaining full vectors
+    while i + lane_count <= data.len() {
+        let vec = f32x8::load_unaligned(&data[i..]);
+        let processed = vec.mul(scale);  // example operation
+        processed.store_unaligned(&mut result[i..]);
+        i += lane_count;
     }
-    
+
     // Handle final partial vector
     if i < data.len() {
         let remaining = data.len() - i;
-        let vec = unsafe { F32x8::load_partial(data[i..].as_ptr(), remaining) };
-        // ... operations ...
-        unsafe {
-            vec.store_at_partial(result[i..].as_mut_ptr());
-        }
+        let vec = f32x8::load_partial(&data[i..], remaining);
+        let processed = vec.mul(scale);  // example operation
+        processed.store_partial(&mut result[i..], remaining);
     }
-    
+
     result
 }
 ```
@@ -270,10 +303,11 @@ fn unrolled_processing(data: &[f32]) -> Vec<f32> {
 Use conditional moves instead of branches:
 
 ```rust
-// Less efficient: Branching in loop
-for chunk in data.chunks_exact(8) {
-    let vec = F32x8::from_slice(chunk);
-    
+// Less efficient: Branching in loop (same issue on both platforms)
+let lane_count = f32x8::lanes();
+for chunk in data.chunks_exact(lane_count) {
+    let vec = f32x8::load_unaligned(chunk);
+
     if some_condition {
         // Process one way
     } else {
@@ -283,14 +317,18 @@ for chunk in data.chunks_exact(8) {
 
 // Better: Separate loops or use masking operations
 if some_condition {
-    for chunk in data.chunks_exact(8) {
-        let vec = F32x8::from_slice(chunk);
-        // Process one way
+    for chunk in data.chunks_exact(lane_count) {
+        let vec = f32x8::load_unaligned(chunk);
+        // Process one way using universal API
+        let result = vec.add(offset);
+        result.store_unaligned(chunk);
     }
 } else {
-    for chunk in data.chunks_exact(8) {
-        let vec = F32x8::from_slice(chunk);
-        // Process another way
+    for chunk in data.chunks_exact(lane_count) {
+        let vec = f32x8::load_unaligned(chunk);
+        // Process another way using universal API
+        let result = vec.mul(factor);
+        result.store_unaligned(chunk);
     }
 }
 ```
@@ -307,32 +345,32 @@ use simdly::simd::SimdStore;
 
 fn process_large_dataset(input: &[f32], output: &mut [f32]) {
     assert_eq!(input.len(), output.len());
-    
+
     // Ensure output is properly aligned for streaming
     let output_ptr = output.as_mut_ptr();
     assert!(F32x8::is_aligned(output_ptr));
-    
+
     for (i, chunk) in input.chunks_exact(8).enumerate() {
         let vec = F32x8::from_slice(chunk);
-        
+
         // ... your operations ...
-        
+
         // Use streaming store for large data (bypasses cache)
         unsafe {
             vec.stream_at(output_ptr.add(i * 8));
         }
     }
-    
+
     // Handle remainder with regular stores
     let remainder_start = (input.len() / 8) * 8;
     if remainder_start < input.len() {
         let remainder_size = input.len() - remainder_start;
-        let vec = unsafe { 
-            F32x8::load_partial(input[remainder_start..].as_ptr(), remainder_size) 
+        let vec = unsafe {
+            F32x8::load_partial(input[remainder_start..].as_ptr(), remainder_size)
         };
-        
+
         // ... your operations ...
-        
+
         unsafe {
             vec.store_at_partial(output[remainder_start..].as_mut_ptr());
         }
@@ -349,7 +387,7 @@ use std::arch::x86_64::_mm_prefetch;
 
 fn prefetch_example(data: &[f32]) {
     const PREFETCH_DISTANCE: usize = 64; // Elements ahead to prefetch
-    
+
     for (i, chunk) in data.chunks_exact(8).enumerate() {
         // Prefetch data that will be needed soon
         if i * 8 + PREFETCH_DISTANCE < data.len() {
@@ -360,7 +398,7 @@ fn prefetch_example(data: &[f32]) {
                 );
             }
         }
-        
+
         let vec = F32x8::from_slice(chunk);
         // ... process vector ...
     }
@@ -390,10 +428,10 @@ use simdly::simd::avx2::f32x8::F32x8;
 
 fn benchmark_simd_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("simd_operations");
-    
+
     for size in [64, 256, 1024, 4096, 16384].iter() {
         let data: Vec<f32> = (0..*size).map(|i| i as f32).collect();
-        
+
         group.bench_with_input(
             BenchmarkId::new("load_store", size),
             &data,
@@ -408,7 +446,7 @@ fn benchmark_simd_operations(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 
@@ -424,7 +462,7 @@ Use CPU performance counters to understand bottlenecks:
 # Profile cache misses
 perf stat -e cache-misses,cache-references cargo bench
 
-# Profile instruction metrics  
+# Profile instruction metrics
 perf stat -e instructions,cycles cargo bench
 
 # Generate detailed reports
@@ -434,10 +472,14 @@ perf report
 
 ## Common Performance Pitfalls
 
-### 1. Not Enabling AVX2
-Always ensure AVX2 is enabled in your build configuration.
+### 1. Not Enabling Target-Specific SIMD
+
+Always ensure proper SIMD features are enabled for your target platform:
+- AVX2 for x86/x86_64
+- NEON for ARM/AArch64
 
 ### 2. Mixed Data Types
+
 Keep data types consistent to avoid expensive conversions:
 
 ```rust
@@ -449,6 +491,7 @@ let mixed: Vec<f64> = vec![1.0, 2.0, 3.0];  // f64 -> f32 conversion needed
 ```
 
 ### 3. Frequent Small Allocations
+
 Pre-allocate buffers when possible:
 
 ```rust
@@ -465,14 +508,17 @@ for chunk in input.chunks(8) {
 ```
 
 ### 4. Ignoring Memory Alignment
+
 Always consider alignment for optimal performance:
 
 ```rust
-// Check alignment when performance is critical
-if F32x8::is_aligned(data.as_ptr()) {
+// Check alignment when performance is critical (universal API)
+if f32x8::is_aligned(data.as_ptr()) {
     // Use aligned operations
+    let vec = f32x8::load_aligned(data);
 } else {
     // Use unaligned operations or realign data
+    let vec = f32x8::load_unaligned(data);
 }
 ```
 
