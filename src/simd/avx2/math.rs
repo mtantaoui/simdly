@@ -364,6 +364,7 @@ unsafe fn copy_sign_ps(magnitude: __m256, sign_source: __m256) -> __m256 {
 ///
 /// This function is marked unsafe because it uses AVX2 intrinsics. The caller must
 /// ensure that the target CPU supports AVX2 instructions.
+#[inline(always)]
 pub unsafe fn _mm256_abs_ps(f: __m256) -> __m256 {
     // Create sign bit mask: 0x80000000 for each lane
     // -0.0f32 has bit pattern 0x80000000 (sign bit set, all others clear)
@@ -553,6 +554,7 @@ const ASIN_COEFF_6: f32 = 0.013964843750000001053_f32;
 ///
 /// This function is marked unsafe because it uses AVX2 intrinsics. The caller must
 /// ensure that the target CPU supports AVX2 instructions.
+#[inline(always)]
 pub unsafe fn _mm256_asin_ps(d: __m256) -> __m256 {
     // Mathematical constants used throughout the computation
     let sign_mask = _mm256_set1_ps(-0.0f32); // 0x80000000 - for sign bit extraction
@@ -696,6 +698,7 @@ pub unsafe fn _mm256_asin_ps(d: __m256) -> __m256 {
 /// - **Consistency**: Ensures identical domain handling and error behavior
 /// - **Performance**: Minimal overhead beyond arcsine computation
 /// - **Accuracy**: Maintains high precision through careful identity application
+#[inline(always)]
 pub unsafe fn _mm256_acos_ps(d: __m256) -> __m256 {
     // Mathematical constant π/2 used in the identity acos(x) = π/2 - asin(x)
     // This provides the reference angle for the complementary relationship
@@ -833,6 +836,7 @@ const ATAN_COEFF_9: f32 = 0.002_398_139_f32;
 ///
 /// This function is marked unsafe because it uses AVX2 intrinsics. The caller must
 /// ensure that the target CPU supports AVX2 instructions.
+#[inline(always)]
 pub unsafe fn _mm256_atan_ps(x: __m256) -> __m256 {
     // Mathematical constants
     let zero = _mm256_setzero_ps();
@@ -933,6 +937,7 @@ pub unsafe fn _mm256_atan_ps(x: __m256) -> __m256 {
 ///
 /// This function is marked unsafe because it uses AVX2 intrinsics. The caller must
 /// ensure that the target CPU supports AVX2 instructions.
+#[inline(always)]
 pub unsafe fn _mm256_atan2_ps(y: __m256, x: __m256) -> __m256 {
     let zero = _mm256_setzero_ps();
     let pi = _mm256_set1_ps(std::f32::consts::PI);
@@ -1082,7 +1087,7 @@ pub unsafe fn _mm256_atan2_ps(y: __m256, x: __m256) -> __m256 {
 /// # Safety
 ///
 /// This function uses AVX2 intrinsics and requires AVX2 support.
-#[inline]
+#[inline(always)]
 pub unsafe fn _mm256_cbrt_ps(x: __m256) -> __m256 {
     // Handle special cases first
     let zero = _mm256_setzero_ps();
@@ -1168,6 +1173,7 @@ pub unsafe fn _mm256_cbrt_ps(x: __m256) -> __m256 {
 ///
 /// This function uses AVX2 intrinsics and requires AVX2 support.
 #[allow(clippy::excessive_precision)]
+#[inline(always)]
 pub unsafe fn _mm256_exp_ps(x: __m256) -> __m256 {
     // Constants for range reduction: ln(2) split into high and low parts for precision
     let ln2_hi = _mm256_set1_ps(0.6931471824645996); // High part of ln(2)
@@ -1282,7 +1288,7 @@ pub unsafe fn _mm256_exp_ps(x: __m256) -> __m256 {
 ///
 /// Calling this function on hardware without AVX2 support will result in undefined behavior,
 /// potentially causing illegal instruction exceptions or program crashes.
-#[inline]
+#[inline(always)]
 pub unsafe fn _mm256_ln_ps(x: __m256) -> __m256 {
     // Handle special cases
     let zero_mask = _mm256_cmp_ps(x, _mm256_setzero_ps(), _CMP_EQ_OQ);
@@ -1374,12 +1380,12 @@ pub unsafe fn _mm256_ln_ps(x: __m256) -> __m256 {
     result
 }
 
-#[inline]
 /// Computes 2D Euclidean distance with high precision and proper edge case handling
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
+#[inline(always)]
 pub unsafe fn _mm256_hypot_ps(x: __m256, y: __m256) -> __m256 {
     let x_abs = _mm256_abs_ps(x);
     let y_abs = _mm256_abs_ps(y);
@@ -1416,12 +1422,12 @@ pub unsafe fn _mm256_hypot_ps(x: __m256, y: __m256) -> __m256 {
     _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_nan)
 }
 
-#[inline]
 /// Computes 3D Euclidean distance with high precision and proper edge case handling
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
+#[inline(always)]
 pub unsafe fn _mm256_hypot3_ps(x: __m256, y: __m256, z: __m256) -> __m256 {
     let x_abs = _mm256_abs_ps(x);
     let y_abs = _mm256_abs_ps(y);
@@ -1464,12 +1470,12 @@ pub unsafe fn _mm256_hypot3_ps(x: __m256, y: __m256, z: __m256) -> __m256 {
     _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_nan)
 }
 
-#[inline]
 /// Computes 4D Euclidean distance with high precision and proper edge case handling
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
+#[inline(always)]
 pub unsafe fn _mm256_hypot4_ps(x: __m256, y: __m256, z: __m256, w: __m256) -> __m256 {
     let x_abs = _mm256_abs_ps(x);
     let y_abs = _mm256_abs_ps(y);
@@ -1524,12 +1530,12 @@ pub unsafe fn _mm256_hypot4_ps(x: __m256, y: __m256, z: __m256, w: __m256) -> __
     _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_nan)
 }
 
-#[inline]
 /// Computes x^y (power function) with high precision and proper edge case handling
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
+#[inline(always)]
 pub unsafe fn _mm256_pow_ps(x: __m256, y: __m256) -> __m256 {
     // Handle special cases first
     let x_is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
@@ -1753,12 +1759,12 @@ const TAN_COEFF_2: f32 = 0.1332909226735641872812f32;
 /// Dominant correction term: approximately 1/3 from tan(x) ≈ x + x³/3
 const TAN_COEFF_1: f32 = 0.3333353561669567628359f32;
 
-#[inline]
 /// Computes sine function with high precision using polynomial approximation
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
+#[inline(always)]
 pub unsafe fn _mm256_sin_ps(x: __m256) -> __m256 {
     // Handle special cases first
     let x_is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
@@ -1812,12 +1818,12 @@ pub unsafe fn _mm256_sin_ps(x: __m256) -> __m256 {
     _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_special)
 }
 
-#[inline]
 /// Computes cosine function with high precision using polynomial approximation
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
+#[inline(always)]
 pub unsafe fn _mm256_cos_ps(x: __m256) -> __m256 {
     // Handle special cases first
     let x_is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
@@ -1876,12 +1882,12 @@ pub unsafe fn _mm256_cos_ps(x: __m256) -> __m256 {
     _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_special)
 }
 
-#[inline]
 /// Computes tangent function with high precision using polynomial approximation
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
+#[inline(always)]
 pub unsafe fn _mm256_tan_ps(d: __m256) -> __m256 {
     // Range reduction: reduce to [-π/4, π/4]
     let q = _mm256_round_ps(

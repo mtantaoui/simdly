@@ -1,0 +1,94 @@
+/* Minimal HAL 9000 Theme - Sidebar Safe */
+
+:root {
+  /* HAL 9000 Color Palette */
+  --hal-red: #ff0000;
+  --hal-red-glow: #ff3333;
+  --hal-red-alpha: rgba(255, 0, 0, 0.8);
+  --hal-red-alpha-low: rgba(255, 0, 0, 0.1);
+  --hal-orange: #ff6600;
+  --hal-yellow: #ffff00;
+
+  /* Space Theme Colors */
+  --space-black: #000000;
+  --space-dark: #0a0a0a;
+  --space-gray: #1a1a1a;
+  --space-light-gray: #333333;
+
+  /* HAL-inspired Gradients */
+  --gradient-hal: linear-gradient(135deg, var(--hal-red) 0%, var(--hal-orange) 100%);
+  --gradient-space: linear-gradient(135deg, var(--space-black) 0%, var(--space-dark) 100%);
+}
+
+/* Hero section - Space Odyssey style */
+.hero {
+  background: var(--gradient-space);
+  position: relative;
+  overflow: hidden;
+}
+
+/* HAL 9000 Button enhancements */
+.hero .actions a[data-variant="primary"] {
+  background: var(--gradient-hal);
+  border: 1px solid var(--hal-red);
+  box-shadow: 0 4px 15px var(--hal-red-alpha), 0 0 20px var(--hal-red-alpha-low);
+  color: white;
+  text-shadow: 0 0 10px var(--hal-red-alpha);
+  transition: all 0.3s ease;
+}
+
+.hero .actions a[data-variant="primary"]:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px var(--hal-red-alpha), 0 0 30px var(--hal-red-alpha);
+}
+
+/* HAL 9000 Performance Badge */
+.performance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--gradient-hal);
+  border: 1px solid var(--hal-red-alpha);
+  border-radius: 9999px;
+  color: white;
+  font-weight: 600;
+  font-size: 0.875rem;
+  margin: 0.5rem 0;
+  text-shadow: 0 0 10px var(--hal-red-alpha);
+  box-shadow: 0 0 20px var(--hal-red-alpha-low);
+}
+
+.performance-badge::before {
+  content: "⚡";
+  font-size: 1rem;
+  text-shadow: 0 0 5px var(--hal-yellow);
+}
+
+/* HAL 9000 SVG glow effect */
+.hero img,
+.hero .hero-image img {
+  max-width: 300px;
+  height: auto;
+  filter: drop-shadow(0 0 30px var(--hal-red)) 
+          drop-shadow(0 0 60px var(--hal-red-alpha));
+  animation: hal-glow-pulse 3s ease-in-out infinite alternate;
+}
+
+@keyframes hal-glow-pulse {
+  0% {
+    filter: drop-shadow(0 0 20px var(--hal-red)) 
+            drop-shadow(0 0 40px var(--hal-red-alpha));
+  }
+  100% {
+    filter: drop-shadow(0 0 30px var(--hal-red)) 
+            drop-shadow(0 0 60px var(--hal-red-alpha));
+  }
+}
+
+@media (max-width: 768px) {
+  .hero img,
+  .hero .hero-image img {
+    max-width: 200px;
+  }
+}

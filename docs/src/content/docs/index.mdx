@@ -61,19 +61,14 @@ fn add_vectors(a: &[f32], b: &[f32]) -> Vec<f32> {
 <TabItem label="SIMD (Fast)">
 
 ```rust
-use Simdly::f32x8;
+use simdly::SimdAdd;
 
 fn add_vectors_simd(a: &[f32], b: &[f32]) -> Vec<f32> {
-    let mut result = Vec::with_capacity(a.len());
-    
-    for (chunk_a, chunk_b) in a.chunks_exact(8).zip(b.chunks_exact(8)) {
-        let va = f32x8::load_unaligned(chunk_a);
-        let vb = f32x8::load_unaligned(chunk_b);
-        let sum = va + vb;
-        sum.store_unaligned(&mut result[..8]);
-    }
-    
-    result
+    // Use the high-level SimdAdd trait for easy vector addition
+    a.simd_add(b).unwrap_or_else(|_| {
+        // Fallback to scalar addition if SIMD fails
+        a.iter().zip(b.iter()).map(|(x, y)| x + y).collect()
+    })
 }
 ```
 
@@ -124,7 +119,7 @@ fn add_vectors_simd(a: &[f32], b: &[f32]) -> Vec<f32> {
 ## Get Started in Minutes
 
 ```bash
-cargo add Simdly
+cargo add simdly
 ```
 
 Jump into the [Quick Start Guide](/getting-started/quick-start/) to start accelerating your code today!

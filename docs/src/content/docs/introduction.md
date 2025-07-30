@@ -1,6 +1,8 @@
 ---
 title: Introduction
 description: Learn about Simdly and its cross-platform SIMD capabilities for high-performance computing.
+sidebar:
+  order: 1
 ---
 
 # Introduction to Simdly

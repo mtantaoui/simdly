@@ -72,4 +72,14 @@
 //! - **Batch Processing**: Process data in chunks that match SIMD vector sizes
 //! - **CPU Features**: Enable appropriate target features during compilation
 
+pub mod error;
 pub mod simd;
+pub(crate) mod utils;
+
+pub trait SimdAdd<Rhs = Self> {
+    type Output;
+
+    fn simd_add(self, rhs: Rhs) -> Self::Output;
+    fn par_simd_add(self, rhs: Rhs) -> Self::Output;
+    fn scalar_add(self, rhs: Rhs) -> Self::Output;
+}

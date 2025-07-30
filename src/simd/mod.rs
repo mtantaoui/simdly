@@ -34,6 +34,13 @@ pub mod neon;
 ///
 /// * `T` - The element type being checked for alignment
 ///
+/// # Performance Impact
+///
+/// Proper alignment can significantly improve SIMD performance:
+/// - **Aligned loads/stores**: Can be 2-4x faster than unaligned operations
+/// - **Memory bandwidth**: Better utilization of cache lines and memory buses
+/// - **Instruction efficiency**: Some SIMD instructions require aligned data
+///
 /// # Examples
 ///
 /// ```rust
@@ -44,9 +51,17 @@ pub mod neon;
 /// # }
 /// let data = [1.0f32, 2.0, 3.0, 4.0];
 /// let is_aligned = MySimdType::is_aligned(data.as_ptr());
+/// if is_aligned {
+///     // Use fast aligned operations
+/// } else {
+///     // Fall back to unaligned operations
+/// }
 /// ```
 pub trait Alignment<T> {
     /// Checks if a pointer meets the alignment requirements.
+    ///
+    /// This method should be called before using aligned SIMD operations
+    /// to ensure optimal performance and avoid potential undefined behavior.
     ///
     /// # Arguments
     ///
@@ -54,7 +69,12 @@ pub trait Alignment<T> {
     ///
     /// # Returns
     ///
-    /// `true` if the pointer is properly aligned, `false` otherwise
+    /// `true` if the pointer is properly aligned for this SIMD type, `false` otherwise
+    ///
+    /// # Performance
+    ///
+    /// This function is typically very fast (single bitwise operation) and should
+    /// be inlined by the compiler for zero-cost abstraction.
     fn is_aligned(ptr: *const T) -> bool;
 }
 
@@ -80,7 +100,8 @@ pub trait SimdLoad<T> {
     /// High-level interface to load data from a slice.
     ///
     /// Automatically handles partial loads and chooses the most appropriate
-    /// loading method based on data size and alignment.
+    /// loading method based on data size and alignment. This is the recommended
+    /// method for most use cases as it provides optimal performance automatically.
     ///
     /// # Arguments
     ///
@@ -89,12 +110,19 @@ pub trait SimdLoad<T> {
     /// # Returns
     ///
     /// A SIMD vector containing the loaded data
+    ///
+    /// # Performance
+    ///
+    /// This method automatically selects the fastest loading strategy:
+    /// - For aligned data: Uses fast aligned loads
+    /// - For unaligned data: Uses slower but safe unaligned loads  
+    /// - For partial data: Uses masked loads to prevent buffer overruns
     fn from_slice(slice: &[T]) -> Self::Output;
 
     /// Loads a complete vector from memory.
     ///
     /// Automatically detects alignment and uses the most efficient load operation.
-    /// The size parameter must match the vector's lane count.
+    /// The size parameter must match the vector's lane count exactly.
     ///
     /// # Arguments
     ///
@@ -103,7 +131,14 @@ pub trait SimdLoad<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must be valid and point to at least `size` elements.
+    /// - Pointer must be valid and non-null
+    /// - Must point to at least `size` consecutive, initialized elements
+    /// - Elements must remain valid for the duration of the load operation
+    /// - Size must exactly match the vector's lane count
+    ///
+    /// # Panics
+    ///
+    /// May panic in debug builds if size doesn't match the expected lane count.
     unsafe fn load(ptr: *const T, size: usize) -> Self::Output;
 
     /// Loads data from aligned memory.
@@ -117,12 +152,21 @@ pub trait SimdLoad<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must be properly aligned and point to sufficient data.
+    /// - Pointer must be properly aligned for this SIMD type
+    /// - Must be valid and non-null
+    /// - Must point to at least enough consecutive, initialized elements to fill the vector
+    /// - Undefined behavior if alignment requirements are not met
+    ///
+    /// # Performance
+    ///
+    /// This is typically the fastest loading method available, as it can use
+    /// the most efficient CPU instructions designed for aligned data access.
     unsafe fn load_aligned(ptr: *const T) -> Self::Output;
 
     /// Loads data from unaligned memory.
     ///
     /// Works with any memory alignment but may be slower than aligned loads.
+    /// Use this when alignment cannot be guaranteed.
     ///
     /// # Arguments
     ///
@@ -130,13 +174,21 @@ pub trait SimdLoad<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must point to sufficient valid data.
+    /// - Pointer must be valid and non-null
+    /// - Must point to at least enough consecutive, initialized elements to fill the vector
+    /// - No alignment requirements, but data must be properly initialized
+    ///
+    /// # Performance
+    ///
+    /// Typically 10-20% slower than aligned loads, but still much faster than
+    /// scalar operations. Modern CPUs have optimized unaligned access.
     unsafe fn load_unaligned(ptr: *const T) -> Self::Output;
 
     /// Loads fewer elements than the vector's full capacity.
     ///
     /// Uses masking operations to safely load partial data without reading
-    /// beyond valid memory boundaries.
+    /// beyond valid memory boundaries. Remaining vector lanes will contain
+    /// undefined values.
     ///
     /// # Arguments
     ///
@@ -145,7 +197,18 @@ pub trait SimdLoad<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must point to at least `size` valid elements.
+    /// - Pointer must be valid and non-null
+    /// - Must point to at least `size` consecutive, initialized elements
+    /// - Size must be less than the vector's lane count
+    ///
+    /// # Performance
+    ///
+    /// Slightly slower than full loads due to masking overhead, but prevents
+    /// buffer overruns and segmentation faults when working with partial data.
+    ///
+    /// # Panics
+    ///
+    /// May panic in debug builds if size is greater than or equal to the vector capacity.
     unsafe fn load_partial(ptr: *const T, size: usize) -> Self::Output;
 }
 
@@ -171,7 +234,8 @@ pub trait SimdStore<T> {
     /// Stores vector data with automatic alignment detection.
     ///
     /// Automatically chooses between aligned and unaligned store based on
-    /// the destination pointer's alignment.
+    /// the destination pointer's alignment. This is the recommended method
+    /// for most use cases.
     ///
     /// # Arguments
     ///
@@ -179,13 +243,21 @@ pub trait SimdStore<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must point to sufficient writable memory.
+    /// - Pointer must be valid and non-null
+    /// - Must point to sufficient writable memory for all vector elements
+    /// - Memory must remain valid and writable during the store operation
+    ///
+    /// # Performance
+    ///
+    /// Automatically selects the fastest store method based on alignment,
+    /// providing optimal performance without manual alignment checking.
     fn store_at(&self, ptr: *const T);
 
     /// Non-temporal store that bypasses cache.
     ///
     /// Optimal for large datasets where data won't be accessed again soon.
-    /// Prevents cache pollution during bulk memory operations.
+    /// Prevents cache pollution during bulk memory operations by writing
+    /// directly to main memory.
     ///
     /// # Arguments
     ///
@@ -193,7 +265,18 @@ pub trait SimdStore<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must point to sufficient writable memory.
+    /// - Pointer must be valid, non-null, and properly aligned
+    /// - Must point to sufficient writable memory for all vector elements
+    /// - Memory must remain valid during the store operation
+    ///
+    /// # Performance
+    ///
+    /// Best for:
+    /// - Large sequential writes that won't be read soon
+    /// - Avoiding cache pollution in streaming algorithms
+    /// - Write-once, read-never or read-much-later patterns
+    ///
+    /// Avoid for data that will be accessed again soon.
     unsafe fn stream_at(&self, ptr: *mut T);
 
     /// Stores data to aligned memory.
@@ -207,12 +290,21 @@ pub trait SimdStore<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must be properly aligned and point to sufficient writable memory.
+    /// - Pointer must be properly aligned for this SIMD type
+    /// - Must be valid, non-null, and writable
+    /// - Must point to sufficient memory for all vector elements
+    /// - Undefined behavior if alignment requirements are not met
+    ///
+    /// # Performance
+    ///
+    /// This is typically the fastest store method, using the most efficient
+    /// CPU instructions designed for aligned memory access.
     unsafe fn store_aligned_at(&self, ptr: *mut T);
 
     /// Stores data to unaligned memory.
     ///
     /// Works with any memory alignment but may be slower than aligned stores.
+    /// Use when alignment cannot be guaranteed.
     ///
     /// # Arguments
     ///
@@ -220,13 +312,21 @@ pub trait SimdStore<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must point to sufficient writable memory.
+    /// - Pointer must be valid, non-null, and writable
+    /// - Must point to sufficient memory for all vector elements
+    /// - No alignment requirements
+    ///
+    /// # Performance
+    ///
+    /// Typically 10-20% slower than aligned stores, but still much faster
+    /// than scalar operations. Modern CPUs handle unaligned access well.
     unsafe fn store_unaligned_at(&self, ptr: *mut T);
 
     /// Stores only the valid elements using masked operations.
     ///
     /// Uses masking to safely store partial vector data without writing
-    /// beyond the intended memory range.
+    /// beyond the intended memory range. Only stores elements up to the
+    /// vector's valid size.
     ///
     /// # Arguments
     ///
@@ -234,7 +334,14 @@ pub trait SimdStore<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must point to sufficient writable memory for the valid elements.
+    /// - Pointer must be valid, non-null, and writable
+    /// - Must point to sufficient memory for the vector's valid elements
+    /// - Safe from buffer overruns due to masking
+    ///
+    /// # Performance
+    ///
+    /// Slightly slower than full stores due to masking overhead, but prevents
+    /// writing beyond buffer boundaries when working with partial data.
     unsafe fn store_at_partial(&self, ptr: *mut T);
 }
 

@@ -10,19 +10,18 @@ export default defineConfig({
 			description: 'Cross-platform Rust library with AVX2 and NEON SIMD support for fast computations',
 			social: [
 				{ icon: 'github', label: 'GitHub', href: 'https://github.com/mtantaoui/simdly' },
-				{ icon: 'discord', label: 'Discord', href: 'https://discord.gg/your-server' },
 			],
 			customCss: [
-				'./src/styles/custom.css',
+				'./src/styles/custom-minimal.css',
 			],
 			expressiveCode: {
 				themes: ['dracula', 'github-dark'],
 			},
 			sidebar: [
+				{ label: 'Introduction', slug: 'introduction' },
 				{
 					label: 'Getting Started',
 					items: [
-						{ label: 'Introduction', slug: 'introduction' },
 						{ label: 'Installation', slug: 'getting-started/installation' },
 						{ label: 'Quick Start', slug: 'getting-started/quick-start' },
 					],
@@ -37,16 +36,11 @@ export default defineConfig({
 				},
 				{
 					label: 'API Reference',
-					autogenerate: { directory: 'reference' },
-				},
-			],
-			head: [
-				{
-					tag: 'meta',
-					attrs: {
-						property: 'og:image',
-						// content: 'https://simdly.dev/og-image.png',
-					},
+					items: [
+						{ label: 'F32x8 Vector', slug: 'reference/f32x8' },
+						{ label: 'SimdLoad Trait', slug: 'reference/simd-load' },
+						{ label: 'Examples', slug: 'reference/example' },
+					],
 				},
 			],
 		}),

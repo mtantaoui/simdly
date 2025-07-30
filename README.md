@@ -1,4 +1,4 @@
-# simdly
+# Simdly
 
 🚀 A high-performance Rust library that leverages SIMD (Single Instruction, Multiple Data) instructions for fast vectorized computations. This library provides efficient implementations of mathematical operations using modern CPU features.
 
@@ -12,7 +12,7 @@
 - **🚀 SIMD Optimized**: Leverages AVX2 (256-bit) and NEON (128-bit) instructions for vector operations
 - **💾 Memory Efficient**: Supports both aligned and unaligned memory access patterns
 - **🔧 Generic Traits**: Provides consistent interfaces across different SIMD implementations
-- **🛡️ Safe Abstractions**: Wraps unsafe SIMD operations in safe, ergonomic APIs
+- **🛡️ Safe Abstractions**: Wraps unsafe SIMD operations in safe, ergonomic APIs with robust error handling
 - **🧮 Rich Math Library**: Extensive mathematical functions (trig, exp, log, sqrt, etc.)
 - **⚡ Performance**: Optimized for high-throughput numerical computations
 
@@ -100,13 +100,53 @@ unsafe {
 }
 ```
 
+### Error Handling
+
+simdly uses robust error handling instead of panics:
+
+```rust
+use simdly::{SimdAdd, error::SimdlyError};
+
+fn safe_computation(a: &[f32], b: &[f32]) -> Result<Vec<f32>, SimdlyError> {
+    // All operations return Results for graceful error handling
+    a.simd_add(b)
+}
+
+// Handle different error types
+match a.simd_add(b) {
+    Ok(result) => println!("Success: {:?}", result),
+    Err(SimdlyError::ValidationError { message }) => {
+        eprintln!("Input validation failed: {}", message);
+    }
+    Err(SimdlyError::AllocationError { message, .. }) => {
+        eprintln!("Memory allocation failed: {}", message);
+    }
+    Err(e) => eprintln!("Operation failed: {}", e),
+}
+```
+
 ## 📊 Performance
 
-simdly can provide significant performance improvements for numerical computations:
+simdly provides significant performance improvements for numerical computations with robust error handling:
 
-- **Up to 8x faster** operations using AVX2 256-bit vectors
-- **Memory bandwidth optimization** through aligned memory access
-- **Cache-friendly** processing patterns
+### Benchmark Results
+
+Latest performance measurements on Linux x64 with AVX2:
+
+| Vector Size | Scalar (GiB/s) | SIMD (GiB/s) | Parallel (GiB/s) | Best Algorithm |
+|-------------|----------------|---------------|-------------------|----------------|
+| 4 KiB       | 97.9          | 52.7          | N/A              | Scalar         |
+| 64 KiB      | 72.4          | 60.2          | 11.3             | Scalar         |
+| 1 MiB       | 47.6          | 46.3          | 59.4             | Parallel       |
+| 16 MiB      | 14.2          | 13.8          | 13.3             | Scalar         |
+| 64 MiB      | 4.0           | 4.0           | 8.5              | Parallel       |
+
+### Key Features
+
+- **Robust Error Handling**: All operations return `Result<T, SimdlyError>` instead of panicking
+- **Memory Safety**: Fixed alignment bugs and improved bounds checking
+- **Adaptive Performance**: Automatic algorithm selection based on data size
+- **Cache-Aware**: Optimized for different levels of memory hierarchy
 
 ### Compilation Flags
 

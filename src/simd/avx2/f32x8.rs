@@ -10,10 +10,12 @@ use std::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-use crate::simd::{Alignment, SimdLoad, SimdMath, SimdStore};
+use std::ops::Add;
 
-// const AVX_ALIGNMENT: usize = 32;
-const LANE_COUNT: usize = 8;
+use crate::simd::{avx2::math::*, Alignment, SimdLoad, SimdMath, SimdStore};
+
+pub(crate) const AVX_ALIGNMENT: usize = 32;
+pub(crate) const LANE_COUNT: usize = 8;
 
 /// AVX2 SIMD vector containing 8 packed f32 values.
 ///
@@ -26,45 +28,6 @@ const LANE_COUNT: usize = 8;
 /// For optimal performance, data should be aligned to 32-byte boundaries when possible.
 /// The structure automatically detects alignment and uses the most efficient load/store
 /// operations available.
-///
-/// # Examples
-///
-/// ## Basic Loading and Storing
-/// ```rust
-/// # use simdly::simd::avx2::f32x8::F32x8;
-/// # use simdly::simd::{SimdLoad, SimdStore};
-/// // Load 8 f32 values
-/// let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-/// let vec = F32x8::from_slice(&data);
-///
-/// // Store results back to memory
-/// let mut output = [0.0f32; 8];
-/// unsafe {
-///     vec.store_unaligned_at(output.as_mut_ptr());
-/// }
-/// assert_eq!(output, data);
-///
-/// // Partial load (< 8 elements)
-/// let partial = [1.0f32, 2.0, 3.0];
-/// let partial_vec = F32x8::from_slice(&partial);
-/// ```
-///
-/// ## Mathematical Operations
-/// ```rust
-/// # use simdly::simd::avx2::f32x8::F32x8;
-/// # use simdly::simd::{SimdLoad, SimdMath};
-/// let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-/// let vec = F32x8::from_slice(&data);
-///
-/// // Compute square root of all elements simultaneously
-/// let sqrt_vec = vec.sqrt();
-///
-/// // Compute sine of all elements
-/// let sin_vec = vec.sin();
-///
-/// // Chain operations
-/// let result = vec.abs().sqrt().sin();
-/// ```
 #[derive(Copy, Clone, Debug)]
 pub struct F32x8 {
     /// Number of valid elements in the vector (1-8)
@@ -86,6 +49,7 @@ impl Alignment<f32> for F32x8 {
     /// # Returns
     ///
     /// `true` if the pointer is 32-byte aligned, `false` otherwise
+    #[inline(always)]
     fn is_aligned(ptr: *const f32) -> bool {
         let ptr = ptr as usize;
 
@@ -118,6 +82,7 @@ impl SimdLoad<f32> for F32x8 {
     /// # Panics
     ///
     /// Panics in debug builds if the slice is empty.
+    #[inline(always)]
     fn from_slice(slice: &[f32]) -> Self::Output {
         debug_assert!(!slice.is_empty(), "data pointer can't be NULL");
 
@@ -148,6 +113,7 @@ impl SimdLoad<f32> for F32x8 {
     /// # Panics
     ///
     /// Panics in debug builds if size != 8 or if pointer is null.
+    #[inline(always)]
     unsafe fn load(ptr: *const f32, size: usize) -> Self::Output {
         debug_assert!(size == LANE_COUNT, "Size must be == {LANE_COUNT}");
         debug_assert!(!ptr.is_null(), "Pointer must not be null");
@@ -170,6 +136,7 @@ impl SimdLoad<f32> for F32x8 {
     /// # Safety
     ///
     /// Pointer must be 32-byte aligned and point to at least 8 valid f32 values.
+    #[inline(always)]
     unsafe fn load_aligned(ptr: *const f32) -> Self::Output {
         Self {
             elements: _mm256_load_ps(ptr),
@@ -189,6 +156,7 @@ impl SimdLoad<f32> for F32x8 {
     /// # Safety
     ///
     /// Pointer must point to at least 8 valid f32 values.
+    #[inline(always)]
     unsafe fn load_unaligned(ptr: *const f32) -> Self::Output {
         Self {
             elements: _mm256_loadu_ps(ptr),
@@ -219,6 +187,7 @@ impl SimdLoad<f32> for F32x8 {
     /// # Panics
     ///
     /// Panics in debug builds if size >= 8 or if pointer is null.
+    #[inline(always)]
     unsafe fn load_partial(ptr: *const f32, size: usize) -> Self::Output {
         debug_assert!(
             size < LANE_COUNT,
@@ -250,8 +219,8 @@ impl SimdMath<f32> for F32x8 {
     type Output = Self;
 
     /// Computes the absolute value of each element using AVX2 intrinsics.
+    #[inline(always)]
     fn abs(&self) -> Self::Output {
-        use crate::simd::avx2::math::_mm256_abs_ps;
         Self {
             size: self.size,
             elements: unsafe { _mm256_abs_ps(self.elements) },
@@ -259,8 +228,8 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes the arccosine of each element.
+    #[inline(always)]
     fn acos(&self) -> Self::Output {
-        use crate::simd::avx2::math::_mm256_acos_ps;
         Self {
             size: self.size,
             elements: unsafe { _mm256_acos_ps(self.elements) },
@@ -268,8 +237,8 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes the arcsine of each element.
+    #[inline(always)]
     fn asin(&self) -> Self::Output {
-        use crate::simd::avx2::math::_mm256_asin_ps;
         Self {
             size: self.size,
             elements: unsafe { _mm256_asin_ps(self.elements) },
@@ -277,8 +246,8 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes the arctangent of each element.
+    #[inline(always)]
     fn atan(&self) -> Self::Output {
-        use crate::simd::avx2::math::_mm256_atan_ps;
         Self {
             size: self.size,
             elements: unsafe { _mm256_atan_ps(self.elements) },
@@ -286,6 +255,7 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes the two-argument arctangent. Self is treated as Y, the parameter as X.
+    #[inline(always)]
     fn atan2(&self) -> Self::Output {
         // This is incomplete - atan2 needs two arguments
         // For now, return arctangent of self
@@ -293,8 +263,8 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes the cube root of each element.
+    #[inline(always)]
     fn cbrt(&self) -> Self::Output {
-        use crate::simd::avx2::math::_mm256_cbrt_ps;
         Self {
             size: self.size,
             elements: unsafe { _mm256_cbrt_ps(self.elements) },
@@ -302,6 +272,7 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes the floor of each element.
+    #[inline(always)]
     fn floor(&self) -> Self::Output {
         Self {
             size: self.size,
@@ -310,8 +281,8 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes the natural exponential of each element.
+    #[inline(always)]
     fn exp(&self) -> Self::Output {
-        use crate::simd::avx2::math::_mm256_exp_ps;
         Self {
             size: self.size,
             elements: unsafe { _mm256_exp_ps(self.elements) },
@@ -319,8 +290,8 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes the natural logarithm of each element.
+    #[inline(always)]
     fn ln(&self) -> Self::Output {
-        use crate::simd::avx2::math::_mm256_ln_ps;
         Self {
             size: self.size,
             elements: unsafe { _mm256_ln_ps(self.elements) },
@@ -328,6 +299,7 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes the Euclidean distance. Self is treated as X, parameter would be Y.
+    #[inline(always)]
     fn hypot(&self) -> Self::Output {
         // This is incomplete - hypot needs two arguments
         // For now, return self
@@ -335,6 +307,7 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes power function. Self is base, parameter would be exponent.
+    #[inline(always)]
     fn pow(&self) -> Self::Output {
         // This is incomplete - pow needs two arguments
         // For now, return self
@@ -342,8 +315,8 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes the sine of each element.
+    #[inline(always)]
     fn sin(&self) -> Self::Output {
-        use crate::simd::avx2::math::_mm256_sin_ps;
         Self {
             size: self.size,
             elements: unsafe { _mm256_sin_ps(self.elements) },
@@ -351,8 +324,8 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes the cosine of each element.
+    #[inline(always)]
     fn cos(&self) -> Self::Output {
-        use crate::simd::avx2::math::_mm256_cos_ps;
         Self {
             size: self.size,
             elements: unsafe { _mm256_cos_ps(self.elements) },
@@ -360,8 +333,8 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes the tangent of each element.
+    #[inline(always)]
     fn tan(&self) -> Self::Output {
-        use crate::simd::avx2::math::_mm256_tan_ps;
         Self {
             size: self.size,
             elements: unsafe { _mm256_tan_ps(self.elements) },
@@ -369,6 +342,7 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes the square root of each element.
+    #[inline(always)]
     fn sqrt(&self) -> Self::Output {
         Self {
             size: self.size,
@@ -377,6 +351,7 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes the ceiling of each element.
+    #[inline(always)]
     fn ceil(&self) -> Self::Output {
         Self {
             size: self.size,
@@ -385,11 +360,13 @@ impl SimdMath<f32> for F32x8 {
     }
 
     /// Computes 3D Euclidean distance (incomplete - needs 3 arguments).
+    #[inline(always)]
     fn hypot3(&self) -> Self::Output {
         *self
     }
 
     /// Computes 4D Euclidean distance (incomplete - needs 4 arguments).
+    #[inline(always)]
     fn hypot4(&self) -> Self::Output {
         *self
     }
@@ -416,6 +393,7 @@ impl SimdStore<f32> for F32x8 {
     /// # Panics
     ///
     /// Panics in debug builds if size > 8 or if pointer is null.
+    #[inline(always)]
     fn store_at(&self, ptr: *const f32) {
         debug_assert!(
             self.size <= LANE_COUNT,
@@ -465,6 +443,7 @@ impl SimdStore<f32> for F32x8 {
     /// - Large array initialization
     /// - Data export operations  
     /// - Streaming computations with sequential access patterns
+    #[inline(always)]
     unsafe fn stream_at(&self, ptr: *mut f32) {
         _mm256_stream_ps(ptr, self.elements)
     }
@@ -482,6 +461,7 @@ impl SimdStore<f32> for F32x8 {
     ///
     /// Pointer must be 32-byte aligned and point to at least 8 valid f32
     /// memory locations.
+    #[inline(always)]
     unsafe fn store_aligned_at(&self, ptr: *mut f32) {
         _mm256_store_ps(ptr, self.elements)
     }
@@ -498,6 +478,7 @@ impl SimdStore<f32> for F32x8 {
     /// # Safety
     ///
     /// Pointer must point to at least 8 valid f32 memory locations.
+    #[inline(always)]
     unsafe fn store_unaligned_at(&self, ptr: *mut f32) {
         _mm256_storeu_ps(ptr, self.elements)
     }
@@ -525,6 +506,7 @@ impl SimdStore<f32> for F32x8 {
     /// # Panics
     ///
     /// Panics in debug builds if size >= 8 or if pointer is null.
+    #[inline(always)]
     unsafe fn store_at_partial(&self, ptr: *mut f32) {
         debug_assert!(
             self.size < LANE_COUNT,
@@ -548,24 +530,99 @@ impl SimdStore<f32> for F32x8 {
     }
 }
 
+/// Implementation of element-wise addition for F32x8 vectors.
+///
+/// This implementation provides vectorized addition using AVX2 instructions,
+/// performing 8 single-precision floating-point additions simultaneously.
+///
+/// # Performance
+///
+/// - **Vectorization**: Executes 8 additions in a single AVX2 instruction
+/// - **Throughput**: ~8x faster than scalar addition for compatible workloads  
+/// - **Latency**: Single-cycle execution on modern CPUs with sufficient execution units
+/// - **Pipeline**: Fully pipelined operation allowing multiple additions per cycle
+///
+/// # Requirements
+///
+/// Both operands must have the same `size` (number of valid elements).
+/// This ensures consistent behavior when working with partial vectors.
+///
+/// # Examples
+///
+/// ```rust
+/// # use simdly::simd::avx2::f32x8::F32x8;
+/// # use simdly::simd::SimdLoad;
+/// # #[cfg(target_feature = "avx2")]
+/// # {
+/// let a = F32x8::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+/// let b = F32x8::from_slice(&[8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0]);
+/// let result = a + b; // [9.0, 9.0, 9.0, 9.0, 9.0, 9.0, 9.0, 9.0]
+/// # }
+/// ```
+///
+/// # Panics
+///
+/// Panics in debug builds if the operands have different sizes.
+impl Add for F32x8 {
+    type Output = Self;
+
+    /// Performs element-wise addition of two F32x8 vectors.
+    ///
+    /// Uses the AVX2 `_mm256_add_ps` intrinsic to add corresponding elements
+    /// from both vectors simultaneously.
+    ///
+    /// # Arguments
+    ///
+    /// * `self` - Left operand vector
+    /// * `rhs` - Right operand vector (must have same size as `self`)
+    ///
+    /// # Returns
+    ///
+    /// A new F32x8 vector containing the element-wise sum
+    ///
+    /// # Safety
+    ///
+    /// This function is safe as it only operates on the vector data and
+    /// validates that both operands have compatible sizes.
+    #[inline(always)]
+    fn add(self, rhs: Self) -> Self::Output {
+        debug_assert!(
+            self.size == rhs.size,
+            "Operands must have the same size (expected {} lanes, got {} and {})",
+            LANE_COUNT,
+            self.size,
+            rhs.size
+        );
+
+        // Use the add function to perform element-wise addition
+        Self {
+            size: self.size,
+            elements: unsafe { _mm256_add_ps(self.elements, rhs.elements) },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::alloc::{alloc, dealloc, Layout};
 
-    // Helper function to create aligned memory
+    /// Helper function to create aligned memory for testing
+    #[inline(always)]
     fn alloc_aligned(size: usize, align: usize) -> *mut f32 {
         let layout = Layout::from_size_align(size * std::mem::size_of::<f32>(), align).unwrap();
         unsafe { alloc(layout) as *mut f32 }
     }
 
-    // Helper function to deallocate aligned memory
+    /// Helper function to deallocate aligned memory for testing
+    #[inline(always)]
     fn dealloc_aligned(ptr: *mut f32, size: usize, align: usize) {
         let layout = Layout::from_size_align(size * std::mem::size_of::<f32>(), align).unwrap();
         unsafe { dealloc(ptr as *mut u8, layout) };
     }
 
-    // Helper function to extract vector elements for comparison
+    /// Helper function to extract vector elements for comparison in tests
+    #[inline(always)]
     fn extract_elements(vec: &F32x8) -> [f32; 8] {
         let mut result = [0.0f32; 8];
         unsafe {

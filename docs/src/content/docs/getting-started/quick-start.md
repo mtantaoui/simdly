@@ -1,6 +1,8 @@
 ---
 title: Quick Start
 description: Get up and running with Simdly cross-platform SIMD in minutes.
+sidebar:
+  order: 3
 ---
 
 # Quick Start Guide

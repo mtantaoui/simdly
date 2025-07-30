@@ -1,6 +1,8 @@
 ---
 title: Installation
 description: How to install and set up Simdly in your cross-platform Rust project.
+sidebar:
+  order: 2
 ---
 
 # Installation

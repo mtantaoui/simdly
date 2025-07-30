@@ -484,6 +484,7 @@ unsafe fn horner_f32x4(x: float32x4_t, coeffs: &[f32]) -> float32x4_t {
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
 #[inline(always)]
+#[inline(always)]
 pub unsafe fn vasinq_f32(d: float32x4_t) -> float32x4_t {
     let abs_d = vabsq_f32(d);
     let ones = vdupq_n_f32(1.0);
@@ -567,6 +568,7 @@ pub unsafe fn vasinq_f32(d: float32x4_t) -> float32x4_t {
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
 #[inline(always)]
+#[inline(always)]
 pub unsafe fn vacosq_f32(d: float32x4_t) -> float32x4_t {
     let pi_half = vdupq_n_f32(std::f32::consts::FRAC_PI_2);
     let asin_result = vasinq_f32(d);
@@ -620,6 +622,7 @@ pub unsafe fn vacosq_f32(d: float32x4_t) -> float32x4_t {
 /// # Safety
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
+#[inline(always)]
 #[inline(always)]
 pub unsafe fn vatanq_f32(x: float32x4_t) -> float32x4_t {
     let abs_x = vabsq_f32(x);
@@ -701,6 +704,7 @@ pub unsafe fn vatanq_f32(x: float32x4_t) -> float32x4_t {
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
 #[inline(always)]
+#[inline(always)]
 pub unsafe fn vatan2q_f32(y: float32x4_t, x: float32x4_t) -> float32x4_t {
     let zero = vdupq_n_f32(0.0);
     let pi = vdupq_n_f32(std::f32::consts::PI);
@@ -773,6 +777,7 @@ pub unsafe fn vatan2q_f32(y: float32x4_t, x: float32x4_t) -> float32x4_t {
 /// # Safety
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
+#[inline(always)]
 #[inline(always)]
 pub unsafe fn vcbrtq_f32(x: float32x4_t) -> float32x4_t {
     // Handle special cases first
@@ -869,6 +874,7 @@ pub unsafe fn vcbrtq_f32(x: float32x4_t) -> float32x4_t {
 /// # Safety
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
+#[inline(always)]
 #[inline(always)]
 pub unsafe fn vexpq_f32(x: float32x4_t) -> float32x4_t {
     // Constants for range reduction: ln(2) split into high and low parts for precision
@@ -981,6 +987,7 @@ pub unsafe fn vexpq_f32(x: float32x4_t) -> float32x4_t {
 /// # Safety
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
+#[inline(always)]
 #[inline(always)]
 pub unsafe fn vlnq_f32(x: float32x4_t) -> float32x4_t {
     let zero = vdupq_n_f32(0.0);
@@ -1106,6 +1113,7 @@ pub unsafe fn vlnq_f32(x: float32x4_t) -> float32x4_t {
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
 #[inline(always)]
+#[inline(always)]
 pub unsafe fn vhypotq_f32(x: float32x4_t, y: float32x4_t) -> float32x4_t {
     let abs_x = vabsq_f32(x);
     let abs_y = vabsq_f32(y);
@@ -1173,6 +1181,7 @@ pub unsafe fn vhypotq_f32(x: float32x4_t, y: float32x4_t) -> float32x4_t {
 /// # Safety
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
+#[inline(always)]
 #[inline(always)]
 pub unsafe fn vhypot3q_f32(x: float32x4_t, y: float32x4_t, z: float32x4_t) -> float32x4_t {
     let abs_x = vabsq_f32(x);
@@ -1248,6 +1257,7 @@ pub unsafe fn vhypot3q_f32(x: float32x4_t, y: float32x4_t, z: float32x4_t) -> fl
 /// # Safety
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
+#[inline(always)]
 #[inline(always)]
 pub unsafe fn vhypot4q_f32(
     x: float32x4_t,
@@ -1346,6 +1356,7 @@ pub unsafe fn vhypot4q_f32(
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
 #[inline(always)]
+#[inline(always)]
 pub unsafe fn vpowq_f32(x: float32x4_t, y: float32x4_t) -> float32x4_t {
     let zero = vdupq_n_f32(0.0);
     let one = vdupq_n_f32(1.0);
@@ -1420,6 +1431,7 @@ pub unsafe fn vpowq_f32(x: float32x4_t, y: float32x4_t) -> float32x4_t {
 /// # Safety
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
+#[inline(always)]
 #[inline(always)]
 pub unsafe fn vsinq_f32(x: float32x4_t) -> float32x4_t {
     // Handle special cases first
@@ -1496,6 +1508,7 @@ pub unsafe fn vsinq_f32(x: float32x4_t) -> float32x4_t {
 /// # Safety
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
+#[inline(always)]
 #[inline(always)]
 pub unsafe fn vcosq_f32(x: float32x4_t) -> float32x4_t {
     // Handle special cases first
@@ -1588,6 +1601,7 @@ pub unsafe fn vcosq_f32(x: float32x4_t) -> float32x4_t {
 /// # Safety
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
+#[inline(always)]
 #[inline(always)]
 pub unsafe fn vtanq_f32(d: float32x4_t) -> float32x4_t {
     // Handle special cases first
