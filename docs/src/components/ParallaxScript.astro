@@ -1,0 +1,187 @@
+---
+// Full-screen parallax script - MkDocs Material style
+---
+
+<script>
+  // Full-screen parallax controller - MkDocs Material style
+  class ParallaxController {
+    constructor() {
+      this.parallaxLayers = [];
+      this.isInitialized = false;
+      this.rafId = null;
+      this.lastScrollY = 0;
+      this.windowHeight = window.innerHeight;
+      
+      this.init();
+    }
+
+    init() {
+      // Wait for DOM to be ready
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => this.setup());
+      } else {
+        this.setup();
+      }
+    }
+
+    setup() {
+      this.setupParallaxLayers();
+      this.bindEvents();
+      this.isInitialized = true;
+      this.handleScroll(); // Initial setup
+    }
+
+    setupParallaxLayers() {
+      // Preload the galaxy image for better performance
+      this.preloadImages();
+      
+      // Setup parallax background layers
+      const layer1 = document.getElementById('parallax-layer-1');
+      const layer2 = document.getElementById('parallax-layer-2');
+      
+      if (layer1) {
+        this.parallaxLayers.push({
+          element: layer1,
+          speed: 0.5, // Slower parallax for far background
+          initialTransform: 0
+        });
+      }
+      
+      if (layer2) {
+        // Second layer with the same galaxy image but different position
+        layer2.style.backgroundImage = `
+          linear-gradient(135deg, rgba(0, 0, 0, 0.3) 0%, rgba(10, 10, 26, 0.2) 25%, rgba(0, 17, 34, 0.1) 50%, rgba(0, 8, 21, 0.2) 75%, rgba(0, 0, 0, 0.3) 100%),
+          url('https://images.pexels.com/photos/1169754/pexels-photo-1169754.jpeg')
+        `;
+        layer2.style.backgroundSize = 'cover, cover';
+        layer2.style.backgroundPosition = 'center center, center bottom'; // Different position for depth
+        layer2.style.backgroundRepeat = 'no-repeat, no-repeat';
+        layer2.style.opacity = '0.8'; // Slightly more transparent for layering effect
+        
+        this.parallaxLayers.push({
+          element: layer2,
+          speed: 0.3, // Even slower for depth
+          initialTransform: 0
+        });
+      }
+    }
+
+    preloadImages() {
+      // Preload the optimized galaxy image for better performance
+      const img = new Image();
+      img.onload = () => {
+        console.log('Galaxy background image loaded successfully');
+        // Image is already visible via CSS, just log success
+      };
+      img.onerror = () => {
+        console.warn('Failed to load galaxy background image, using fallback gradient');
+        // Fallback gradient is already set in CSS
+      };
+      img.src = 'https://images.pexels.com/photos/2150/sky-space-dark-galaxy.jpg?auto=compress&cs=tinysrgb&w=1920&h=1080';
+    }
+
+    bindEvents() {
+      // High-frequency scroll event for smooth parallax
+      window.addEventListener('scroll', () => {
+        if (this.rafId) {
+          cancelAnimationFrame(this.rafId);
+        }
+        
+        this.rafId = requestAnimationFrame(() => {
+          this.handleScroll();
+        });
+      }, { passive: true });
+
+      // Resize handler
+      window.addEventListener('resize', this.throttle(() => {
+        this.windowHeight = window.innerHeight;
+        this.handleScroll();
+      }, 250));
+    }
+
+    handleScroll() {
+      if (!this.isInitialized) return;
+      
+      const scrollY = window.pageYOffset;
+      this.updateParallax(scrollY);
+      this.lastScrollY = scrollY;
+    }
+
+    updateParallax(scrollY) {
+      // MkDocs Material style parallax - background moves slower than scroll
+      this.parallaxLayers.forEach((layer, index) => {
+        const { element, speed } = layer;
+        
+        // Calculate parallax offset
+        const offset = scrollY * speed;
+        
+        // Apply transform with GPU acceleration
+        element.style.transform = `translate3d(0, ${offset}px, 0)`;
+        
+        // Optional: Add slight rotation for more dynamic effect
+        if (index === 1) {
+          const rotation = scrollY * 0.01;
+          element.style.transform = `translate3d(0, ${offset}px, 0) rotate(${rotation}deg)`;
+        }
+      });
+    }
+
+
+    handleResize() {
+      this.windowHeight = window.innerHeight;
+      this.handleScroll();
+    }
+
+    throttle(func, limit) {
+      let inThrottle;
+      return function() {
+        const args = arguments;
+        const context = this;
+        if (!inThrottle) {
+          func.apply(context, args);
+          inThrottle = true;
+          setTimeout(() => inThrottle = false, limit);
+        }
+      };
+    }
+
+    // Public method to disable parallax (for reduced motion)
+    disable() {
+      this.parallaxLayers.forEach(({ element }) => {
+        element.style.transform = '';
+      });
+    }
+  }
+
+  // Initialize parallax controller
+  const parallaxController = new ParallaxController();
+
+  // Respect user's motion preferences
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    parallaxController.disable();
+  }
+
+  // Handle visibility change (pause when tab is not active)
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (parallaxController.rafId) {
+        cancelAnimationFrame(parallaxController.rafId);
+      }
+    }
+  });
+
+  // Expose for debugging
+  window.parallaxController = parallaxController;
+</script>
+
+<style>
+  /* Initial state for elements that will be animated */
+  .card-grid .card {
+    opacity: 0.8;
+    transition: opacity 0.6s ease-out;
+  }
+  
+  .card-grid .card.animate-in {
+    opacity: 1;
+  }
+</style>

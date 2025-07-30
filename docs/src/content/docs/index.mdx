@@ -4,9 +4,6 @@ description: Cross-platform Rust library with AVX2 and NEON SIMD support for fas
 template: splash
 hero:
   tagline: ⚡ Cross-platform SIMD operations in Rust - AVX2 on x86, NEON on ARM
-  image:
-    alt: 'HAL 9000 computer system'
-    file: ./../../assets/hal9000.svg
   actions:
     - text: Get Started
       link: /getting-started/installation/
@@ -22,6 +19,14 @@ hero:
 ---
 
 import { Card, CardGrid, Code, Tabs, TabItem } from '@astrojs/starlight/components';
+import ParallaxScript from '../../components/ParallaxScript.astro';
+
+<div className="parallax-bg-container" style={{position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: -999, background: 'linear-gradient(135deg, #000000 0%, #0a0a1a 25%, #001122 50%, #000815 75%, #000000 100%)', opacity: 1}}>
+  <div className="parallax-bg-layer" id="parallax-layer-1" style={{position: 'absolute', top: '-10%', left: '-10%', width: '120vw', height: '120vh', backgroundImage: 'url("https://images.pexels.com/photos/2150/sky-space-dark-galaxy.jpg?auto=compress&cs=tinysrgb&w=1920&h=1080")', backgroundSize: 'cover', backgroundPosition: 'center center', backgroundRepeat: 'no-repeat'}}></div>
+  <div className="parallax-bg-layer" id="parallax-layer-2" style={{position: 'absolute', top: '-10%', left: '-10%', width: '120vw', height: '120vh', backgroundSize: 'cover', backgroundPosition: 'center center', backgroundRepeat: 'no-repeat', opacity: 0.8}}></div>
+</div>
+
+<div class="hero-content-wrapper">
 
 ## Why Choose Simdly?
 
@@ -77,20 +82,20 @@ fn add_vectors_simd(a: &[f32], b: &[f32]) -> Vec<f32> {
 
 ## Core capabilities
 
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin: 2rem 0;">
-  <div style="background: linear-gradient(135deg, rgba(255, 0, 0, 0.2), rgba(204, 0, 0, 0.1)); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255, 0, 0, 0.3); box-shadow: 0 0 20px rgba(255, 0, 0, 0.1);">
+<div class="parallax-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin: 2rem 0;">
+  <div class="parallax-layer parallax-bg-slow" style="background: linear-gradient(135deg, rgba(255, 0, 0, 0.2), rgba(204, 0, 0, 0.1)); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255, 0, 0, 0.3); box-shadow: 0 0 20px rgba(255, 0, 0, 0.1); position: relative;">
     <div style="font-size: 2rem; font-weight: bold; color: #ff3333; text-shadow: 0 0 15px rgba(255, 0, 0, 0.8);">
     Blazingly fast maths functions
     </div>
   </div>
   
-  <div style="background: linear-gradient(135deg, rgba(255, 102, 0, 0.2), rgba(255, 102, 0, 0.1)); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255, 102, 0, 0.3); box-shadow: 0 0 20px rgba(255, 102, 0, 0.1);">
+  <div class="parallax-layer parallax-bg-medium" style="background: linear-gradient(135deg, rgba(255, 102, 0, 0.2), rgba(255, 102, 0, 0.1)); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255, 102, 0, 0.3); box-shadow: 0 0 20px rgba(255, 102, 0, 0.1); position: relative;">
     <div style="font-size: 2rem; font-weight: bold; color: #ff6600; text-shadow: 0 0 15px rgba(255, 102, 0, 0.8);">
     Data parallelized vector operations
     </div>
   </div>
   
-  <div style="background: linear-gradient(135deg, rgba(255, 255, 0, 0.2), rgba(255, 255, 0, 0.1)); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255, 255, 0, 0.3); box-shadow: 0 0 20px rgba(255, 255, 0, 0.1);">
+  <div class="parallax-layer parallax-bg-fast" style="background: linear-gradient(135deg, rgba(255, 255, 0, 0.2), rgba(255, 255, 0, 0.1)); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255, 255, 0, 0.3); box-shadow: 0 0 20px rgba(255, 255, 0, 0.1); position: relative;">
     <div style="font-size: 2rem; font-weight: bold; color: #ffff00; text-shadow: 0 0 15px rgba(255, 255, 0, 0.8);">
     Memory safety
     </div>
@@ -124,3 +129,7 @@ cargo add simdly
 ```
 
 Jump into the [Quick Start Guide](/getting-started/quick-start/) to start accelerating your code today!
+
+</div>
+
+<ParallaxScript />
