@@ -1,39 +1,47 @@
-# Starlight Starter Kit: Basics
+# Simdly Documentation
 
 [![Built with Starlight](https://astro.badg.es/v2/built-with-starlight/tiny.svg)](https://starlight.astro.build)
 
+This is the official documentation website for **Simdly**, a cross-platform Rust library that provides high-performance SIMD operations with support for both AVX2 (x86/x86_64) and NEON (ARM) instruction sets.
+
+## About Simdly
+
+Simdly is a Rust crate that offers:
+- 🚀 Cross-platform SIMD support (AVX2 + NEON)
+- 🛡️ Safe abstractions over unsafe SIMD operations
+- ⚡ Zero-cost abstractions with compile-time optimizations
+- 🔧 Universal API that works across different architectures
+
+## 🔗 Links
+
+- **Crate Repository**: [github.com/mtantaoui/simdly](https://github.com/mtantaoui/simdly)
+- **Crates.io**: [crates.io/crates/simdly](https://crates.io/crates/simdly)
+- **Documentation**: This website
+
+## 🚀 Documentation Structure
+
+This documentation site is built with Astro + Starlight and includes:
+
 ```
-npm create astro@latest -- --template starlight
+src/content/docs/
+├── getting-started/
+│   ├── installation.md
+│   └── quick-start.md
+├── guides/
+│   ├── simd-operations.md
+│   ├── performance.md
+│   └── example.md
+├── reference/
+│   ├── f32x8.md
+│   └── simd-load.md
+└── index.mdx
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+The documentation covers installation, usage examples, performance benchmarks, and complete API reference for the Simdly crate.
 
-## 🚀 Project Structure
+## 🧞 Development Commands
 
-Inside of your Astro + Starlight project, you'll see the following folders and files:
-
-```
-.
-├── public/
-├── src/
-│   ├── assets/
-│   ├── content/
-│   │   └── docs/
-│   └── content.config.ts
-├── astro.config.mjs
-├── package.json
-└── tsconfig.json
-```
-
-Starlight looks for `.md` or `.mdx` files in the `src/content/docs/` directory. Each file is exposed as a route based on its file name.
-
-Images can be added to `src/assets/` and embedded in Markdown with a relative link.
-
-Static assets, like favicons, can be placed in the `public/` directory.
-
-## 🧞 Commands
-
-All commands are run from the root of the project, from a terminal:
+To work on this documentation site locally:
 
 | Command                   | Action                                           |
 | :------------------------ | :----------------------------------------------- |
@@ -41,9 +49,21 @@ All commands are run from the root of the project, from a terminal:
 | `npm run dev`             | Starts local dev server at `localhost:4321`      |
 | `npm run build`           | Build your production site to `./dist/`          |
 | `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
 
-## 👀 Want to learn more?
+## 🎨 Theme
 
-Check out [Starlight’s docs](https://starlight.astro.build/), read [the Astro documentation](https://docs.astro.build), or jump into the [Astro Discord server](https://astro.build/chat).
+This documentation features a custom space-themed design inspired by HAL 9000 from "2001: A Space Odyssey", with:
+- Animated starfield background
+- Space-black color scheme
+- Glowing HAL 9000 eye imagery
+- Cross-platform SIMD focus
+
+## 📚 Contributing
+
+To contribute to the Simdly crate documentation:
+1. Fork the [main repository](https://github.com/mtantaoui/simdly)
+2. Update documentation in the `docs/` directory
+3. Test locally with `npm run dev`
+4. Submit a pull request
+
+For the Rust crate itself, see the main repository's contributing guidelines.

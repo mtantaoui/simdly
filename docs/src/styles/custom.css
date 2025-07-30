@@ -1,0 +1,558 @@
+/* HAL 9000 Theme - 2001: A Space Odyssey inspired */
+
+:root {
+  /* HAL 9000 Color Palette */
+  --hal-red: #ff0000;
+  --hal-red-glow: #ff3333;
+  --hal-red-dim: #cc0000;
+  --hal-red-alpha: rgba(255, 0, 0, 0.8);
+  --hal-red-alpha-low: rgba(255, 0, 0, 0.1);
+  --hal-orange: #ff6600;
+  --hal-yellow: #ffff00;
+
+  /* Space Theme Colors */
+  --space-black: #000000;
+  --space-dark: #0a0a0a;
+  --space-gray: #1a1a1a;
+  --space-light-gray: #333333;
+  --space-blue: #001133;
+  --space-blue-dim: #000822;
+
+  /* Starlight Color Overrides */
+  --sl-color-accent-low: rgba(100, 116, 139, 0.1);
+  --sl-color-accent: #64748b;
+  --sl-color-accent-high: #94a3b8;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #f8fafc;
+  --sl-color-gray-2: #e2e8f0;
+  --sl-color-gray-3: #cbd5e1;
+  --sl-color-gray-4: #94a3b8;
+  --sl-color-gray-5: #64748b;
+  --sl-color-gray-6: #475569;
+  --sl-color-bg: var(--space-black);
+  --sl-color-bg-nav: var(--space-dark);
+  --sl-color-bg-sidebar: var(--space-gray);
+  --sl-color-bg-inline-code: var(--space-light-gray);
+  --sl-color-text: #e2e8f0;
+  --sl-color-text-accent: #94a3b8;
+
+  /* HAL-inspired Gradients */
+  --gradient-hal: linear-gradient(
+    135deg,
+    var(--hal-red) 0%,
+    var(--hal-orange) 100%
+  );
+  --gradient-space: linear-gradient(
+    135deg,
+    var(--space-black) 0%,
+    var(--space-blue-dim) 100%
+  );
+  --gradient-warning: linear-gradient(
+    135deg,
+    var(--hal-orange) 0%,
+    var(--hal-yellow) 100%
+  );
+}
+
+/* Dark theme overrides */
+[data-theme="dark"] {
+  --sl-color-bg: var(--space-black);
+  --sl-color-bg-nav: var(--space-dark);
+  --sl-color-bg-sidebar: var(--space-gray);
+  --sl-color-text: #e2e8f0;
+  --sl-color-text-accent: #94a3b8;
+}
+
+/* Space Starfield Animation */
+@keyframes starfield {
+  0% {
+    transform: translateY(0px);
+  }
+  100% {
+    transform: translateY(-2000px);
+  }
+}
+
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes hal-pulse {
+  0%,
+  100% {
+    opacity: 0.8;
+    box-shadow: 0 0 20px var(--hal-red-alpha), 0 0 40px var(--hal-red-alpha),
+      0 0 60px var(--hal-red-alpha);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 30px var(--hal-red), 0 0 60px var(--hal-red),
+      0 0 90px var(--hal-red);
+  }
+}
+
+/* Hero section - Space Odyssey style */
+.hero {
+  background: var(--gradient-space);
+  background-attachment: fixed;
+  position: relative;
+  overflow: hidden;
+  width: 100vw;
+  margin-left: calc(-50vw + 50%);
+  margin-right: calc(-50vw + 50%);
+}
+
+/* Starfield background */
+.hero::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: radial-gradient(2px 2px at 20px 30px, #ffffff, transparent),
+    radial-gradient(2px 2px at 40px 70px, rgba(255, 255, 255, 0.8), transparent),
+    radial-gradient(1px 1px at 90px 40px, #ffffff, transparent),
+    radial-gradient(
+      1px 1px at 130px 80px,
+      rgba(255, 255, 255, 0.6),
+      transparent
+    ),
+    radial-gradient(2px 2px at 160px 30px, #ffffff, transparent),
+    radial-gradient(
+      1px 1px at 200px 90px,
+      rgba(255, 255, 255, 0.7),
+      transparent
+    ),
+    radial-gradient(2px 2px at 240px 50px, #ffffff, transparent),
+    radial-gradient(
+      1px 1px at 280px 10px,
+      rgba(255, 255, 255, 0.9),
+      transparent
+    ),
+    radial-gradient(1px 1px at 320px 70px, #ffffff, transparent),
+    radial-gradient(
+      2px 2px at 360px 40px,
+      rgba(255, 255, 255, 0.8),
+      transparent
+    );
+  background-repeat: repeat;
+  background-size: 400px 400px;
+  animation: starfield 200s linear infinite;
+  opacity: 0.8;
+}
+
+
+/* Space Typography */
+.hero h1 {
+  background: linear-gradient(
+    135deg,
+    #ffffff 0%,
+    #e2e8f0 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  position: relative;
+  z-index: 10;
+}
+
+.hero .tagline {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 1.25rem;
+  font-weight: 500;
+  position: relative;
+  z-index: 10;
+}
+
+/* Space-themed Card enhancements */
+.card-grid .card {
+  background: linear-gradient(
+    135deg,
+    var(--space-gray) 0%,
+    var(--space-light-gray) 100%
+  );
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 16px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.card-grid .card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(148, 163, 184, 0.4),
+    transparent
+  );
+}
+
+.card-grid .card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
+  border-color: rgba(148, 163, 184, 0.4);
+  background: linear-gradient(
+    135deg,
+    var(--space-light-gray) 0%,
+    var(--space-gray) 100%
+  );
+}
+
+/* Space-themed performance cards */
+.card-grid .card[data-icon="rocket"] {
+  background: linear-gradient(
+    135deg,
+    var(--space-gray) 0%,
+    rgba(100, 116, 139, 0.1) 100%
+  );
+  border-color: rgba(100, 116, 139, 0.2);
+}
+
+.card-grid .card[data-icon="setting"] {
+  background: linear-gradient(
+    135deg,
+    var(--space-gray) 0%,
+    rgba(100, 116, 139, 0.1) 100%
+  );
+  border-color: rgba(100, 116, 139, 0.2);
+}
+
+.card-grid .card[data-icon="approve-check"] {
+  background: linear-gradient(
+    135deg,
+    var(--space-gray) 0%,
+    rgba(100, 116, 139, 0.1) 100%
+  );
+  border-color: rgba(100, 116, 139, 0.2);
+}
+
+.card-grid .card[data-icon="puzzle"] {
+  background: linear-gradient(
+    135deg,
+    var(--space-gray) 0%,
+    rgba(100, 116, 139, 0.1) 100%
+  );
+  border-color: rgba(100, 116, 139, 0.2);
+}
+
+/* Space Navigation */
+.site-title {
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+/* Space-themed Code blocks */
+pre {
+  background: var(--space-light-gray) !important;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+}
+
+/* Space-themed Sidebar */
+.sidebar {
+  background: linear-gradient(
+    180deg,
+    var(--space-gray) 0%,
+    var(--space-dark) 100%
+  );
+  backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(100, 116, 139, 0.1);
+}
+
+/* HAL-themed Content area */
+.main-frame {
+  background: linear-gradient(
+    135deg,
+    var(--space-black) 0%,
+    var(--space-blue-dim) 100%
+  );
+}
+
+/* Global body background with subtle stars */
+body {
+  background: var(--space-black);
+  background-image: radial-gradient(
+      1px 1px at 50px 100px,
+      rgba(255, 255, 255, 0.2),
+      transparent
+    ),
+    radial-gradient(
+      1px 1px at 150px 200px,
+      rgba(255, 255, 255, 0.3),
+      transparent
+    ),
+    radial-gradient(
+      1px 1px at 250px 50px,
+      rgba(255, 255, 255, 0.1),
+      transparent
+    ),
+    radial-gradient(
+      1px 1px at 350px 150px,
+      rgba(255, 255, 255, 0.2),
+      transparent
+    );
+  background-size: 400px 400px;
+}
+
+/* Full width for splash pages */
+.page[data-has-hero] .content-panel,
+.page[data-has-hero] .main-frame,
+.page[data-has-hero] main {
+  width: 100%;
+  max-width: none;
+  padding: 0;
+}
+
+/* Hero content centering */
+.hero .sl-flex {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+
+/* HAL 9000 SVG positioning and styling */
+.hero img,
+.hero .hero-image img {
+  max-width: 300px;
+  height: auto;
+  filter: drop-shadow(0 0 30px var(--hal-red))
+    drop-shadow(0 0 60px var(--hal-red-alpha))
+    drop-shadow(0 0 90px var(--hal-red-alpha-low)) brightness(1.1) contrast(1.2);
+  animation: hal-glow-pulse 3s ease-in-out infinite alternate;
+}
+
+/* Enhanced glow animation for HAL's eye */
+@keyframes hal-glow-pulse {
+  0% {
+    filter: drop-shadow(0 0 20px var(--hal-red))
+      drop-shadow(0 0 40px var(--hal-red-alpha))
+      drop-shadow(0 0 60px var(--hal-red-alpha-low)) brightness(1) contrast(1.1);
+    transform: scale(1);
+  }
+  50% {
+    filter: drop-shadow(0 0 40px var(--hal-red))
+      drop-shadow(0 0 80px var(--hal-red-alpha))
+      drop-shadow(0 0 120px var(--hal-red-alpha-low)) brightness(1.3)
+      contrast(1.4);
+    transform: scale(1.02);
+  }
+  100% {
+    filter: drop-shadow(0 0 30px var(--hal-red))
+      drop-shadow(0 0 60px var(--hal-red-alpha))
+      drop-shadow(0 0 90px var(--hal-red-alpha-low)) brightness(1.1)
+      contrast(1.2);
+    transform: scale(1);
+  }
+}
+
+/* Hero image container */
+.hero .hero-image,
+.hero picture {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 2rem 0;
+}
+
+@media (max-width: 768px) {
+  .hero img,
+  .hero .hero-image img {
+    max-width: 200px;
+  }
+}
+
+/* Override Starlight's container width limits */
+.page[data-has-hero] .sl-container {
+  max-width: none;
+  width: 100%;
+}
+
+/* HAL 9000 Button enhancements */
+.hero .actions a,
+.hero .actions .action,
+.sl-flex a[data-variant],
+a[data-variant] {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.hero .actions a[data-variant="primary"],
+.sl-flex a[data-variant="primary"],
+a[data-variant="primary"] {
+  background: var(--gradient-hal);
+  border: 1px solid var(--hal-red);
+  box-shadow: 0 4px 15px var(--hal-red-alpha), 0 0 20px var(--hal-red-alpha-low);
+  color: white;
+  text-shadow: 0 0 10px var(--hal-red-alpha);
+}
+
+.hero .actions a[data-variant="primary"]:hover,
+.sl-flex a[data-variant="primary"]:hover,
+a[data-variant="primary"]:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px var(--hal-red-alpha), 0 0 30px var(--hal-red-alpha);
+  animation: hal-pulse 2s ease-in-out infinite;
+}
+
+.hero .actions a[data-variant="minimal"],
+.sl-flex a[data-variant="minimal"],
+a[data-variant="minimal"] {
+  border: 1px solid var(--hal-red-alpha);
+  background: var(--hal-red-alpha-low);
+  color: var(--hal-red-glow);
+  text-shadow: 0 0 5px var(--hal-red-alpha-low);
+}
+
+.hero .actions a[data-variant="minimal"]:hover,
+.sl-flex a[data-variant="minimal"]:hover,
+a[data-variant="minimal"]:hover {
+  background: var(--hal-red-alpha-low);
+  border-color: var(--hal-red);
+  box-shadow: 0 0 20px var(--hal-red-alpha-low);
+}
+
+/* Responsive enhancements */
+@media (max-width: 768px) {
+  .hero h1 {
+    font-size: 2.5rem;
+  }
+
+  .hero .tagline {
+    font-size: 1.1rem;
+  }
+
+  .card-grid .card {
+    margin-bottom: 1rem;
+  }
+}
+
+/* Animation utilities */
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* HAL 9000 Performance indicators */
+.performance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--gradient-hal);
+  border: 1px solid var(--hal-red-alpha);
+  border-radius: 9999px;
+  color: white;
+  font-weight: 600;
+  font-size: 0.875rem;
+  margin: 0.5rem 0;
+  text-shadow: 0 0 10px var(--hal-red-alpha);
+  box-shadow: 0 0 20px var(--hal-red-alpha-low);
+}
+
+.performance-badge::before {
+  content: "⚡";
+  font-size: 1rem;
+  text-shadow: 0 0 5px var(--hal-yellow);
+}
+
+/* HAL 9000 Eye Animation (Easter Egg) */
+@keyframes hal-eye {
+  0%,
+  100% {
+    background: radial-gradient(
+      circle,
+      var(--hal-red) 0%,
+      var(--hal-red-dim) 40%,
+      transparent 70%
+    );
+    transform: scale(1);
+  }
+  50% {
+    background: radial-gradient(
+      circle,
+      var(--hal-red-glow) 0%,
+      var(--hal-red) 40%,
+      transparent 70%
+    );
+    transform: scale(1.1);
+  }
+}
+
+.hal-eye {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    var(--hal-red) 0%,
+    var(--hal-red-dim) 40%,
+    transparent 70%
+  );
+  box-shadow: 0 0 40px var(--hal-red-alpha), inset 0 0 20px var(--hal-red-dim);
+  animation: hal-eye 3s ease-in-out infinite;
+  z-index: 1000;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.hal-eye:hover {
+  opacity: 1;
+  animation-duration: 1s;
+}
+
+/* Space loading animation */
+@keyframes space-loading {
+  0% {
+    content: "HAL 9000: System Loading.";
+  }
+  33% {
+    content: "HAL 9000: System Loading..";
+  }
+  66% {
+    content: "HAL 9000: System Loading...";
+  }
+  100% {
+    content: "HAL 9000: All systems operational.";
+  }
+}

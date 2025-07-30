@@ -6,11 +6,18 @@ import starlight from '@astrojs/starlight';
 export default defineConfig({
 	integrations: [
 		starlight({
-			title: 'simdly',
-			description: 'High-performance Rust library leveraging SIMD for fast computations',
+			title: 'Simdly',
+			description: 'Cross-platform Rust library with AVX2 and NEON SIMD support for fast computations',
 			social: [
 				{ icon: 'github', label: 'GitHub', href: 'https://github.com/mtantaoui/simdly' },
+				{ icon: 'discord', label: 'Discord', href: 'https://discord.gg/your-server' },
 			],
+			customCss: [
+				'./src/styles/custom.css',
+			],
+			expressiveCode: {
+				themes: ['dracula', 'github-dark'],
+			},
 			sidebar: [
 				{
 					label: 'Getting Started',
@@ -25,11 +32,21 @@ export default defineConfig({
 					items: [
 						{ label: 'SIMD Operations', slug: 'guides/simd-operations' },
 						{ label: 'Performance Tips', slug: 'guides/performance' },
+						{ label: 'Examples', slug: 'guides/example' },
 					],
 				},
 				{
 					label: 'API Reference',
 					autogenerate: { directory: 'reference' },
+				},
+			],
+			head: [
+				{
+					tag: 'meta',
+					attrs: {
+						property: 'og:image',
+						// content: 'https://simdly.dev/og-image.png',
+					},
 				},
 			],
 		}),

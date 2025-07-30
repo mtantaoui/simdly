@@ -3,9 +3,32 @@ title: Performance Tips
 description: Optimize your simdly code for maximum performance.
 ---
 
+import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
 # Performance Optimization
 
+<div class="performance-badge">
+  Achieve up to 15x performance improvements
+</div>
+
 This guide covers essential techniques for maximizing performance with simdly.
+
+## Performance Quick Wins
+
+<CardGrid stagger>
+  <Card title="🎯 Compiler Flags" icon="rocket">
+    Enable AVX2 and link-time optimization for immediate 2-4x speedup
+  </Card>
+  <Card title="🧮 Memory Alignment" icon="setting">
+    Use 32-byte aligned memory for optimal AVX2 vector performance
+  </Card>
+  <Card title="🔄 Loop Unrolling" icon="approve-check">
+    Process multiple vectors per iteration to reduce loop overhead
+  </Card>
+  <Card title="📊 Data Layout" icon="puzzle">
+    Structure of Arrays (SoA) layout optimizes SIMD operations
+  </Card>
+</CardGrid>
 
 ## Compilation Flags
 
@@ -13,18 +36,34 @@ This guide covers essential techniques for maximizing performance with simdly.
 
 Always enable AVX2 support for optimal performance:
 
-```bash
+<Tabs>
+<TabItem label="Cargo.toml">
+
+```toml
 # Recommended approach - add to Cargo.toml
 [build]
 rustflags = ["-C", "target-feature=+avx2"]
+```
 
-# Alternative - environment variable
+</TabItem>
+<TabItem label="Environment">
+
+```bash
+# Environment variable approach
 export RUSTFLAGS="-C target-feature=+avx2"
 cargo build --release
-
-# Direct command line
-cargo build --release -C target-feature=+avx2
 ```
+
+</TabItem>
+<TabItem label="Command Line">
+
+```bash
+# Direct command line
+cargo build --release -- -C target-feature=+avx2
+```
+
+</TabItem>
+</Tabs>
 
 ### Advanced Optimization Flags
 
