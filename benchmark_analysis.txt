@@ -1,0 +1,88 @@
+=== CRITERION BENCHMARK PERFORMANCE ANALYSIS ===
+
+Vector Size: Addition_4.0_KiB (4,096 bytes)
+------------------------------------------------------------
+  Algorithm: ndarray      Elements: 1024     Time: 140.79       ns Throughput: 54.19    GiB/s
+  Algorithm: scalar       Elements: 1024     Time: 113.95       ns Throughput: 66.96    GiB/s
+  Algorithm: simd         Elements: 1024     Time: 188.69       ns Throughput: 40.43    GiB/s
+
+Vector Size: Addition_16.0_KiB (16,384 bytes)
+------------------------------------------------------------
+  Algorithm: ndarray      Elements: 4096     Time: 690.29       ns Throughput: 44.21    GiB/s
+  Algorithm: scalar       Elements: 4096     Time: 562.12       ns Throughput: 54.29    GiB/s
+  Algorithm: simd         Elements: 4096     Time: 835.84       ns Throughput: 36.51    GiB/s
+
+Vector Size: Addition_64.0_KiB (65,536 bytes)
+------------------------------------------------------------
+  Algorithm: ndarray      Elements: 16384    Time: 5,243.68     ns Throughput: 23.28    GiB/s
+  Algorithm: parallel_simd Elements: 16384    Time: 60,299.13    ns Throughput: 2.02     GiB/s
+  Algorithm: scalar       Elements: 16384    Time: 2,566.68     ns Throughput: 47.56    GiB/s
+  Algorithm: simd         Elements: 16384    Time: 2,538.92     ns Throughput: 48.08    GiB/s
+
+Vector Size: Addition_256.0_KiB (262,144 bytes)
+------------------------------------------------------------
+  Algorithm: ndarray      Elements: 65536    Time: 14,357.71    ns Throughput: 34.01    GiB/s
+  Algorithm: parallel_simd Elements: 65536    Time: 81,632.45    ns Throughput: 5.98     GiB/s
+  Algorithm: scalar       Elements: 65536    Time: 14,199.93    ns Throughput: 34.39    GiB/s
+  Algorithm: simd         Elements: 65536    Time: 16,069.40    ns Throughput: 30.39    GiB/s
+
+Vector Size: Addition_1.0_MiB (1,048,576 bytes)
+------------------------------------------------------------
+  Algorithm: ndarray      Elements: 262144   Time: 57,256.59    ns Throughput: 34.11    GiB/s
+  Algorithm: parallel_simd Elements: 262144   Time: 164,545.65   ns Throughput: 11.87    GiB/s
+  Algorithm: scalar       Elements: 262144   Time: 57,049.21    ns Throughput: 34.24    GiB/s
+  Algorithm: simd         Elements: 262144   Time: 59,485.82    ns Throughput: 32.83    GiB/s
+
+Vector Size: Addition_4.0_MiB (4,194,304 bytes)
+------------------------------------------------------------
+  Algorithm: ndarray      Elements: 1048576  Time: 426,382.83   ns Throughput: 18.32    GiB/s
+  Algorithm: parallel_simd Elements: 1048576  Time: 428,529.12   ns Throughput: 18.23    GiB/s
+  Algorithm: scalar       Elements: 1048576  Time: 424,801.92   ns Throughput: 18.39    GiB/s
+  Algorithm: simd         Elements: 1048576  Time: 436,342.70   ns Throughput: 17.90    GiB/s
+
+Vector Size: Addition_16.0_MiB (16,777,216 bytes)
+------------------------------------------------------------
+  Algorithm: ndarray      Elements: 4194304  Time: 2,440,121.18 ns Throughput: 12.81    GiB/s
+  Algorithm: parallel_simd Elements: 4194304  Time: 2,479,594.11 ns Throughput: 12.60    GiB/s
+  Algorithm: scalar       Elements: 4194304  Time: 2,428,930.50 ns Throughput: 12.87    GiB/s
+  Algorithm: simd         Elements: 4194304  Time: 2,453,498.65 ns Throughput: 12.74    GiB/s
+
+Vector Size: Addition_64.0_MiB (67,108,864 bytes)
+------------------------------------------------------------
+  Algorithm: ndarray      Elements: 16777216 Time: 39,271,360.72 ns Throughput: 3.18     GiB/s
+  Algorithm: parallel_simd Elements: 16777216 Time: 14,821,220.16 ns Throughput: 8.43     GiB/s
+  Algorithm: scalar       Elements: 16777216 Time: 35,092,382.13 ns Throughput: 3.56     GiB/s
+  Algorithm: simd         Elements: 16777216 Time: 35,210,201.48 ns Throughput: 3.55     GiB/s
+
+Vector Size: Addition_128.0_MiB (134,217,728 bytes)
+------------------------------------------------------------
+  Algorithm: ndarray      Elements: 33554432 Time: 76,509,947.32 ns Throughput: 3.27     GiB/s
+  Algorithm: parallel_simd Elements: 33554432 Time: 30,734,554.53 ns Throughput: 8.13     GiB/s
+  Algorithm: scalar       Elements: 33554432 Time: 77,476,678.82 ns Throughput: 3.23     GiB/s
+  Algorithm: simd         Elements: 33554432 Time: 82,748,551.05 ns Throughput: 3.02     GiB/s
+
+=== SUMMARY BY ALGORITHM ===
+
+ndarray:
+  Measurements: 9
+  Avg Throughput: 25.26 GiB/s
+  Max Throughput: 54.19 GiB/s
+  Min Throughput: 3.18 GiB/s
+
+parallel_simd:
+  Measurements: 7
+  Avg Throughput: 9.61 GiB/s
+  Max Throughput: 18.23 GiB/s
+  Min Throughput: 2.02 GiB/s
+
+scalar:
+  Measurements: 9
+  Avg Throughput: 30.61 GiB/s
+  Max Throughput: 66.96 GiB/s
+  Min Throughput: 3.23 GiB/s
+
+simd:
+  Measurements: 9
+  Avg Throughput: 25.05 GiB/s
+  Max Throughput: 48.08 GiB/s
+  Min Throughput: 3.02 GiB/s

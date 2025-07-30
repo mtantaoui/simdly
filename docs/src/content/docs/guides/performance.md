@@ -6,32 +6,37 @@ description: Optimize your Simdly code for maximum performance across x86 and AR
 # Cross-Platform Performance Optimization
 
 <div class="performance-badge">
-  Achieve significant performance improvements with robust error handling
+  Optimize your SIMD code with robust error handling
 </div>
 
-This guide covers essential techniques for maximizing performance with Simdly across both x86 (AVX2) and ARM (NEON) architectures, including the latest benchmark results and error handling capabilities.
+This guide covers essential techniques for maximizing performance with Simdly across both x86 (AVX2) and ARM (NEON) architectures, including real benchmark results and error handling capabilities.
 
 ## Latest Benchmark Results
 
 Performance measurements on Linux x64 with AVX2 and improved error handling:
 
-| Vector Size | Scalar (GiB/s) | SIMD (GiB/s) | Parallel (GiB/s) | Best Algorithm |
-|-------------|----------------|---------------|-------------------|----------------|
-| 4 KiB       | 97.9          | 52.7          | N/A*             | Scalar         |
-| 64 KiB      | 72.4          | 60.2          | 11.3             | Scalar         |
-| 1 MiB       | 47.6          | 46.3          | 59.4             | Parallel       |
-| 16 MiB      | 14.2          | 13.8          | 13.3             | Scalar         |
-| 64 MiB      | 4.0           | 4.0           | 8.5              | Parallel       |
+| Vector Size | Scalar (GiB/s) | SIMD (GiB/s) | ndarray (GiB/s) | Parallel (GiB/s) | Best Algorithm |
+|-------------|----------------|---------------|------------------|-------------------|----------------|
+| 4 KiB       | 67.0           | 40.4          | 54.2             | N/A*             | Scalar         |
+| 16 KiB      | 54.3           | 36.5          | 44.2             | N/A*             | Scalar         |
+| 64 KiB      | 47.6           | 48.1          | 23.3             | 2.0              | SIMD           |
+| 256 KiB     | 34.4           | 30.4          | 34.0             | 6.0              | Scalar         |
+| 1 MiB       | 34.2           | 32.8          | 34.1             | 11.9             | Scalar         |
+| 4 MiB       | 18.4           | 17.9          | 18.3             | 18.2             | Scalar         |
+| 16 MiB      | 12.9           | 12.7          | 12.8             | 12.6             | Scalar         |
+| 64 MiB      | 3.6            | 3.6           | 3.2              | 8.4              | Parallel       |
+| 128 MiB     | 3.2            | 3.0           | 3.3              | 8.1              | Parallel       |
 
-*Parallel processing not used below 10,000 element threshold
+*Parallel processing shows overhead below 64 KiB threshold
 
 ### Key Performance Insights
 
-- **Error Handling Impact**: New Result-based error handling adds minimal overhead
-- **Scalar Optimization**: Modern Rust compiler produces highly competitive scalar code
-- **Memory Hierarchy**: Clear performance degradation as data moves from cache to main memory
-- **Algorithm Selection**: Different approaches optimal at different scales
-- **Parallel Benefits**: Significant advantages for very large datasets (64+ MiB)
+- **Scalar Dominance**: Scalar code outperforms SIMD for small vectors (≤16 KiB) due to minimal overhead
+- **SIMD Sweet Spot**: Best performance at 64 KiB where SIMD marginally wins (48.1 vs 47.6 GiB/s)
+- **Memory Hierarchy Effects**: Clear degradation as data exceeds cache levels (67.0 → 3.2 GiB/s)
+- **Algorithm Selection**: Each approach has optimal ranges - scalar for small/medium, parallel for very large
+- **Parallel Benefits**: Only worthwhile for very large datasets (≥64 MiB) where parallel achieves 8+ GiB/s
+- **ndarray Performance**: Competitive with scalar for most sizes, showing good optimization
 
 ## Performance Quick Wins
 
@@ -93,13 +98,13 @@ cargo build --release
 
 ### Advanced Optimization Flags
 
-For maximum performance in production:
+For maximum performance in release builds:
 
 ```toml
 # Add to Cargo.toml
 [profile.release]
 lto = "fat"              # Link-time optimization
-codegen-units = 1        # Better optimization
+codegen-units = 1        # Better optimization  
 panic = "abort"          # Smaller binaries, no unwinding
 opt-level = 3            # Maximum optimization
 ```
@@ -490,6 +495,7 @@ perf report
 ### 1. Not Enabling Target-Specific SIMD
 
 Always ensure proper SIMD features are enabled for your target platform:
+
 - AVX2 for x86/x86_64
 - NEON for ARM/AArch64
 

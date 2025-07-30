@@ -78,7 +78,7 @@ use crate::{
     error::{validation_error, Result},
     simd::{
         avx2::f32x8::{self, F32x8},
-        Alignment, SimdLoad, SimdStore,
+        SimdLoad, SimdStore,
     },
     utils::alloc_uninit_f32_vec,
     SimdAdd,
@@ -259,13 +259,15 @@ fn simd_add_block(a: *const f32, b: *const f32, c: *mut f32) {
     // Load from a and b (alignment automatically detected)
     let a_chunk_simd = unsafe { F32x8::load(a, f32x8::LANE_COUNT) };
     let b_chunk_simd = unsafe { F32x8::load(b, f32x8::LANE_COUNT) };
-    
+
     // Store result with automatic alignment detection
     let result = a_chunk_simd + b_chunk_simd;
-    match F32x8::is_aligned(c) {
-        true => unsafe { result.store_aligned_at(c) },
-        false => unsafe { result.store_unaligned_at(c) },
-    }
+
+    unsafe { result.store_aligned_at(c) };
+    // match F32x8::is_aligned(c) {
+    //     true => unsafe { result.store_aligned_at(c) },
+    //     false => unsafe { result.store_unaligned_at(c) },
+    // }
 }
 
 /// Processes a partial block (fewer than 8 elements) using masked SIMD operations.
