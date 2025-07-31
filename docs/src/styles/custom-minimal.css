@@ -306,7 +306,7 @@ body::before {
       rgba(0, 8, 21, 0.3) 75%,
       rgba(0, 0, 0, 0.3) 100%
     ),
-    url("https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Nanoscience_High-Performance_Computing_Facility.jpg/1920px-Nanoscience_High-Performance_Computing_Facility.jpg");
+    url("https://images.pexels.com/photos/998641/pexels-photo-998641.jpeg");
   background-repeat: repeat;
   background-attachment: fixed;
   background-size: cover;
@@ -523,7 +523,7 @@ a[data-variant="minimal"]:hover {
 }
 
 /* Animation utilities */
-@keyframes pulse {
+/* @keyframes pulse {
   0%,
   100% {
     opacity: 1;
@@ -532,11 +532,11 @@ a[data-variant="minimal"]:hover {
   50% {
     opacity: 0.8;
   }
-}
+} */
 
-.animate-pulse {
+/* .animate-pulse {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
+} */
 
 /* === PARALLAX EFFECTS === */
 
@@ -556,7 +556,7 @@ a[data-variant="minimal"]:hover {
 }
 
 /* Background parallax layers */
-.parallax-bg-slow {
+/* .parallax-bg-slow {
   transform-style: preserve-3d;
   animation: parallax-bg-drift 60s linear infinite;
 }
@@ -569,7 +569,7 @@ a[data-variant="minimal"]:hover {
 .parallax-bg-fast {
   transform-style: preserve-3d;
   animation: parallax-bg-drift 20s linear infinite;
-}
+} */
 
 @keyframes parallax-bg-drift {
   0% {
