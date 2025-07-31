@@ -123,107 +123,13 @@
 }
 */
 
-/* Full-screen parallax background - MkDocs Material style with Pexels galaxy image */
+/* Parallax background containers - disabled, using body background instead */
 .parallax-bg-container {
-  position: fixed !important;
-  /* position: statics !important; */
-  top: 0 !important;
-  left: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  z-index: -999 !important;
-  overflow: hidden;
-  background: linear-gradient(
-    135deg,
-    #000000 0%,
-    #0a0a1a 25%,
-    #001122 50%,
-    #000815 75%,
-    #000000 100%
-  ) !important;
-  opacity: 1 !important;
-  /* Always visible */
-  pointer-events: none;
-  /* Don't interfere with content */
-
-  /* Smooth transitions for parallax effect */
-  will-change: transform;
+  display: none;
 }
 
 .parallax-bg-layer {
-  position: absolute;
-  top: -10%;
-  left: -10%;
-  width: 120vw;
-  height: 120vh;
-  /* Use optimized image size for better performance */
-  background-image: url("https://images.pexels.com/photos/2150/sky-space-dark-galaxy.jpg?auto=compress&cs=tinysrgb&w=1920&h=1080");
-  background-size: cover;
-  background-position: center center;
-  background-repeat: no-repeat;
-  /* will-change: transform; */
-
-  /* Fallback gradient background while image loads */
-  background-color: #000000;
-  background-image: linear-gradient(
-      135deg,
-      #000000 0%,
-      #0a0a1a 25%,
-      #001122 50%,
-      #000815 75%,
-      #000000 100%
-    ),
-    url("https://images.pexels.com/photos/2150/sky-space-dark-galaxy.jpg?auto=compress&cs=tinysrgb&w=1920&h=1080");
-}
-
-/* Add subtle overlay to enhance the space theme */
-.parallax-bg-layer::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background:
-    /* Subtle color overlay to enhance the space theme */ linear-gradient(
-      rgba(0, 0, 0, 0.2),
-      rgba(0, 0, 0, 0.1)
-    ),
-    /* Add some twinkling stars overlay */
-      radial-gradient(
-        1px 1px at 15% 25%,
-        rgba(255, 255, 255, 0.8) 0%,
-        transparent 50%
-      ),
-    radial-gradient(
-      1px 1px at 35% 65%,
-      rgba(255, 255, 255, 0.6) 0%,
-      transparent 50%
-    ),
-    radial-gradient(
-      1px 1px at 65% 15%,
-      rgba(255, 255, 255, 0.9) 0%,
-      transparent 50%
-    ),
-    radial-gradient(
-      1px 1px at 85% 75%,
-      rgba(255, 255, 255, 0.7) 0%,
-      transparent 50%
-    ),
-    radial-gradient(
-      2px 2px at 25% 85%,
-      rgba(255, 255, 255, 0.5) 0%,
-      transparent 50%
-    ),
-    radial-gradient(
-      1px 1px at 75% 35%,
-      rgba(255, 255, 255, 0.8) 0%,
-      transparent 50%
-    );
-  background-size: 100% 100%, 300px 300px, 400px 400px, 350px 350px, 500px 500px,
-    250px 250px, 450px 450px;
-  pointer-events: none;
-  z-index: 1;
+  display: none;
 }
 
 /* Hero section - Space Odyssey style */
@@ -379,9 +285,35 @@ pre {
 
 /* HAL-themed Content area - removed duplicate, using definition below */
 
-/* Global body background - transparent to show parallax */
+/* Global body background - unified background for landing page */
 body {
-  background: transparent !important;
+  background-color: #000000 !important;
+  position: relative;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-image: linear-gradient(
+      135deg,
+      rgba(0, 0, 0, 0.3) 0%,
+      rgba(10, 10, 26, 0.3) 25%,
+      rgba(0, 17, 34, 0.3) 50%,
+      rgba(0, 8, 21, 0.3) 75%,
+      rgba(0, 0, 0, 0.3) 100%
+    ),
+    url("https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Nanoscience_High-Performance_Computing_Facility.jpg/1920px-Nanoscience_High-Performance_Computing_Facility.jpg");
+  background-repeat: repeat;
+  background-attachment: fixed;
+  background-size: cover;
+  background-position: center center;
+  filter: blur(5px);
+  z-index: -999;
+  pointer-events: none;
 }
 
 /* Ensure Starlight doesn't override our background */
@@ -399,19 +331,15 @@ html {
   will-change: opacity, transform;
 }
 
-/* Content sections background - pure parallax movement */
+/* Content sections background - transparent to show unified background */
 .main-frame {
-  background: rgba(0, 0, 0, 0.9);
-  backdrop-filter: blur(3px);
+  background: transparent;
   border-radius: 20px 20px 0 0;
   margin-top: 0;
   position: relative;
   z-index: 5;
   min-height: 100vh;
   opacity: 1;
-
-  /* Smooth transform for parallax movement */
-  will-change: transform;
 }
 
 /* Page layout adjustments */
