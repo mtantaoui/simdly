@@ -37,9 +37,21 @@
   --sl-color-text-accent: #94a3b8;
 
   /* HAL-inspired Gradients */
-  --gradient-hal: linear-gradient(135deg, var(--hal-red) 0%, var(--hal-orange) 100%);
-  --gradient-space: linear-gradient(135deg, var(--space-black) 0%, var(--space-blue-dim) 100%);
-  --gradient-warning: linear-gradient(135deg, var(--hal-orange) 0%, var(--hal-yellow) 100%);
+  --gradient-hal: linear-gradient(
+    135deg,
+    var(--hal-red) 0%,
+    var(--hal-orange) 100%
+  );
+  --gradient-space: linear-gradient(
+    135deg,
+    var(--space-black) 0%,
+    var(--space-blue-dim) 100%
+  );
+  --gradient-warning: linear-gradient(
+    135deg,
+    var(--hal-orange) 0%,
+    var(--hal-yellow) 100%
+  );
 }
 
 /* Dark theme overrides */
@@ -74,7 +86,6 @@
 
 /* Parallax scrolling animations */
 @keyframes parallax-float {
-
   0%,
   100% {
     transform: translateY(0px) scale(1);
@@ -86,7 +97,6 @@
 }
 
 @keyframes twinkle {
-
   0%,
   100% {
     opacity: 0.3;
@@ -123,7 +133,14 @@
   height: 100vh !important;
   z-index: -999 !important;
   overflow: hidden;
-  background: linear-gradient(135deg, #000000 0%, #0a0a1a 25%, #001122 50%, #000815 75%, #000000 100%) !important;
+  background: linear-gradient(
+    135deg,
+    #000000 0%,
+    #0a0a1a 25%,
+    #001122 50%,
+    #000815 75%,
+    #000000 100%
+  ) !important;
   opacity: 1 !important;
   /* Always visible */
   pointer-events: none;
@@ -140,7 +157,7 @@
   width: 120vw;
   height: 120vh;
   /* Use optimized image size for better performance */
-  background-image: url('https://images.pexels.com/photos/2150/sky-space-dark-galaxy.jpg?auto=compress&cs=tinysrgb&w=1920&h=1080');
+  background-image: url("https://images.pexels.com/photos/2150/sky-space-dark-galaxy.jpg?auto=compress&cs=tinysrgb&w=1920&h=1080");
   background-size: cover;
   background-position: center center;
   background-repeat: no-repeat;
@@ -148,30 +165,63 @@
 
   /* Fallback gradient background while image loads */
   background-color: #000000;
-  background-image:
-    linear-gradient(135deg, #000000 0%, #0a0a1a 25%, #001122 50%, #000815 75%, #000000 100%),
-    url('https://images.pexels.com/photos/2150/sky-space-dark-galaxy.jpg?auto=compress&cs=tinysrgb&w=1920&h=1080');
+  background-image: linear-gradient(
+      135deg,
+      #000000 0%,
+      #0a0a1a 25%,
+      #001122 50%,
+      #000815 75%,
+      #000000 100%
+    ),
+    url("https://images.pexels.com/photos/2150/sky-space-dark-galaxy.jpg?auto=compress&cs=tinysrgb&w=1920&h=1080");
 }
 
 /* Add subtle overlay to enhance the space theme */
 .parallax-bg-layer::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
   background:
-    /* Subtle color overlay to enhance the space theme */
-    linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.1)),
+    /* Subtle color overlay to enhance the space theme */ linear-gradient(
+      rgba(0, 0, 0, 0.2),
+      rgba(0, 0, 0, 0.1)
+    ),
     /* Add some twinkling stars overlay */
-    radial-gradient(1px 1px at 15% 25%, rgba(255, 255, 255, 0.8) 0%, transparent 50%),
-    radial-gradient(1px 1px at 35% 65%, rgba(255, 255, 255, 0.6) 0%, transparent 50%),
-    radial-gradient(1px 1px at 65% 15%, rgba(255, 255, 255, 0.9) 0%, transparent 50%),
-    radial-gradient(1px 1px at 85% 75%, rgba(255, 255, 255, 0.7) 0%, transparent 50%),
-    radial-gradient(2px 2px at 25% 85%, rgba(255, 255, 255, 0.5) 0%, transparent 50%),
-    radial-gradient(1px 1px at 75% 35%, rgba(255, 255, 255, 0.8) 0%, transparent 50%);
-  background-size: 100% 100%, 300px 300px, 400px 400px, 350px 350px, 500px 500px, 250px 250px, 450px 450px;
+      radial-gradient(
+        1px 1px at 15% 25%,
+        rgba(255, 255, 255, 0.8) 0%,
+        transparent 50%
+      ),
+    radial-gradient(
+      1px 1px at 35% 65%,
+      rgba(255, 255, 255, 0.6) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      1px 1px at 65% 15%,
+      rgba(255, 255, 255, 0.9) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      1px 1px at 85% 75%,
+      rgba(255, 255, 255, 0.7) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      2px 2px at 25% 85%,
+      rgba(255, 255, 255, 0.5) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      1px 1px at 75% 35%,
+      rgba(255, 255, 255, 0.8) 0%,
+      transparent 50%
+    );
+  background-size: 100% 100%, 300px 300px, 400px 400px, 350px 350px, 500px 500px,
+    250px 250px, 450px 450px;
   pointer-events: none;
   z-index: 1;
 }
@@ -246,7 +296,11 @@
 
 /* Space-themed Card enhancements */
 .card-grid .card {
-  background: linear-gradient(135deg, var(--space-gray) 0%, var(--space-light-gray) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--space-gray) 0%,
+    var(--space-light-gray) 100%
+  );
   backdrop-filter: blur(10px);
   border: 1px solid rgba(100, 116, 139, 0.2);
   border-radius: 16px;
@@ -263,14 +317,23 @@
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.4), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(148, 163, 184, 0.4),
+    transparent
+  );
 }
 
 .card-grid .card:hover {
   transform: translateY(-8px);
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
   border-color: rgba(148, 163, 184, 0.4);
-  background: linear-gradient(135deg, var(--space-light-gray) 0%, var(--space-gray) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--space-light-gray) 0%,
+    var(--space-gray) 100%
+  );
 }
 
 /* Space Navigation */
@@ -290,7 +353,11 @@ pre {
 
 /* Space-themed Sidebar - Non-intrusive styling */
 .sidebar {
-  background: linear-gradient(180deg, rgba(26, 26, 26, 0.95) 0%, rgba(10, 10, 10, 0.95) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(26, 26, 26, 0.95) 0%,
+    rgba(10, 10, 10, 0.95) 100%
+  );
   /* backdrop-filter: blur(10px); */
   border-right: 1px solid rgba(100, 116, 139, 0.2);
 }
@@ -304,7 +371,6 @@ pre {
 .sidebar .sidebar-content a:hover {
   color: #ffffff;
 }
-
 
 .sidebar .sidebar-content .group-label span {
   color: #94a3b8;
@@ -530,7 +596,6 @@ a[data-variant="minimal"]:hover {
 
 /* Animation utilities */
 @keyframes pulse {
-
   0%,
   100% {
     opacity: 1;
@@ -619,7 +684,6 @@ a[data-variant="minimal"]:hover {
 }
 
 @keyframes card-float {
-
   0%,
   100% {
     transform: translateY(0px) rotateX(0deg) rotateY(0deg);
@@ -635,7 +699,6 @@ a[data-variant="minimal"]:hover {
 }
 
 @keyframes card-float-alternate {
-
   0%,
   100% {
     transform: translateY(0px) rotateX(0deg) rotateY(0deg);
@@ -684,7 +747,6 @@ a[data-variant="minimal"]:hover {
   }
 
   @keyframes hero-content-float {
-
     0%,
     100% {
       transform: translateY(0px);
@@ -698,7 +760,6 @@ a[data-variant="minimal"]:hover {
 
 /* Reduced motion fallback */
 @media (prefers-reduced-motion: reduce) {
-
   .hero h1,
   .hero img,
   .hero .hero-image img,
