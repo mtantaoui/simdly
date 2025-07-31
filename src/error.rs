@@ -63,9 +63,6 @@ impl fmt::Display for SimdlyError {
 
 impl std::error::Error for SimdlyError {}
 
-/// Result type alias for simdly operations.
-pub type Result<T> = std::result::Result<T, SimdlyError>;
-
 /// Creates an allocation error.
 pub fn allocation_error(size: usize, alignment: usize, message: impl Into<String>) -> SimdlyError {
     SimdlyError::AllocationError {
@@ -136,10 +133,10 @@ mod tests {
     #[test]
     fn test_error_trait_implementation() {
         let error = allocation_error(1024, 32, "test error");
-        
+
         // Should implement Error trait
         let _: &dyn std::error::Error = &error;
-        
+
         // Should have source method (returns None for our simple errors)
         assert!(std::error::Error::source(&error).is_none());
     }

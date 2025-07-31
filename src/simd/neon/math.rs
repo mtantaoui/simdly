@@ -277,11 +277,13 @@ const PI_HIGH_PRECISION_PART_3: f32 = 6.277_114_152_908_325_195_3_e-7;
 const PI_HIGH_PRECISION_PART_4: f32 = 1.215_420_125_655_342_076_2_e-10;
 
 // Sine Taylor series coefficients
-const SIN_COEFF_1: f32 = -0.16666667f32; // -1/3!
-const SIN_COEFF_2: f32 = 0.0083333375f32; // +1/5!
-const SIN_COEFF_3: f32 = -0.00019841341f32; // -1/7!
-const SIN_COEFF_4: f32 = 2.7551241e-6f32; // +1/9!
-const SIN_COEFF_5: f32 = -2.4535176e-8f32; // -1/11!
+// Enhanced sine polynomial coefficients (matching AVX2 precision exactly)
+const SIN_COEFF_1: f32 = -0.1666666666666666574f32; // -1/3! (enhanced precision)
+const SIN_COEFF_2: f32 = 0.008333333333333333f32; // +1/5! (enhanced precision)
+const SIN_COEFF_3: f32 = -0.0001984126984126984f32; // -1/7! (enhanced precision)
+const SIN_COEFF_4: f32 = 2.7557319223985890e-6f32; // +1/9! (enhanced precision)
+const SIN_COEFF_5: f32 = -2.5052108385441720e-8f32; // -1/11! (enhanced precision)
+const SIN_COEFF_6: f32 = 1.6059043836821614e-10f32; // +1/13! (additional precision term)
 
 // Tangent polynomial coefficients (9 terms, Remez-optimized)
 const TAN_COEFF_1: f32 = 0.3333353561669567628359f32;
@@ -896,18 +898,20 @@ pub unsafe fn vexpq_f32(x: float32x4_t) -> float32x4_t {
     r = vfmsq_f32(r, n_float, ln2_lo); // (x - n*ln2_hi) - n*ln2_lo
 
     // Polynomial approximation for exp(r) where |r| ≤ ln(2)/2
-    // exp(r) ≈ 1 + r + r²/2! + r³/3! + r⁴/4! + r⁵/5! + r⁶/6!
-    // Optimized coefficients for best accuracy
+    // exp(r) ≈ 1 + r + r²/2! + r³/3! + r⁴/4! + r⁵/5! + r⁶/6! + r⁷/7!
+    // Enhanced precision coefficients matching AVX2 exactly
     let c1 = vdupq_n_f32(1.0);
-    let c2 = vdupq_n_f32(0.5);
-    let c3 = vdupq_n_f32(0.16666666666666666); // 1/6
-    let c4 = vdupq_n_f32(0.041666666666666664); // 1/24
-    let c5 = vdupq_n_f32(0.008333333333333333); // 1/120
-    let c6 = vdupq_n_f32(0.001388888888888889); // 1/720
+    let c2 = vdupq_n_f32(0.5000000000000000000); // 1/2
+    let c3 = vdupq_n_f32(0.1666666666666666574); // 1/6 (enhanced precision)
+    let c4 = vdupq_n_f32(0.0416666666666666644); // 1/24 (enhanced precision)
+    let c5 = vdupq_n_f32(0.0083333333333333332); // 1/120 (enhanced precision)
+    let c6 = vdupq_n_f32(0.0013888888888888889); // 1/720 (enhanced precision)
+    let c7 = vdupq_n_f32(0.0001984126984126984); // 1/5040 (additional term for precision)
 
-    // Polynomial evaluation using Horner's method for better numerical stability
-    // p(r) = 1 + r*(1 + r*(1/2 + r*(1/6 + r*(1/24 + r*(1/120 + r/720)))))
-    let mut poly = vfmaq_f32(c5, r, c6);
+    // Enhanced polynomial evaluation using Horner's method for better numerical stability
+    // p(r) = 1 + r*(1 + r*(1/2 + r*(1/6 + r*(1/24 + r*(1/120 + r*(1/720 + r/5040))))))
+    let mut poly = vfmaq_f32(c6, r, c7); // Start with highest order terms
+    poly = vfmaq_f32(c5, r, poly);
     poly = vfmaq_f32(c4, r, poly);
     poly = vfmaq_f32(c3, r, poly);
     poly = vfmaq_f32(c2, r, poly);
@@ -1529,9 +1533,10 @@ pub unsafe fn vcosq_f32(x: float32x4_t) -> float32x4_t {
     r = vfmsq_f32(r, q_float, vdupq_n_f32(PI_HIGH_PRECISION_PART_3));
     r = vfmsq_f32(r, q_float, vdupq_n_f32(PI_HIGH_PRECISION_PART_4));
 
-    // Compute sine polynomial: r * (1 + r²*(c₁ + r²*(c₂ + r²*(c₃ + r²*(c₄ + r²*c₅)))))
+    // Enhanced sine polynomial: r * (1 + r²*(c₁ + r²*(c₂ + r²*(c₃ + r²*(c₄ + r²*(c₅ + r²*c₆))))))
     let r2 = vmulq_f32(r, r);
-    let mut sin_poly = vdupq_n_f32(SIN_COEFF_5);
+    let mut sin_poly = vdupq_n_f32(SIN_COEFF_6); // Start with highest order term
+    sin_poly = vfmaq_f32(vdupq_n_f32(SIN_COEFF_5), sin_poly, r2);
     sin_poly = vfmaq_f32(vdupq_n_f32(SIN_COEFF_4), sin_poly, r2);
     sin_poly = vfmaq_f32(vdupq_n_f32(SIN_COEFF_3), sin_poly, r2);
     sin_poly = vfmaq_f32(vdupq_n_f32(SIN_COEFF_2), sin_poly, r2);

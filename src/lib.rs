@@ -83,3 +83,24 @@ pub trait SimdAdd<Rhs = Self> {
     fn par_simd_add(self, rhs: Rhs) -> Self::Output;
     fn scalar_add(self, rhs: Rhs) -> Self::Output;
 }
+
+// ================================================================================================
+// PERFORMANCE TUNING CONSTANTS
+// ================================================================================================
+
+/// Minimum array size where parallel SIMD operations become beneficial.
+///
+/// This threshold accounts for:
+/// - Thread pool overhead
+/// - Work distribution costs
+/// - Memory contention between threads
+/// - Context switching overhead
+pub(crate) const PARALLEL_SIMD_THRESHOLD: usize = 10_000;
+
+/// Optimal chunk size for parallel processing.
+///
+/// Chosen to balance:
+/// - Cache locality (L2 cache is typically 256KB-1MB)
+/// - Work distribution granularity
+/// - Memory bandwidth utilization
+pub(crate) const PARALLEL_CHUNK_SIZE: usize = 8192; // ~32KB per chunk (8192 * 4 bytes)

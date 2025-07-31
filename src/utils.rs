@@ -1,6 +1,6 @@
 use std::alloc::{alloc, alloc_zeroed, Layout};
 
-use crate::error::{allocation_error, layout_error, Result};
+use crate::error::{allocation_error, layout_error, SimdlyError};
 
 /// Allocates an aligned `Vec<f32>` with uninitialized contents.
 ///
@@ -24,8 +24,9 @@ use crate::error::{allocation_error, layout_error, Result};
 /// Returns an error if:
 /// - Layout creation fails (invalid size/alignment combination)
 /// - Memory allocation fails
+#[allow(dead_code)]
 #[inline(always)]
-pub fn alloc_uninit_f32_vec(len: usize, align: usize) -> Result<Vec<f32>> {
+pub fn alloc_uninit_f32_vec(len: usize, align: usize) -> Result<Vec<f32>, SimdlyError> {
     if len == 0 {
         return Ok(Vec::new());
     }
@@ -74,7 +75,7 @@ pub fn alloc_uninit_f32_vec(len: usize, align: usize) -> Result<Vec<f32>> {
 ///
 /// # Returns
 ///
-/// A `Result` containing a `Vec<f32>` of the specified length with its underlying 
+/// A `Result` containing a `Vec<f32>` of the specified length with its underlying
 /// buffer allocated with the given alignment and all elements initialized to `0.0f32`,
 /// or an error if allocation fails.
 ///
@@ -84,9 +85,9 @@ pub fn alloc_uninit_f32_vec(len: usize, align: usize) -> Result<Vec<f32>> {
 /// - Size calculation overflows
 /// - Layout creation fails (invalid alignment or size)
 /// - Memory allocation fails
-#[allow(dead_code)] // Kept for potential future use
+#[allow(dead_code)]
 #[inline(always)]
-pub fn alloc_zeroed_f32_vec(len: usize, align: usize) -> Result<Vec<f32>> {
+pub fn alloc_zeroed_f32_vec(len: usize, align: usize) -> Result<Vec<f32>, SimdlyError> {
     if len == 0 {
         return Ok(Vec::new());
     }
@@ -99,7 +100,7 @@ pub fn alloc_zeroed_f32_vec(len: usize, align: usize) -> Result<Vec<f32>> {
                 len * std::mem::size_of::<f32>(), // This might overflow, but it's for error reporting
                 align,
                 format!("Size calculation overflowed for Vec<f32> of len {}", len),
-            ))
+            ));
         }
     };
 

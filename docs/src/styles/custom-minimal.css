@@ -107,22 +107,6 @@
   }
 }
 
-/* HAL pulse animation - COMMENTED OUT */
-/*
-@keyframes hal-pulse {
-  0%,
-  100% {
-    opacity: 0.8;
-    box-shadow: 0 0 20px var(--hal-red-alpha), 0 0 40px var(--hal-red-alpha), 0 0 60px var(--hal-red-alpha);
-  }
-
-  50% {
-    opacity: 1;
-    box-shadow: 0 0 30px var(--hal-red), 0 0 60px var(--hal-red), 0 0 90px var(--hal-red);
-  }
-}
-*/
-
 /* Parallax background containers - disabled, using body background instead */
 .parallax-bg-container {
   display: none;

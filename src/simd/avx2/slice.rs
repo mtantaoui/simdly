@@ -264,10 +264,6 @@ fn simd_add_block(a: *const f32, b: *const f32, c: *mut f32) {
     let result = a_chunk_simd + b_chunk_simd;
 
     unsafe { result.store_aligned_at(c) };
-    // match F32x8::is_aligned(c) {
-    //     true => unsafe { result.store_aligned_at(c) },
-    //     false => unsafe { result.store_unaligned_at(c) },
-    // }
 }
 
 /// Processes a partial block (fewer than 8 elements) using masked SIMD operations.

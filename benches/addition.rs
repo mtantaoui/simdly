@@ -92,22 +92,6 @@ const VECTOR_SIZES: &[usize] = &[
     33_554_432, // 128 MiB - Main memory
 ];
 
-/// Additional sizes for fine-grained threshold analysis.
-///
-/// These sizes help identify the exact crossover points where different
-/// algorithms become optimal.
-const THRESHOLD_ANALYSIS_SIZES: &[usize] = &[
-    32,     // Very small - scalar should win
-    64,     // SIMD threshold boundary
-    128,    // Just above SIMD threshold
-    512,    // Medium SIMD size
-    2_048,  // Larger SIMD size
-    8_192,  // Approaching parallel threshold
-    10_000, // Parallel threshold boundary
-    12_000, // Just above parallel threshold
-    50_000, // Medium parallel size
-];
-
 /// Threshold for enabling parallel benchmarks.
 ///
 /// Below this size, parallel overhead typically exceeds benefits.
@@ -173,14 +157,14 @@ fn benchmark_addition_implementations(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("scalar", size),
             &(a_slice, b_slice),
-            |b, (a, b_data)| b.iter(|| black_box(a.scalar_add(black_box(*b_data)).unwrap())),
+            |b, (a, b_data)| b.iter(|| black_box(a.scalar_add(black_box(*b_data)))),
         );
 
         // Benchmark 2: SIMD Addition
         group.bench_with_input(
             BenchmarkId::new("simd", size),
             &(a_slice, b_slice),
-            |b, (a, b_data)| b.iter(|| black_box(a.simd_add(black_box(*b_data)).unwrap())),
+            |b, (a, b_data)| b.iter(|| black_box(a.simd_add(black_box(*b_data)))),
         );
 
         // Benchmark 3: Parallel SIMD Addition (only for larger sizes)
@@ -188,7 +172,7 @@ fn benchmark_addition_implementations(c: &mut Criterion) {
             group.bench_with_input(
                 BenchmarkId::new("parallel_simd", size),
                 &(a_slice, b_slice),
-                |b, (a, b_data)| b.iter(|| black_box(a.par_simd_add(black_box(*b_data)).unwrap())),
+                |b, (a, b_data)| b.iter(|| black_box(a.par_simd_add(black_box(*b_data)))),
             );
         }
 
@@ -203,48 +187,6 @@ fn benchmark_addition_implementations(c: &mut Criterion) {
 
         group.finish();
     }
-}
-
-/// Benchmarks algorithm performance at critical size thresholds.
-///
-/// This benchmark provides fine-grained analysis around the transition points
-/// where different algorithms become optimal, helping understand performance
-/// characteristics at boundary conditions.
-fn benchmark_threshold_analysis(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Threshold_Analysis");
-
-    for &size in THRESHOLD_ANALYSIS_SIZES {
-        group.throughput(Throughput::Bytes(
-            (size * std::mem::size_of::<f32>() * 2) as u64,
-        ));
-
-        let (a_vec, b_vec) = generate_test_data(size);
-        let a_slice = a_vec.as_slice();
-        let b_slice = b_vec.as_slice();
-
-        // Test all algorithms at threshold boundaries
-        group.bench_with_input(
-            BenchmarkId::new("scalar", size),
-            &(a_slice, b_slice),
-            |b, (a, b_data)| b.iter(|| black_box(a.scalar_add(black_box(*b_data)).unwrap())),
-        );
-
-        group.bench_with_input(
-            BenchmarkId::new("simd", size),
-            &(a_slice, b_slice),
-            |b, (a, b_data)| b.iter(|| black_box(a.simd_add(black_box(*b_data)).unwrap())),
-        );
-
-        if size >= PARALLEL_SIZE_THRESHOLD {
-            group.bench_with_input(
-                BenchmarkId::new("parallel", size),
-                &(a_slice, b_slice),
-                |b, (a, b_data)| b.iter(|| black_box(a.par_simd_add(black_box(*b_data)).unwrap())),
-            );
-        }
-    }
-
-    group.finish();
 }
 
 // ================================================================================================
@@ -288,9 +230,6 @@ fn all_benchmarks(c: &mut Criterion) {
 
     // Core benchmark suite - comprehensive size analysis
     benchmark_addition_implementations(c);
-
-    // Fine-grained threshold analysis
-    benchmark_threshold_analysis(c);
 
     let elapsed = start_time.elapsed();
     println!(
