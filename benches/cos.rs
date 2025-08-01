@@ -1,27 +1,32 @@
-//! Comprehensive Addition Benchmarks with Rayon Parallelization
+//! Comprehensive Cosine Benchmarks with SIMD vs Scalar Comparison
 //!
-//! This benchmark suite evaluates the performance of different addition implementations
-//! across various vector sizes. It focuses on comparing scalar, SIMD, and parallel
+//! This benchmark suite evaluates the performance of different cosine implementations
+//! across various vector sizes. It focuses on comparing scalar and SIMD
 //! implementations across different CPU cache hierarchies to understand their
 //! performance characteristics.
 //!
 //! # Benchmark Categories
 //!
-//! ## 1. **Scalar vs SIMD vs Parallel Comparison**
-//! - Pure scalar implementation (baseline)
-//! - AVX2 SIMD vectorized implementation
-//! - Rayon-based parallel SIMD implementation
+//! ## 1. **Scalar vs SIMD Comparison**
+//! - Pure scalar implementation using standard library cosine (baseline)
+//! - ARM NEON SIMD vectorized implementation using custom math functions
+//!
+//! ## 2. **Memory Hierarchy Analysis**
+//! - L1 Cache: 4 KiB vectors (raw compute performance)
+//! - L2 Cache: 64 KiB vectors (L1→L2 transition)
+//! - L3 Cache: 1-16 MiB vectors (L2→L3 transition)
+//! - Main Memory: 64+ MiB vectors (memory bandwidth bound)
 
 use std::hint::black_box;
 use std::time::Instant;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use ndarray::Array1;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-// Import the addition implementations
-use simdly::SimdAdd;
+use simdly::simd::neon::slice::scalar_cos;
+// Import the cosine implementations
+use simdly::simd::SimdMath;
 
 // ================================================================================================
 // BENCHMARK CONFIGURATION
@@ -54,12 +59,6 @@ const VECTOR_SIZES: &[usize] = &[
     33_554_432, // 128 MiB - Main memory
 ];
 
-/// Threshold for enabling parallel benchmarks.
-///
-/// Below this size, parallel overhead typically exceeds benefits.
-/// Based on empirical testing in slice.rs implementation.
-const PARALLEL_SIZE_THRESHOLD: usize = 10_000;
-
 // ================================================================================================
 // TEST DATA GENERATION
 // ================================================================================================
@@ -71,81 +70,56 @@ const PARALLEL_SIZE_THRESHOLD: usize = 10_000;
 ///
 /// # Arguments
 ///
-/// * `len` - Number of f32 elements to generate in each vector
+/// * `len` - Number of f32 elements to generate in the vector
 ///
 /// # Returns
 ///
-/// A tuple of two vectors (a, b) containing random f32 values in range [0.0, 1.0)
+/// A vector containing random f32 values in range [0.0, 2π) for meaningful cosine input
 ///
 /// # Data Characteristics
 ///
 /// - **Reproducible**: Fixed seed ensures identical data across runs  
-/// - **Realistic**: Random values exercise full SIMD pipeline
-/// - **Numerically stable**: Values in [0,1) avoid overflow/underflow issues
+/// - **Realistic**: Random values in [0, 2π) exercise full cosine range
+/// - **Numerically stable**: Values avoid edge cases that could skew performance
 /// - **Cache-friendly**: Sequential generation optimizes initial cache population
-fn generate_test_data(len: usize) -> (Vec<f32>, Vec<f32>) {
+fn generate_test_data(len: usize) -> Vec<f32> {
     let mut rng = StdRng::seed_from_u64(42); // Fixed seed for reproducibility
 
-    let a: Vec<f32> = (0..len).map(|_| rng.random::<f32>()).collect();
-
-    let b: Vec<f32> = (0..len).map(|_| rng.random::<f32>()).collect();
-
-    (a, b)
+    (0..len)
+        .map(|_| rng.random::<f32>() * 2.0 * std::f32::consts::PI) // Range [0, 2π)
+        .collect()
 }
 
 // ================================================================================================
 // BENCHMARK IMPLEMENTATIONS
 // ================================================================================================
 
-/// Benchmarks all addition implementations across different vector sizes.
+/// Benchmarks all cosine implementations across different vector sizes.
 ///
 /// This is the main benchmark function that creates comprehensive performance
-/// measurements for scalar, SIMD, and parallel addition implementations.
-fn benchmark_addition_implementations(c: &mut Criterion) {
+/// measurements for scalar and SIMD cosine implementations.
+fn benchmark_cosine_implementations(c: &mut Criterion) {
     for &size in VECTOR_SIZES {
-        let mut group = c.benchmark_group(format!("Addition_{}", format_size(size)));
+        let mut group = c.benchmark_group(format!("Cosine_{}", format_size(size)));
 
         // Configure throughput measurement for bandwidth analysis
         group.throughput(Throughput::Bytes(
-            (size * std::mem::size_of::<f32>() * 2) as u64, // *2 for reading both input vectors
+            (size * std::mem::size_of::<f32>()) as u64, // Reading input vector once
         ));
 
         // Generate test data once per size for consistency
-        let (a_vec, b_vec) = generate_test_data(size);
-        let a_slice = a_vec.as_slice();
-        let b_slice = b_vec.as_slice();
+        let input_vec = generate_test_data(size);
+        let input_slice = input_vec.as_slice();
 
-        // Benchmark 1: SIMD Addition
-        group.bench_with_input(
-            BenchmarkId::new("simd", size),
-            &(a_slice, b_slice),
-            |b, (a, b_data)| b.iter(|| black_box(a.simd_add(black_box(*b_data)))),
-        );
+        // Benchmark 1: Scalar Cosine (Baseline)
+        group.bench_with_input(BenchmarkId::new("scalar", size), input_slice, |b, input| {
+            b.iter(|| black_box(scalar_cos(black_box(input))))
+        });
 
-        // Benchmark 2: Scalar Addition (Baseline)
-        group.bench_with_input(
-            BenchmarkId::new("scalar", size),
-            &(a_slice, b_slice),
-            |b, (a, b_data)| b.iter(|| black_box(a.scalar_add(black_box(*b_data)))),
-        );
-
-        // Benchmark 3: Parallel SIMD Addition (only for larger sizes)
-        if size >= PARALLEL_SIZE_THRESHOLD {
-            group.bench_with_input(
-                BenchmarkId::new("parallel_simd", size),
-                &(a_slice, b_slice),
-                |b, (a, b_data)| b.iter(|| black_box(a.par_simd_add(black_box(*b_data)))),
-            );
-        }
-
-        // Benchmark 4: ndarray Reference Implementation
-        let a_ndarray = Array1::from_vec(a_vec.clone());
-        let b_ndarray = Array1::from_vec(b_vec.clone());
-        group.bench_with_input(
-            BenchmarkId::new("ndarray", size),
-            &(&a_ndarray, &b_ndarray),
-            |b, (a, b_data)| b.iter(|| black_box(*a + *b_data)),
-        );
+        // Benchmark 2: SIMD Cosine
+        group.bench_with_input(BenchmarkId::new("simd", size), input_slice, |b, input| {
+            b.iter(|| black_box(input.cos()))
+        });
 
         group.finish();
     }
@@ -178,9 +152,9 @@ fn format_size(elements: usize) -> String {
 /// Main benchmark orchestrator function.
 ///
 /// Coordinates all benchmark suites and provides a comprehensive performance analysis
-/// of addition implementations across different scenarios.
+/// of cosine implementations across different scenarios.
 fn all_benchmarks(c: &mut Criterion) {
-    println!("🚀 Starting Comprehensive Addition Benchmarks");
+    println!("🚀 Starting Comprehensive Cosine Benchmarks");
     println!(
         "   Testing {} vector sizes from {} to {}",
         VECTOR_SIZES.len(),
@@ -191,7 +165,7 @@ fn all_benchmarks(c: &mut Criterion) {
     let start_time = Instant::now();
 
     // Core benchmark suite - comprehensive size analysis
-    benchmark_addition_implementations(c);
+    benchmark_cosine_implementations(c);
 
     let elapsed = start_time.elapsed();
     println!(

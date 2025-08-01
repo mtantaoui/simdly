@@ -97,6 +97,12 @@ pub trait SimdAdd<Rhs = Self> {
 /// - Context switching overhead
 pub(crate) const PARALLEL_SIMD_THRESHOLD: usize = 10_000;
 
+/// Threshold below which scalar operations outperform SIMD.
+///
+/// Based on benchmarks, SIMD overhead (alignment, marshaling) exceeds
+/// benefits for vectors smaller than ~65536 elements (64KB).
+pub(crate) const SIMD_THRESHOLD: usize = 65536;
+
 /// Optimal chunk size for parallel processing.
 ///
 /// Chosen to balance:

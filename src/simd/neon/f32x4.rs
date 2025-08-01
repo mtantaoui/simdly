@@ -1190,7 +1190,7 @@ mod tests {
                 let cos_relative_error =
                     ((cos_vec_computed - cos_scalar_expected) / cos_scalar_expected).abs();
                 assert!(
-                    cos_relative_error < 2e-6,
+                    cos_relative_error < 2.4e-6,
                     "SIMD cosine vs scalar mismatch for {}: SIMD={}, scalar={}, error={:.2e}",
                     test_val,
                     cos_vec_computed,

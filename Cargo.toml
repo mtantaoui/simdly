@@ -33,6 +33,10 @@ rayon = "1.10.0"
 name = "addition"
 harness = false
 
+[[bench]]
+name = "cos"
+harness = false
+
 [dev-dependencies]
 criterion = "0.5.1"
 ndarray = "0.16.1"

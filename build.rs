@@ -38,7 +38,7 @@ struct CpuFeature {
 
 impl CpuFeature {
     /// Define priority order between CPU Features (Lowest number == Highest Priority)
-    /// 
+    ///
     /// Returns the priority value for feature selection, where lower numbers indicate
     /// higher priority. This ensures the most advanced compatible instruction set is used.
     #[inline(always)]
@@ -52,7 +52,7 @@ impl CpuFeature {
     }
 
     /// Groups all supported CPU features that use optimizations in this crate.
-    /// 
+    ///
     /// Used in stable build only. Returns a vector of CPU features that can be
     /// safely used with the stable Rust compiler.
     #[inline(always)]
@@ -83,7 +83,7 @@ impl CpuFeature {
     }
 
     /// Groups all supported CPU features that use optimizations in this crate.
-    /// 
+    ///
     /// Used in nightly build only. Includes experimental features that require
     /// nightly Rust compiler features.
     #[inline(always)]
@@ -266,7 +266,7 @@ impl CpuFeatureDetector for WindowsDetector {
 
 impl WindowsDetector {
     /// Attempts to detect CPU features using PowerShell and WMI.
-    /// 
+    ///
     /// This method provides more reliable CPU feature detection on Windows
     /// by querying detailed processor information through WMI.
     #[inline(always)]
@@ -359,7 +359,7 @@ impl WindowsDetector {
     }
 
     /// Fallback method using wmic command for CPU feature detection.
-    /// 
+    ///
     /// Uses basic heuristics based on processor name patterns to determine
     /// supported instruction sets when PowerShell detection fails.
     #[inline(always)]
@@ -443,7 +443,7 @@ impl WindowsDetector {
 struct PlatformDetector;
 impl PlatformDetector {
     /// Creates a vector of all available CPU feature detectors.
-    /// 
+    ///
     /// Returns detectors for all supported platforms. The appropriate detector
     /// will be selected based on the current operating system.
     #[inline(always)]
@@ -456,7 +456,7 @@ impl PlatformDetector {
     }
 
     /// Detects the current Rust compiler channel (stable, beta, nightly).
-    /// 
+    ///
     /// This information is used to determine which CPU features can be safely
     /// enabled, as some features require nightly compiler support.
     #[inline(always)]
@@ -485,7 +485,7 @@ impl PlatformDetector {
     }
 
     /// Performs CPU feature detection using the appropriate platform detector.
-    /// 
+    ///
     /// Iterates through available detectors and uses the first applicable one
     /// for the current platform to detect supported CPU features.
     #[inline(always)]
@@ -530,7 +530,7 @@ impl PlatformDetector {
     }
 
     /// Applies the detected CPU features to the build configuration.
-    /// 
+    ///
     /// Sorts features by priority, selects the best available feature,
     /// and configures the appropriate Rust compiler flags and cfg attributes.
     #[inline(always)]
