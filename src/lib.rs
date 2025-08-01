@@ -72,7 +72,6 @@
 //! - **Batch Processing**: Process data in chunks that match SIMD vector sizes
 //! - **CPU Features**: Enable appropriate target features during compilation
 
-pub mod error;
 pub mod simd;
 pub(crate) mod utils;
 

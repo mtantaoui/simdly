@@ -339,12 +339,12 @@ fn simd_add_partial_block(a: *const f32, b: *const f32, c: *mut f32, size: usize
 ///
 /// ```rust
 /// use simdly::SimdAdd;
-/// 
+///
 /// // Large arrays benefit from parallel processing
 /// let a = vec![1.0f32; 1_000_000];
 /// let b = vec![2.0f32; 1_000_000];
 /// let result = a.as_slice().par_simd_add(b.as_slice());
-/// 
+///
 /// assert_eq!(result.len(), 1_000_000);
 /// assert_eq!(result[0], 3.0);
 /// ```
@@ -413,7 +413,7 @@ fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
 /// # Performance-Adaptive Algorithm Selection
 ///
 /// The implementation uses intelligent algorithm selection based on array size:
-/// 
+///
 /// - **Small arrays** (< 64KB): `scalar_add` for minimal overhead
 /// - **Medium arrays** (64KB - 40MB): `simd_add` for vectorized performance  
 /// - **Large arrays** (> 40MB): `par_simd_add` for maximum parallel throughput
@@ -453,16 +453,16 @@ fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
 ///
 /// ```rust
 /// use simdly::SimdAdd;
-/// 
+///
 /// let a = vec![1.0f32; 1000];
 /// let b = vec![2.0f32; 1000];
-/// 
+///
 /// // Automatic algorithm selection (recommended)
 /// let result = a.as_slice().simd_add(b.as_slice());
-/// 
+///
 /// // Force parallel processing for large arrays
 /// let result = a.as_slice().par_simd_add(b.as_slice());
-/// 
+///
 /// // Use scalar for comparison/testing
 /// let result = a.as_slice().scalar_add(b.as_slice());
 /// ```
@@ -491,7 +491,7 @@ impl<'a> SimdAdd<&'a [f32]> for &[f32] {
     /// # Example
     /// ```rust
     /// use simdly::SimdAdd;
-    /// 
+    ///
     /// let a = vec![1.0, 2.0, 3.0, 4.0];
     /// let b = vec![5.0, 6.0, 7.0, 8.0];
     /// let result = a.as_slice().simd_add(b.as_slice());
@@ -516,7 +516,7 @@ impl<'a> SimdAdd<&'a [f32]> for &[f32] {
     /// # Example
     /// ```rust
     /// use simdly::SimdAdd;
-    /// 
+    ///
     /// let a = vec![1.0f32; 1_000_000];
     /// let b = vec![2.0f32; 1_000_000];
     /// let result = a.as_slice().par_simd_add(b.as_slice());
@@ -527,7 +527,7 @@ impl<'a> SimdAdd<&'a [f32]> for &[f32] {
     fn par_simd_add(self, rhs: &'a [f32]) -> Self::Output {
         unsafe { parallel_simd_add(self, rhs) }
     }
-    
+
     /// Performs element-wise addition using scalar operations.
     ///
     /// This method provides a baseline scalar implementation for comparison,
@@ -542,7 +542,7 @@ impl<'a> SimdAdd<&'a [f32]> for &[f32] {
     /// # Example
     /// ```rust
     /// use simdly::SimdAdd;
-    /// 
+    ///
     /// let a = vec![1.0, 2.0, 3.0];
     /// let b = vec![4.0, 5.0, 6.0];
     /// let result = a.as_slice().scalar_add(b.as_slice());
