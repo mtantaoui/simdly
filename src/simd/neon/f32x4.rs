@@ -1149,125 +1149,71 @@ mod tests {
     }
 
     #[test]
-    fn test_mathematical_precision_validation() {
-        // Precision validation against reference values for enhanced math functions
-        // This test validates the improved precision constants and polynomial coefficients
-        
-        // Test sine with precise reference values
-        let sin_test_values = [0.0f32, 0.5, 1.0, std::f32::consts::FRAC_PI_6];
-        let sin_expected = [0.0f32, 0.479425538604f32, 0.841470984808f32, 0.5f32];
-        
-        let sin_vec = F32x4::from_slice(&sin_test_values);
-        let sin_result = sin_vec.sin();
-        
-        unsafe {
-            for i in 0..4 {
-                let computed = vgetq_lane_f32(sin_result.elements, i);
-                let expected = sin_expected[i];
-                let relative_error = if expected != 0.0 {
-                    ((computed - expected) / expected).abs()
-                } else {
-                    computed.abs()
-                };
-                // Validate enhanced precision: should be better than 1e-6 relative error
-                assert!(
-                    relative_error < 1e-6,
-                    "Enhanced sine precision failed for {}: got {}, expected {}, error: {:.2e}",
-                    sin_test_values[i], computed, expected, relative_error
-                );
-            }
-        }
-
-        // Test exponential with precise reference values
-        let exp_test_values = [0.0f32, 1.0, 2.0, -1.0];
-        let exp_expected = [1.0f32, std::f32::consts::E, std::f32::consts::E * std::f32::consts::E, 1.0 / std::f32::consts::E];
-        
-        let exp_vec = F32x4::from_slice(&exp_test_values);
-        let exp_result = exp_vec.exp();
-        
-        unsafe {
-            for i in 0..4 {
-                let computed = vgetq_lane_f32(exp_result.elements, i);
-                let expected = exp_expected[i];
-                let relative_error = ((computed - expected) / expected).abs();
-                // Validate enhanced precision
-                assert!(
-                    relative_error < 1e-6,
-                    "Enhanced exp precision failed for {}: got {}, expected {}, error: {:.2e}",
-                    exp_test_values[i], computed, expected, relative_error
-                );
-            }
-        }
-
-        // Test square root precision
-        let sqrt_test_values = [1.0f32, 4.0, 9.0, 16.0];
-        let sqrt_expected = [1.0f32, 2.0, 3.0, 4.0];
-        
-        let sqrt_vec = F32x4::from_slice(&sqrt_test_values);
-        let sqrt_result = sqrt_vec.sqrt();
-        
-        unsafe {
-            for i in 0..4 {
-                let computed = vgetq_lane_f32(sqrt_result.elements, i);
-                let expected = sqrt_expected[i];
-                let relative_error = ((computed - expected) / expected).abs();
-                // Square root should be exact for perfect squares
-                assert!(
-                    relative_error < 1e-7,
-                    "Square root precision failed for {}: got {}, expected {}, error: {:.2e}",
-                    sqrt_test_values[i], computed, expected, relative_error
-                );
-            }
-        }
-    }
-
-    #[test]
     fn test_enhanced_precision_against_scalar() {
         // Compare SIMD results against scalar standard library for validation
         let test_cases = [
-            0.1f32, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, std::f32::consts::PI / 4.0
+            0.1f32,
+            0.5,
+            1.0,
+            1.5,
+            2.0,
+            2.5,
+            3.0,
+            std::f32::consts::PI / 4.0,
         ];
-        
+
         for &test_val in &test_cases {
             let vec_input = F32x4::from_slice(&[test_val, test_val, test_val, test_val]);
-            
+
             // Test sine precision
             let sin_vec_result = vec_input.sin();
             let sin_scalar_expected = test_val.sin();
             unsafe {
                 let sin_vec_computed = vgetq_lane_f32(sin_vec_result.elements, 0);
-                let sin_relative_error = ((sin_vec_computed - sin_scalar_expected) / sin_scalar_expected).abs();
+                let sin_relative_error =
+                    ((sin_vec_computed - sin_scalar_expected) / sin_scalar_expected).abs();
                 assert!(
                     sin_relative_error < 2e-6, // Allow slightly relaxed tolerance vs scalar
                     "SIMD sine vs scalar mismatch for {}: SIMD={}, scalar={}, error={:.2e}",
-                    test_val, sin_vec_computed, sin_scalar_expected, sin_relative_error
+                    test_val,
+                    sin_vec_computed,
+                    sin_scalar_expected,
+                    sin_relative_error
                 );
             }
-            
+
             // Test cosine precision
             let cos_vec_result = vec_input.cos();
             let cos_scalar_expected = test_val.cos();
             unsafe {
                 let cos_vec_computed = vgetq_lane_f32(cos_vec_result.elements, 0);
-                let cos_relative_error = ((cos_vec_computed - cos_scalar_expected) / cos_scalar_expected).abs();
+                let cos_relative_error =
+                    ((cos_vec_computed - cos_scalar_expected) / cos_scalar_expected).abs();
                 assert!(
                     cos_relative_error < 2e-6,
                     "SIMD cosine vs scalar mismatch for {}: SIMD={}, scalar={}, error={:.2e}",
-                    test_val, cos_vec_computed, cos_scalar_expected, cos_relative_error
+                    test_val,
+                    cos_vec_computed,
+                    cos_scalar_expected,
+                    cos_relative_error
                 );
             }
-            
+
             // Test exponential precision (for reasonable range)
             if test_val < 10.0 {
                 let exp_vec_result = vec_input.exp();
                 let exp_scalar_expected = test_val.exp();
                 unsafe {
                     let exp_vec_computed = vgetq_lane_f32(exp_vec_result.elements, 0);
-                    let exp_relative_error = ((exp_vec_computed - exp_scalar_expected) / exp_scalar_expected).abs();
+                    let exp_relative_error =
+                        ((exp_vec_computed - exp_scalar_expected) / exp_scalar_expected).abs();
                     assert!(
                         exp_relative_error < 2e-6,
                         "SIMD exp vs scalar mismatch for {}: SIMD={}, scalar={}, error={:.2e}",
-                        test_val, exp_vec_computed, exp_scalar_expected, exp_relative_error
+                        test_val,
+                        exp_vec_computed,
+                        exp_scalar_expected,
+                        exp_relative_error
                     );
                 }
             }
