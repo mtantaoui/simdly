@@ -37,21 +37,15 @@
   --sl-color-text-accent: #94a3b8;
 
   /* HAL-inspired Gradients */
-  --gradient-hal: linear-gradient(
-    135deg,
-    var(--hal-red) 0%,
-    var(--hal-orange) 100%
-  );
-  --gradient-space: linear-gradient(
-    135deg,
-    var(--space-black) 0%,
-    var(--space-blue-dim) 100%
-  );
-  --gradient-warning: linear-gradient(
-    135deg,
-    var(--hal-orange) 0%,
-    var(--hal-yellow) 100%
-  );
+  --gradient-hal: linear-gradient(135deg,
+      var(--hal-red) 0%,
+      var(--hal-orange) 100%);
+  --gradient-space: linear-gradient(135deg,
+      var(--space-black) 0%,
+      var(--space-blue-dim) 100%);
+  --gradient-warning: linear-gradient(135deg,
+      var(--hal-orange) 0%,
+      var(--hal-yellow) 100%);
 }
 
 /* Dark theme overrides */
@@ -86,6 +80,7 @@
 
 /* Parallax scrolling animations */
 @keyframes parallax-float {
+
   0%,
   100% {
     transform: translateY(0px) scale(1);
@@ -97,6 +92,7 @@
 }
 
 @keyframes twinkle {
+
   0%,
   100% {
     opacity: 0.3;
@@ -186,11 +182,9 @@
 
 /* Space-themed Card enhancements */
 .card-grid .card {
-  background: linear-gradient(
-    135deg,
-    var(--space-gray) 0%,
-    var(--space-light-gray) 100%
-  );
+  background: linear-gradient(135deg,
+      var(--space-gray) 0%,
+      var(--space-light-gray) 100%);
   backdrop-filter: blur(10px);
   border: 1px solid rgba(100, 116, 139, 0.2);
   border-radius: 16px;
@@ -207,49 +201,44 @@
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(148, 163, 184, 0.4),
-    transparent
-  );
+  background: linear-gradient(90deg,
+      transparent,
+      rgba(148, 163, 184, 0.4),
+      transparent);
 }
 
 .card-grid .card:hover {
   transform: translateY(-8px);
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
   border-color: rgba(148, 163, 184, 0.4);
-  background: linear-gradient(
-    135deg,
-    var(--space-light-gray) 0%,
-    var(--space-gray) 100%
-  );
+  background: linear-gradient(135deg,
+      var(--space-light-gray) 0%,
+      var(--space-gray) 100%);
 }
 
 /* Space Navigation */
-.site-title {
+/* .site-title {
   font-weight: 700;
   color: #94a3b8;
-}
+} */
 
 /* Space-themed Code blocks */
-pre {
+/* pre {
   background: var(--space-light-gray) !important;
   backdrop-filter: blur(10px);
   border: 1px solid rgba(100, 116, 139, 0.2);
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
-}
+} */
 
 /* Space-themed Sidebar - Non-intrusive styling */
 .sidebar {
-  background: linear-gradient(
-    180deg,
-    rgba(26, 26, 26, 0.95) 0%,
-    rgba(10, 10, 10, 0.95) 100%
-  );
-  /* backdrop-filter: blur(10px); */
+  background: linear-gradient(180deg,
+      rgba(26, 26, 26, 0.95) 0%,
+      rgba(10, 10, 10, 0.95) 100%);
   border-right: 1px solid rgba(100, 116, 139, 0.2);
+  position: relative;
+  z-index: 10;
 }
 
 /* Sidebar text styling - preserve Starlight functionality */
@@ -282,14 +271,12 @@ body::before {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background-image: linear-gradient(
-      135deg,
+  background-image: linear-gradient(135deg,
       rgba(0, 0, 0, 0.3) 0%,
       rgba(10, 10, 26, 0.3) 25%,
       rgba(0, 17, 34, 0.3) 50%,
       rgba(0, 8, 21, 0.3) 75%,
-      rgba(0, 0, 0, 0.3) 100%
-    ),
+      rgba(0, 0, 0, 0.3) 100%),
     url("https://images.pexels.com/photos/998641/pexels-photo-998641.jpeg");
   background-repeat: repeat;
   background-attachment: fixed;
@@ -596,6 +583,7 @@ a[data-variant="minimal"]:hover {
 }
 
 @keyframes card-float {
+
   0%,
   100% {
     transform: translateY(0px) rotateX(0deg) rotateY(0deg);
@@ -611,6 +599,7 @@ a[data-variant="minimal"]:hover {
 }
 
 @keyframes card-float-alternate {
+
   0%,
   100% {
     transform: translateY(0px) rotateX(0deg) rotateY(0deg);
@@ -659,6 +648,7 @@ a[data-variant="minimal"]:hover {
   }
 
   @keyframes hero-content-float {
+
     0%,
     100% {
       transform: translateY(0px);
@@ -672,6 +662,7 @@ a[data-variant="minimal"]:hover {
 
 /* Reduced motion fallback */
 @media (prefers-reduced-motion: reduce) {
+
   .hero h1,
   .hero img,
   .hero .hero-image img,

@@ -4,6 +4,7 @@ import starlight from '@astrojs/starlight';
 
 // https://astro.build/config
 export default defineConfig({
+	site: 'https://mtantaoui.github.io/simdly',
 	integrations: [
 		starlight({
 			title: 'Simdly',
@@ -11,6 +12,7 @@ export default defineConfig({
 			social: [
 				{ icon: 'github', label: 'GitHub', href: 'https://github.com/mtantaoui/simdly' },
 			],
+			head: [],
 			customCss: [
 				'./src/styles/custom-minimal.css',
 			],
