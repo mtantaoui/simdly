@@ -24,7 +24,13 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+use simdly::simd::avx2::slice::{fast_cos, parallel_simd_cos};
+#[cfg(target_arch = "aarch64")]
 use simdly::simd::neon::slice::scalar_cos;
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+use simdly::simd::avx2::slice::scalar_cos;
+
 // Import the cosine implementations
 use simdly::simd::SimdMath;
 
@@ -119,6 +125,18 @@ fn benchmark_cosine_implementations(c: &mut Criterion) {
         // Benchmark 2: SIMD Cosine
         group.bench_with_input(BenchmarkId::new("simd", size), input_slice, |b, input| {
             b.iter(|| black_box(input.cos()))
+        });
+
+        // Benchmark 3:
+        group.bench_with_input(
+            BenchmarkId::new("parallel SIMD", size),
+            input_slice,
+            |b, input| b.iter(|| black_box(parallel_simd_cos(black_box(input)))),
+        );
+
+        // Benchmark 4:
+        group.bench_with_input(BenchmarkId::new("Fast", size), input_slice, |b, input| {
+            b.iter(|| black_box(fast_cos(black_box(input))))
         });
 
         group.finish();

@@ -47,6 +47,7 @@ const VECTOR_SIZES: &[usize] = &[
     4_096,       // 16 KiB - L1 cache
     16_384,      // 64 KiB - L1→L2 transition
     65_536,      // 256 KiB - L2 cache
+    2 * 65_536,  // 512 KiB - L2 cache
     262_144,     // 1 MiB - L2 cache
     2 * 262_144, // 2 MiB - L2 cache
     1_048_576,   // 4 MiB - L2→L3 transition
@@ -138,6 +139,13 @@ fn benchmark_addition_implementations(c: &mut Criterion) {
                 |b, (a, b_data)| b.iter(|| black_box(a.par_simd_add(black_box(*b_data)))),
             );
         }
+
+        // Benchmark 2: Scalar Addition (Baseline)
+        group.bench_with_input(
+            BenchmarkId::new("scalar", size),
+            &(a_slice, b_slice),
+            |b, (a, b_data)| b.iter(|| black_box(a.scalar_add(black_box(*b_data)))),
+        );
 
         // Benchmark 4: ndarray Reference Implementation
         let a_ndarray = Array1::from_vec(a_vec.clone());
