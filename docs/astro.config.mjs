@@ -38,11 +38,7 @@ export default defineConfig({
 				},
 				{
 					label: 'API Reference',
-					items: [
-						{ label: 'F32x8 Vector', slug: 'reference/f32x8' },
-						{ label: 'SimdLoad Trait', slug: 'reference/simd-load' },
-						{ label: 'Examples', slug: 'reference/example' },
-					],
+					link: 'https://docs.rs/simdly',
 				},
 			],
 		}),
