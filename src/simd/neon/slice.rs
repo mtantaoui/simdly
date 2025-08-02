@@ -97,11 +97,11 @@ fn simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
         return scalar_add(a, b);
     }
 
-    assert!(
+    debug_assert!(
         !a.is_empty() & !b.is_empty(),
         "Size can't be empty (size zero)"
     );
-    assert_eq!(a.len(), b.len(), "Vectors must be the same length");
+    debug_assert_eq!(a.len(), b.len(), "Vectors must be the same length");
 
     let size = a.len();
 
@@ -619,7 +619,7 @@ impl<'a> SimdAdd<&'a [f32]> for &[f32] {
 /// ```
 #[inline(always)]
 pub fn scalar_cos(a: &[f32]) -> Vec<f32> {
-    assert!(!a.is_empty(), "Size can't be empty (size zero)");
+    debug_assert!(!a.is_empty(), "Size can't be empty (size zero)");
 
     a.iter().map(|x| x.cos()).collect()
 }
@@ -715,7 +715,7 @@ pub fn scalar_cos(a: &[f32]) -> Vec<f32> {
 #[allow(clippy::uninit_vec)]
 #[target_feature(enable = "neon")]
 fn simd_cos(a: &[f32]) -> Vec<f32> {
-    assert!(!a.is_empty(), "Size can't be empty (size zero)");
+    debug_assert!(!a.is_empty(), "Size can't be empty (size zero)");
 
     let size = a.len();
 

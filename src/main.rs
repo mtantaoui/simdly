@@ -3,7 +3,11 @@
 //! This is a simple placeholder main function for the simdly library.
 //! The actual SIMD functionality is provided through the library modules.
 
-#[inline(always)]
 fn main() {
-    // Placeholder main function - library functionality is accessed through modules
+    let x = 1;
+    let y = 2;
+
+    let c = x < y;
+
+    println!("{c}",);
 }

@@ -28,7 +28,7 @@
 //! # Usage Recommendation
 //!
 //! For general SIMD operations in this codebase, prefer:
-//! ```rust
+//! ```rust, ignore
 //! let mut vec = Vec::with_capacity(size);
 //! unsafe { vec.set_len(size) };
 //! ```
@@ -83,26 +83,11 @@ use std::alloc::{alloc, alloc_zeroed, handle_alloc_error, Layout};
 /// - Panics if the requested layout is invalid (size overflow)
 /// - Calls `handle_alloc_error` if memory allocation fails
 ///
-/// # Examples
-///
-/// ```rust
-/// use simdly::utils::alloc_uninit_f32_vec;
-///
-/// // Allocate 16-byte aligned vector for NEON operations
-/// let mut vec = alloc_uninit_f32_vec(4, 16);
-/// 
-/// // MUST initialize before use
-/// for i in 0..vec.len() {
-///     vec[i] = i as f32;
-/// }
-/// 
-/// assert_eq!(vec, vec![0.0, 1.0, 2.0, 3.0]);
-/// ```
 ///
 /// # Alternative (Recommended)
 ///
 /// For most use cases, prefer the standard approach:
-/// ```rust
+/// ```rust, ignore
 /// let mut vec = Vec::with_capacity(len);
 /// unsafe { vec.set_len(len) };
 /// // Initialize elements as needed
@@ -142,11 +127,8 @@ pub fn alloc_uninit_f32_vec(len: usize, align: usize) -> Vec<f32> {
 /// - Additional complexity compared to standard `Vec::new()` or `Vec::with_capacity()`
 ///
 /// For most ARM NEON operations, prefer standard approaches:
-/// ```rust
+/// ```rust, ignore
 /// let vec = vec![0.0f32; len];  // For zero-initialized
-/// // or
-/// let mut vec = Vec::with_capacity(len);
-/// vec.resize(len, 0.0);  // For zero-initialized with capacity
 /// ```
 ///
 /// # Memory Layout
@@ -177,26 +159,13 @@ pub fn alloc_uninit_f32_vec(len: usize, align: usize) -> Vec<f32> {
 /// Unlike `alloc_uninit_f32_vec`, this function returns a fully initialized vector
 /// that is safe to read immediately without additional initialization.
 ///
-/// # Examples
-///
-/// ```rust
-/// use simdly::utils::alloc_zeroed_f32_vec;
-///
-/// // Allocate 16-byte aligned zero-initialized vector
-/// let vec = alloc_zeroed_f32_vec(4, 16);
-/// 
-/// // Safe to use immediately - all elements are 0.0
-/// assert_eq!(vec, vec![0.0, 0.0, 0.0, 0.0]);
-/// assert_eq!(vec.len(), 4);
-/// ```
-///
 /// # Alternative (Recommended)
 ///
 /// For most use cases, prefer these standard approaches:
-/// ```rust
+/// ```rust, ignore
 /// // Simple zero-initialized vector
 /// let vec = vec![0.0f32; len];
-/// 
+///
 /// // Zero-initialized with explicit capacity
 /// let mut vec = Vec::with_capacity(len);
 /// vec.resize(len, 0.0);

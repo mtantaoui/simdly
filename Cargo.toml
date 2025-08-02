@@ -37,7 +37,14 @@ harness = false
 name = "cos"
 harness = false
 
+[[bench]]
+name = "readable_report"
+harness = false
+
+[[example]]
+name = "fast_add"
+
 [dev-dependencies]
-criterion = "0.5.1"
+criterion = { version = "0.5.1", default-features = true, features=["default", "plotters"]}
 ndarray = "0.16.1"
 rand = "0.9.2"
