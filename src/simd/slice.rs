@@ -53,7 +53,7 @@
 ///
 /// ```rust
 /// use simdly::simd::slice::scalar_add;
-/// 
+///
 /// let a = &[1.0f32, 2.0, 3.0, 4.0];
 /// let b = &[5.0f32, 6.0, 7.0, 8.0];
 /// let result = scalar_add(a, b);

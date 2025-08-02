@@ -163,7 +163,7 @@ fn format_size(elements: usize) -> String {
         // 1 KiB
         format!("{:.1}_KiB", bytes as f64 / 1024.0)
     } else {
-        format!("{}_B", bytes)
+        format!("{bytes}_B")
     }
 }
 

@@ -215,7 +215,7 @@ impl SimdLoad<f32> for F32x8 {
     }
 }
 
-impl SimdMath<f32> for F32x8 {
+impl SimdMath for F32x8 {
     type Output = Self;
 
     /// Computes the absolute value of each element using AVX2 intrinsics.

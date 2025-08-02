@@ -372,7 +372,7 @@ pub trait SimdStore<T> {
 /// - Handle special values according to IEEE 754 standards
 /// - Provide consistent accuracy across all vector lanes
 /// - Maintain thread safety for concurrent usage
-pub trait SimdMath<T> {
+pub trait SimdMath {
     /// The output type returned by mathematical operations
     type Output;
 

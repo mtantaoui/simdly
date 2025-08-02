@@ -66,16 +66,14 @@ fn test_cosine_precision_comparison() {
             };
 
             println!(
-                "  Input: {:.6}, Scalar: {:.8}, SIMD: {:.8}, Abs Error: {:.2e}, Rel Error: {:.2e}",
-                input_val, scalar_val, simd_val, absolute_error, relative_error
+                "  Input: {input_val:.6}, Scalar: {scalar_val:.8}, SIMD: {simd_val:.8}, Abs Error: {absolute_error:.2e}, Rel Error: {relative_error:.2e}"
             );
 
             // Assertion with reasonable tolerance for f32 precision
             // SIMD implementations may use polynomial approximations with slightly different precision
             assert!(
                 absolute_error < 1e-5 || relative_error < 1e-5,
-                "Precision error too large for input {}: scalar={}, simd={}, abs_error={:.2e}, rel_error={:.2e}",
-                input_val, scalar_val, simd_val, absolute_error, relative_error
+                "Precision error too large for input {input_val}: scalar={scalar_val}, simd={simd_val}, abs_error={absolute_error:.2e}, rel_error={relative_error:.2e}"
             );
         }
     }
@@ -121,8 +119,7 @@ fn test_cosine_precision_random_inputs() {
             if error_count <= 10 {
                 // Print first 10 significant errors
                 println!(
-                    "Large error #{}: Input: {:.6}, Scalar: {:.8}, SIMD: {:.8}, Abs: {:.2e}, Rel: {:.2e}",
-                    error_count, input_val, scalar_val, simd_val, absolute_error, relative_error
+                    "Large error #{error_count}: Input: {input_val:.6}, Scalar: {scalar_val:.8}, SIMD: {simd_val:.8}, Abs: {absolute_error:.2e}, Rel: {relative_error:.2e}"
                 );
             }
         }
@@ -130,33 +127,28 @@ fn test_cosine_precision_random_inputs() {
         // Individual assertion with relaxed tolerance for SIMD approximations
         assert!(
             absolute_error < 1e-4 || relative_error < 1e-4,
-            "Precision error too large at index {}: input={}, scalar={}, simd={}, abs_error={:.2e}, rel_error={:.2e}",
-            i, input_val, scalar_val, simd_val, absolute_error, relative_error
+            "Precision error too large at index {i}: input={input_val}, scalar={scalar_val}, simd={simd_val}, abs_error={absolute_error:.2e}, rel_error={relative_error:.2e}"
         );
     }
 
     println!("Random precision test summary:");
-    println!("  Test size: {}", test_size);
-    println!("  Max absolute error: {:.2e}", max_abs_error);
-    println!("  Max relative error: {:.2e}", max_rel_error);
-    println!("  Significant errors (>1e-6): {}", error_count);
+    println!("  Test size: {test_size}");
+    println!("  Max absolute error: {max_abs_error:.2e}");
+    println!("  Max relative error: {max_rel_error:.2e}");
+    println!("  Significant errors (>1e-6): {error_count}");
 
     // Overall precision requirements
     assert!(
         max_abs_error < 1e-4,
-        "Maximum absolute error too large: {:.2e}",
-        max_abs_error
+        "Maximum absolute error too large: {max_abs_error:.2e}"
     );
     assert!(
         max_rel_error < 2.1e-4,
-        "Maximum relative error too large: {:.2e}",
-        max_rel_error
+        "Maximum relative error too large: {max_rel_error:.2e}"
     );
     assert!(
         error_count < test_size / 10,
-        "Too many significant errors: {}/{}",
-        error_count,
-        test_size
+        "Too many significant errors: {error_count}/{test_size}"
     );
 }
 
@@ -177,42 +169,30 @@ fn test_cosine_edge_cases() {
         let scalar_result = scalar_cos(&input_vec)[0];
         let simd_result = input_vec.cos()[0];
 
-        println!(
-            "Edge case: cos({:.6}) = {:.8} (expected: {:.8})",
-            input, scalar_result, expected
-        );
-        println!("  Scalar: {:.8}, SIMD: {:.8}", scalar_result, simd_result);
+        println!("Edge case: cos({input:.6}) = {scalar_result:.8} (expected: {expected:.8})");
+        println!("  Scalar: {scalar_result:.8}, SIMD: {simd_result:.8}");
 
         // Compare against expected value (allowing for some numerical error)
         let scalar_error = (scalar_result - expected).abs();
         let simd_error = (simd_result - expected).abs();
 
-        println!(
-            "  Scalar error: {:.2e}, SIMD error: {:.2e}",
-            scalar_error, simd_error
-        );
+        println!("  Scalar error: {scalar_error:.2e}, SIMD error: {simd_error:.2e}");
 
         // Both should be reasonably close to expected value
         assert!(
             scalar_error < 1e-6,
-            "Scalar cosine error too large for {}: {:.2e}",
-            input,
-            scalar_error
+            "Scalar cosine error too large for {input}: {scalar_error:.2e}"
         );
         assert!(
             simd_error < 1e-5,
-            "SIMD cosine error too large for {}: {:.2e}",
-            input,
-            simd_error
+            "SIMD cosine error too large for {input}: {simd_error:.2e}"
         );
 
         // SIMD should be close to scalar
         let simd_vs_scalar_error = (simd_result - scalar_result).abs();
         assert!(
             simd_vs_scalar_error < 1e-5,
-            "SIMD vs scalar error too large for {}: {:.2e}",
-            input,
-            simd_vs_scalar_error
+            "SIMD vs scalar error too large for {input}: {simd_vs_scalar_error:.2e}"
         );
     }
 }
@@ -234,8 +214,7 @@ fn test_cosine_precision_near_zero() {
         let absolute_error = (scalar_val - simd_val).abs();
 
         println!(
-            "Small value: cos({:.2e}) -> Scalar: {:.8}, SIMD: {:.8}, Error: {:.2e}",
-            input_val, scalar_val, simd_val, absolute_error
+            "Small value: cos({input_val:.2e}) -> Scalar: {scalar_val:.8}, SIMD: {simd_val:.8}, Error: {absolute_error:.2e}"
         );
 
         // For small values, cos(x) ≈ 1 - x²/2, so both should be very close to 1
@@ -251,9 +230,7 @@ fn test_cosine_precision_near_zero() {
         // SIMD should match scalar closely
         assert!(
             absolute_error < 1e-6,
-            "SIMD precision error too large for small input {}: {:.2e}",
-            input_val,
-            absolute_error
+            "SIMD precision error too large for small input {input_val}: {absolute_error:.2e}"
         );
     }
 }

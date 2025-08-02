@@ -28,7 +28,7 @@ fn addition_comparison_small_medium(c: &mut Criterion) {
     let test_sizes = vec![("Small (1K)", 1_000), ("Medium (10K)", 10_000)];
 
     for (size_name, size) in test_sizes {
-        println!("\n📊 Testing {} elements:", size_name);
+        println!("\n📊 Testing {size_name} elements:");
         println!("{}", "-".repeat(30));
 
         let a = vec![1.0f32; size];
@@ -37,17 +37,17 @@ fn addition_comparison_small_medium(c: &mut Criterion) {
         group.throughput(Throughput::Elements(size as u64));
 
         // Scalar baseline
-        group.bench_function(&format!("{}/Scalar", size_name), |bench| {
+        group.bench_function(format!("{size_name}/Scalar"), |bench| {
             bench.iter(|| a.as_slice().scalar_add(b.as_slice()))
         });
 
         // SIMD implementation
-        group.bench_function(&format!("{}/SIMD", size_name), |bench| {
+        group.bench_function(format!("{size_name}/SIMD"), |bench| {
             bench.iter(|| a.as_slice().simd_add(b.as_slice()))
         });
 
         // Parallel SIMD for larger sizes
-        group.bench_function(&format!("{}/Parallel_SIMD", size_name), |bench| {
+        group.bench_function(format!("{size_name}/Parallel_SIMD"), |bench| {
             bench.iter(|| a.as_slice().par_simd_add(b.as_slice()))
         });
     }
@@ -67,7 +67,7 @@ fn addition_comparison_large(c: &mut Criterion) {
     let test_sizes = vec![("Large (100K)", 100_000)];
 
     for (size_name, size) in test_sizes {
-        println!("\n📊 Testing {} elements:", size_name);
+        println!("\n📊 Testing {size_name} elements:");
         println!("{}", "-".repeat(30));
 
         let a = vec![1.0f32; size];
@@ -76,17 +76,17 @@ fn addition_comparison_large(c: &mut Criterion) {
         group.throughput(Throughput::Elements(size as u64));
 
         // Scalar baseline
-        group.bench_function(&format!("{}/Scalar", size_name), |bench| {
+        group.bench_function(format!("{size_name}/Scalar"), |bench| {
             bench.iter(|| a.as_slice().scalar_add(b.as_slice()))
         });
 
         // SIMD implementation
-        group.bench_function(&format!("{}/SIMD", size_name), |bench| {
+        group.bench_function(format!("{size_name}/SIMD"), |bench| {
             bench.iter(|| a.as_slice().simd_add(b.as_slice()))
         });
 
         // Parallel SIMD for larger sizes
-        group.bench_function(&format!("{}/Parallel_SIMD", size_name), |bench| {
+        group.bench_function(format!("{size_name}/Parallel_SIMD"), |bench| {
             bench.iter(|| a.as_slice().par_simd_add(b.as_slice()))
         });
     }
@@ -106,7 +106,7 @@ fn addition_comparison_xlarge(c: &mut Criterion) {
     let test_sizes = vec![("XLarge (1M)", 1_000_000)];
 
     for (size_name, size) in test_sizes {
-        println!("\n📊 Testing {} elements:", size_name);
+        println!("\n📊 Testing {size_name} elements:");
         println!("{}", "-".repeat(30));
 
         let a = vec![1.0f32; size];
@@ -115,17 +115,17 @@ fn addition_comparison_xlarge(c: &mut Criterion) {
         group.throughput(Throughput::Elements(size as u64));
 
         // Scalar baseline
-        group.bench_function(&format!("{}/Scalar", size_name), |bench| {
+        group.bench_function(format!("{size_name}/Scalar"), |bench| {
             bench.iter(|| a.as_slice().scalar_add(b.as_slice()))
         });
 
         // SIMD implementation
-        group.bench_function(&format!("{}/SIMD", size_name), |bench| {
+        group.bench_function(format!("{size_name}/SIMD"), |bench| {
             bench.iter(|| a.as_slice().simd_add(b.as_slice()))
         });
 
         // Parallel SIMD for larger sizes
-        group.bench_function(&format!("{}/Parallel_SIMD", size_name), |bench| {
+        group.bench_function(format!("{size_name}/Parallel_SIMD"), |bench| {
             bench.iter(|| a.as_slice().par_simd_add(b.as_slice()))
         });
     }
@@ -156,11 +156,11 @@ fn math_functions_comparison(c: &mut Criterion) {
 
         group.throughput(Throughput::Elements(size as u64));
 
-        group.bench_function(&format!("{}/Scalar", test_name), |bench| {
+        group.bench_function(format!("{test_name}/Scalar"), |bench| {
             bench.iter(|| scalar_cos(&angles))
         });
 
-        group.bench_function(&format!("{}/SIMD", test_name), |bench| {
+        group.bench_function(format!("{test_name}/SIMD"), |bench| {
             bench.iter(|| angles.as_slice().cos())
         });
     }
@@ -218,7 +218,7 @@ fn custom_runner(c: &mut Criterion) {
     println!("\n🎉 BENCHMARK COMPLETE!\n{}", "=".repeat(50));
     println!("📊 Detailed results available in: target/criterion/");
     println!("🌐 Open target/criterion/reports/index.html for interactive charts");
-    println!("");
+    println!();
 }
 
 criterion_group! {

@@ -900,7 +900,7 @@ impl<'b> SimdAdd<&'b [f32]> for &[f32] {
 /// let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
 /// let results = data.as_slice().cos(); // Uses AVX2 SIMD cosine
 /// ```
-impl<'b> SimdMath<&'b [f32]> for &[f32] {
+impl SimdMath for &[f32] {
     type Output = Vec<f32>;
 
     /// Computes absolute value of each element using AVX2 SIMD.
@@ -1114,7 +1114,7 @@ impl<'b> SimdAdd<&'b [f32]> for Vec<f32> {
     }
 }
 
-impl SimdMath<f32> for Vec<f32> {
+impl SimdMath for Vec<f32> {
     type Output = Vec<f32>;
 
     /// Computes absolute value - delegates to slice implementation.
