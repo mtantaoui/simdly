@@ -119,7 +119,7 @@ use std::arch::x86::*;
 
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
-use std::f32::consts::{FRAC_1_SQRT_2, LN_2, SQRT_2};
+use std::f32::consts::{FRAC_1_PI, FRAC_1_SQRT_2, FRAC_PI_2, FRAC_PI_4, LN_2, LOG2_E, PI, SQRT_2};
 
 // ============================================================================
 // SIMD Utility Functions
@@ -561,7 +561,7 @@ pub unsafe fn _mm256_asin_ps(d: __m256) -> __m256 {
     let ones = _mm256_set1_ps(1.0f32); // Domain boundary for arcsine
     let half = _mm256_set1_ps(0.5f32); // Threshold for range reduction
     let two = _mm256_set1_ps(2.0f32); // Scaling factor for range reduction
-    let pi_2 = _mm256_set1_ps(std::f32::consts::FRAC_PI_2); // π/2 for identity formula
+    let pi_2 = _mm256_set1_ps(FRAC_PI_2); // π/2 for identity formula
     let nan = _mm256_set1_ps(f32::NAN); // Error value for invalid inputs
 
     // Extract absolute values by clearing sign bits
@@ -702,7 +702,7 @@ pub unsafe fn _mm256_asin_ps(d: __m256) -> __m256 {
 pub unsafe fn _mm256_acos_ps(d: __m256) -> __m256 {
     // Mathematical constant π/2 used in the identity acos(x) = π/2 - asin(x)
     // This provides the reference angle for the complementary relationship
-    let pi_2 = _mm256_set1_ps(std::f32::consts::FRAC_PI_2);
+    let pi_2 = _mm256_set1_ps(FRAC_PI_2);
 
     // Compute asin(d) using our optimized arcsine implementation
     // This handles all domain validation, special cases, and high-precision computation
@@ -841,7 +841,7 @@ pub unsafe fn _mm256_atan_ps(x: __m256) -> __m256 {
     // Mathematical constants
     let zero = _mm256_setzero_ps();
     let one = _mm256_set1_ps(1.0f32);
-    let pi_2 = _mm256_set1_ps(std::f32::consts::FRAC_PI_2);
+    let pi_2 = _mm256_set1_ps(FRAC_PI_2);
 
     // Extract sign and compute absolute value
     let negative_mask = _mm256_cmp_ps(x, zero, _CMP_LT_OS);
@@ -940,8 +940,8 @@ pub unsafe fn _mm256_atan_ps(x: __m256) -> __m256 {
 #[inline(always)]
 pub unsafe fn _mm256_atan2_ps(y: __m256, x: __m256) -> __m256 {
     let zero = _mm256_setzero_ps();
-    let pi = _mm256_set1_ps(std::f32::consts::PI);
-    let pi_2 = _mm256_set1_ps(std::f32::consts::FRAC_PI_2);
+    let pi = _mm256_set1_ps(PI);
+    let pi_2 = _mm256_set1_ps(FRAC_PI_2);
     let nan = _mm256_set1_ps(f32::NAN);
 
     // Check for NaN inputs
@@ -998,8 +998,8 @@ pub unsafe fn _mm256_atan2_ps(y: __m256, x: __m256) -> __m256 {
     result = _mm256_blendv_ps(result, zero, both_zero);
 
     // Handle infinite cases
-    let pi_4 = _mm256_set1_ps(std::f32::consts::FRAC_PI_4);
-    let three_pi_4 = _mm256_set1_ps(3.0 * std::f32::consts::FRAC_PI_4);
+    let pi_4 = _mm256_set1_ps(FRAC_PI_4);
+    let three_pi_4 = _mm256_set1_ps(3.0 * FRAC_PI_4);
 
     // Both infinite: atan2(±∞, ±∞)
     let both_inf = _mm256_and_ps(x_is_inf, y_is_inf);
@@ -1178,7 +1178,7 @@ pub unsafe fn _mm256_exp_ps(x: __m256) -> __m256 {
     // Constants for range reduction: ln(2) split into high and low parts for precision
     let ln2_hi = _mm256_set1_ps(0.6931471824645996); // High part of ln(2)
     let ln2_lo = _mm256_set1_ps(-1.904654323148236e-09); // Low part of ln(2)
-    let log2e = _mm256_set1_ps(std::f32::consts::LOG2_E); // 1/ln(2)
+    let log2e = _mm256_set1_ps(LOG2_E); // 1/ln(2)
 
     // Range limits for safe computation
     let max_input = _mm256_set1_ps(88.0); // exp(88) ≈ 1.6e38 (near f32::MAX)
@@ -1774,7 +1774,7 @@ pub unsafe fn _mm256_sin_ps(x: __m256) -> __m256 {
 
     // Range reduction: reduce x to [-π/2, π/2] range
     // q = round(x / π)
-    let inv_pi = _mm256_set1_ps(std::f32::consts::FRAC_1_PI);
+    let inv_pi = _mm256_set1_ps(FRAC_1_PI);
     let x_over_pi = _mm256_mul_ps(x, inv_pi);
 
     // Round to nearest integer using round-to-even
@@ -1836,11 +1836,11 @@ pub unsafe fn _mm256_cos_ps(x: __m256) -> __m256 {
 
     // Use the identity: cos(x) = sin(x + π/2)
     // Add π/2 to convert cosine to sine
-    let x_shifted = _mm256_add_ps(x_abs, _mm256_set1_ps(std::f32::consts::FRAC_PI_2));
+    let x_shifted = _mm256_add_ps(x_abs, _mm256_set1_ps(FRAC_PI_2));
 
     // Range reduction: reduce to [-π/2, π/2] range
     // q = round(x_shifted / π)
-    let inv_pi = _mm256_set1_ps(std::f32::consts::FRAC_1_PI);
+    let inv_pi = _mm256_set1_ps(FRAC_1_PI);
     let x_over_pi = _mm256_mul_ps(x_shifted, inv_pi);
 
     // Round to nearest integer using round-to-even
@@ -1888,61 +1888,93 @@ pub unsafe fn _mm256_cos_ps(x: __m256) -> __m256 {
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
 #[inline(always)]
-pub unsafe fn _mm256_tan_ps(d: __m256) -> __m256 {
-    // Range reduction: reduce to [-π/4, π/4]
+pub unsafe fn _mm256_tan_ps(x: __m256) -> __m256 {
+    let zero = _mm256_setzero_ps();
+    let one = _mm256_set1_ps(1.0);
+    let inf = _mm256_set1_ps(f32::INFINITY);
+    let nan = _mm256_set1_ps(f32::NAN);
+    
+    // Handle special cases first
+    let is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
+    let is_inf = _mm256_cmp_ps(_mm256_abs_ps(x), inf, _CMP_EQ_OS);
+    let special_mask = _mm256_or_ps(is_nan, is_inf);
+    
+    // Range reduction using tan period π
+    // q = round(x * 2/π) to get which π/2 interval we're in
+    let two_over_pi = _mm256_set1_ps(2.0 / PI);
     let q = _mm256_round_ps(
-        _mm256_mul_ps(d, _mm256_set1_ps(std::f32::consts::FRAC_2_PI)),
+        _mm256_mul_ps(x, two_over_pi),
         _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC,
     );
-    let qf = _mm256_cvtps_epi32(q);
-
-    // Reduced range: r = d - q * π/2
-    // Use high-precision π/2 decomposition for accuracy
-    let mut r = _mm256_fmadd_ps(q, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_1 * 0.5), d);
-    r = _mm256_fmadd_ps(q, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_2 * 0.5), r);
-    r = _mm256_fmadd_ps(q, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_3 * 0.5), r);
-    r = _mm256_fmadd_ps(q, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_4 * 0.5), r);
-
-    // Determine if q is even or odd for correct branch selection
-    let is_even = _mm256_cmpeq_epi32(
-        _mm256_and_si256(qf, _mm256_set1_epi32(1)),
-        _mm256_setzero_si256(),
-    );
-
-    // No sign correction needed here - handle it in the final result
-    let is_even_f = _mm256_castsi256_ps(is_even);
-
-    let x2 = _mm256_mul_ps(r, r);
-
-    // Compute tangent polynomial approximation
-    // tan(r) ≈ r * (1 + x²*(c₁ + x²*(c₂ + x²*(c₃ + x²*(c₄ + x²*c₅)))))
-    let mut res = _mm256_set1_ps(TAN_COEFF_9);
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_8));
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_7));
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_6));
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_5));
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_4));
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_3));
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_2));
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_1));
-    res = _mm256_fmadd_ps(res, _mm256_mul_ps(x2, r), r);
-
-    // For even q: result = tan(r)
-    // For odd q: result = -cot(r) = -1/tan(r)
-    let cot_result = _mm256_div_ps(_mm256_set1_ps(1.0), res);
-    res = _mm256_blendv_ps(
-        _mm256_sub_ps(_mm256_setzero_ps(), cot_result),
-        res,
-        is_even_f,
-    );
-
-    res
+    
+    // Reduced argument: r = x - q * π/2
+    // Use high-precision π/2 for accuracy
+    let pi_2_hi = PI_HIGH_PRECISION_PART_1 * 0.5;
+    let pi_2_lo = PI_HIGH_PRECISION_PART_2 * 0.5 + 
+                  PI_HIGH_PRECISION_PART_3 * 0.5 + 
+                  PI_HIGH_PRECISION_PART_4 * 0.5;
+    
+    let mut r = _mm256_fmadd_ps(q, _mm256_set1_ps(-pi_2_hi), x);
+    r = _mm256_fmadd_ps(q, _mm256_set1_ps(-pi_2_lo), r);
+    
+    // Determine quadrant (q mod 4)
+    let qi = _mm256_cvtps_epi32(q);
+    let quadrant = _mm256_and_si256(qi, _mm256_set1_epi32(3));
+    
+    // Quadrant logic:
+    // 0: tan(r)    1: -cot(r)    2: tan(r)    3: -cot(r)
+    let use_cot = _mm256_castsi256_ps(_mm256_cmpeq_epi32(
+        _mm256_and_si256(quadrant, _mm256_set1_epi32(1)),
+        _mm256_set1_epi32(1),
+    ));
+    
+    // Note: negate_result logic is handled in should_negate_cot below
+    
+    // Compute tan(r) using polynomial approximation
+    let r2 = _mm256_mul_ps(r, r);
+    
+    // Optimized tan polynomial: tan(r) = r + r³/3 + 2r⁵/15 + ...
+    let mut poly = _mm256_set1_ps(TAN_COEFF_9);
+    poly = _mm256_fmadd_ps(poly, r2, _mm256_set1_ps(TAN_COEFF_8));
+    poly = _mm256_fmadd_ps(poly, r2, _mm256_set1_ps(TAN_COEFF_7));
+    poly = _mm256_fmadd_ps(poly, r2, _mm256_set1_ps(TAN_COEFF_6));
+    poly = _mm256_fmadd_ps(poly, r2, _mm256_set1_ps(TAN_COEFF_5));
+    poly = _mm256_fmadd_ps(poly, r2, _mm256_set1_ps(TAN_COEFF_4));
+    poly = _mm256_fmadd_ps(poly, r2, _mm256_set1_ps(TAN_COEFF_3));
+    poly = _mm256_fmadd_ps(poly, r2, _mm256_set1_ps(TAN_COEFF_2));
+    poly = _mm256_fmadd_ps(poly, r2, _mm256_set1_ps(TAN_COEFF_1));
+    
+    let tan_r = _mm256_fmadd_ps(poly, _mm256_mul_ps(r2, r), r);
+    
+    // For cot(r) = 1/tan(r), handle small values to avoid division by zero
+    let small_threshold = _mm256_set1_ps(1e-8);
+    let r_is_small = _mm256_cmp_ps(_mm256_abs_ps(r), small_threshold, _CMP_LT_OS);
+    
+    // For very small r: cot(r) ≈ 1/r
+    let cot_small = _mm256_div_ps(one, r);
+    let cot_normal = _mm256_div_ps(one, tan_r);
+    let cot_r = _mm256_blendv_ps(cot_normal, cot_small, r_is_small);
+    
+    // Select tan or cot based on quadrant
+    let mut result = _mm256_blendv_ps(tan_r, cot_r, use_cot);
+    
+    // Apply negation for quadrants 1 and 3 when using cot
+    let should_negate_cot = _mm256_and_ps(use_cot, _mm256_castsi256_ps(_mm256_cmpeq_epi32(
+        _mm256_and_si256(quadrant, _mm256_set1_epi32(1)),
+        _mm256_set1_epi32(1),
+    )));
+    result = _mm256_blendv_ps(result, _mm256_sub_ps(zero, result), should_negate_cot);
+    
+    // Handle special cases
+    result = _mm256_blendv_ps(result, nan, special_mask);
+    
+    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::f32::consts::{FRAC_PI_2, FRAC_PI_3, FRAC_PI_4, FRAC_PI_6, PI, SQRT_2};
+    use std::f32::consts::{E, FRAC_1_SQRT_2, FRAC_PI_3, FRAC_PI_6, LN_10, LOG10_2};
 
     const SQRT_3: f32 = 1.7320508075688772935274463415058723669428052538103806280558069794;
 
@@ -2143,10 +2175,10 @@ mod tests {
             let input = [
                 0.0,
                 0.5,
-                std::f32::consts::FRAC_1_SQRT_2,
+                FRAC_1_SQRT_2,
                 1.0,
                 -0.5,
-                -std::f32::consts::FRAC_1_SQRT_2,
+                -FRAC_1_SQRT_2,
                 -1.0,
                 0.0,
             ];
@@ -2259,17 +2291,18 @@ mod tests {
     }
 
     mod acos_tests {
+
         use super::*;
 
         #[test]
         fn test_acos_standard_values() {
             let input = [
                 1.0,
-                std::f32::consts::FRAC_1_SQRT_2,
+                FRAC_1_SQRT_2,
                 0.5,
                 0.0,
                 -0.5,
-                -std::f32::consts::FRAC_1_SQRT_2,
+                -FRAC_1_SQRT_2,
                 -1.0,
                 1.0,
             ];
@@ -2678,6 +2711,7 @@ mod tests {
     }
 
     mod atan_tests {
+
         use super::*;
 
         #[test]
@@ -2880,8 +2914,6 @@ mod tests {
     }
 
     mod atan2_tests {
-        use core::f32;
-
         use super::*;
 
         #[test]
@@ -3116,7 +3148,6 @@ mod tests {
     }
 
     mod comprehensive_tests {
-        use std::f32::consts::FRAC_1_SQRT_2;
 
         use super::*;
 
@@ -3266,8 +3297,8 @@ mod tests {
     }
 
     mod cbrt_tests {
+
         use super::*;
-        use std::f32::consts::E;
 
         #[test]
         fn test_cbrt_basic_values() {
@@ -3435,37 +3466,11 @@ mod tests {
             // Comprehensive test to verify 1e-7 precision achievement
             let test_values = [
                 // Perfect cubes
-                1.0,
-                8.0,
-                27.0,
-                64.0,
-                125.0,
-                216.0,
-                343.0,
-                512.0,
-                // Common fractions
-                0.125,
-                0.216,
-                0.343,
-                0.512,
-                0.729,
-                1.331,
-                2.197,
-                3.375,
+                1.0, 8.0, 27.0, 64.0, 125.0, 216.0, 343.0, 512.0, // Common fractions
+                0.125, 0.216, 0.343, 0.512, 0.729, 1.331, 2.197, 3.375,
                 // Mathematical constants
-                std::f32::consts::E,
-                std::f32::consts::PI,
-                std::f32::consts::SQRT_2,
-                std::f32::consts::LN_2,
-                // Various scales
-                0.1,
-                0.5,
-                1.5,
-                2.5,
-                5.0,
-                10.0,
-                50.0,
-                100.0,
+                E, PI, SQRT_2, LN_2, // Various scales
+                0.1, 0.5, 1.5, 2.5, 5.0, 10.0, 50.0, 100.0,
             ];
 
             for chunk in test_values.chunks(8) {
@@ -3512,8 +3517,8 @@ mod tests {
     // ============================================================================
 
     mod exp_tests {
+
         use super::*;
-        use std::f32::consts::{E, LN_10, LN_2};
 
         #[test]
         fn test_exp_basic_values() {
@@ -3562,7 +3567,7 @@ mod tests {
             assert_eq!(result_vals[6], 0.0); // exp(-87.5) = 0 (underflow)
 
             // Check normal value
-            let expected_e = std::f32::consts::E;
+            let expected_e = E;
             assert_approx_eq_rel(result_vals[7], expected_e, 1e-6);
         }
 
@@ -3617,21 +3622,7 @@ mod tests {
         fn test_exp_precision_comparison() {
             // Test against standard library implementation
             let test_values = [
-                0.1,
-                0.5,
-                0.9,
-                1.1,
-                2.0,
-                PI,
-                std::f32::consts::E,
-                10.0,
-                -0.1,
-                -0.5,
-                -1.0,
-                -2.0,
-                -5.0,
-                -10.0,
-                LN_2,
+                0.1, 0.5, 0.9, 1.1, 2.0, PI, E, 10.0, -0.1, -0.5, -1.0, -2.0, -5.0, -10.0, LN_2,
                 LN_10,
             ];
 
@@ -3744,20 +3735,8 @@ mod tests {
             // Comprehensive test to demonstrate high precision achievement
             let test_values = [
                 // Special mathematical values
-                0.0,
-                1.0,
-                -1.0,
-                std::f32::consts::E,
-                std::f32::consts::LN_2,
-                // Common values
-                0.1,
-                0.5,
-                2.0,
-                5.0,
-                10.0,
-                -0.5,
-                -2.0,
-                -5.0,
+                0.0, 1.0, -1.0, E, LN_2, // Common values
+                0.1, 0.5, 2.0, 5.0, 10.0, -0.5, -2.0, -5.0,
             ];
 
             for chunk in test_values.chunks(8) {
@@ -3859,6 +3838,7 @@ mod tests {
     }
 
     mod ln_tests {
+
         use super::*;
 
         #[test]
@@ -3995,7 +3975,7 @@ mod tests {
             }
 
             // Test ln(e) = 1
-            let e_input = create_f32x8([std::f32::consts::E; 8]);
+            let e_input = create_f32x8([E; 8]);
             let e_result = unsafe { _mm256_ln_ps(e_input) };
             let e_vals = extract_f32x8(e_result);
             for val in e_vals {
@@ -4003,7 +3983,7 @@ mod tests {
             }
 
             // Test ln(e^2) = 2
-            let e2_input = create_f32x8([std::f32::consts::E * std::f32::consts::E; 8]);
+            let e2_input = create_f32x8([E * E; 8]);
             let e2_result = unsafe { _mm256_ln_ps(e2_input) };
             let e2_vals = extract_f32x8(e2_result);
             for val in e2_vals {
@@ -4774,7 +4754,6 @@ mod tests {
     }
 
     mod pow_tests {
-        use std::f32::consts::{E, LOG10_2};
 
         use super::*;
 
@@ -5089,19 +5068,19 @@ mod tests {
         #[test]
         fn test_pow_precision_comparison() {
             // Test precision against known values
-            let x_input = [2.0, std::f32::consts::E, 10.0, 0.5, 3.0, 7.0, 1.5, 2.5];
+            let x_input = [2.0, E, 10.0, 0.5, 3.0, 7.0, 1.5, 2.5];
             let y_input = [10.0, 2.0, LOG10_2, 4.0, 4.0, 2.0, 6.0, 3.0];
 
             // Known precise values
             let expected = [
-                1024.0,                      // 2^10
-                std::f32::consts::E.powi(2), // e^2
-                2.0,                         // 10^(log10(2)) ≈ 2
-                0.0625,                      // 0.5^4 = 1/16
-                81.0,                        // 3^4
-                49.0,                        // 7^2
-                11.390625,                   // 1.5^6
-                15.625,                      // 2.5^3
+                1024.0,    // 2^10
+                E.powi(2), // e^2
+                2.0,       // 10^(log10(2)) ≈ 2
+                0.0625,    // 0.5^4 = 1/16
+                81.0,      // 3^4
+                49.0,      // 7^2
+                11.390625, // 1.5^6
+                15.625,    // 2.5^3
             ];
 
             let result = unsafe { _mm256_pow_ps(create_f32x8(x_input), create_f32x8(y_input)) };
@@ -5110,6 +5089,7 @@ mod tests {
     }
 
     mod sin_tests {
+
         use super::*;
 
         #[test]
@@ -5128,7 +5108,7 @@ mod tests {
             let expected = [
                 0.0,
                 0.5,
-                std::f32::consts::FRAC_1_SQRT_2,
+                FRAC_1_SQRT_2,
                 3.0_f32.sqrt() / 2.0,
                 1.0,
                 0.0,
