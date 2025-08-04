@@ -28,7 +28,8 @@
 //!
 //! # Memory Layout Considerations
 //!
-//! - **Alignment**: Optimal performance with 32-byte aligned data
+//! - **Cross-platform compatibility**: Uses unaligned memory access for better Windows compatibility
+//! - **Standard allocation**: Uses Rust's standard Vec allocator for reliability across platforms
 //! - **Cache**: Designed to minimize cache misses with sequential access
 //! - **Bandwidth**: Efficient memory utilization for large datasets
 //!
@@ -129,8 +130,7 @@ use crate::{
         slice::scalar_add,
         SimdCmp, SimdLoad, SimdMath, SimdStore,
     },
-    utils::alloc_uninit_f32_vec,
-    SimdAdd, PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD, SIMD_THRESHOLD,
+    FastAdd, SimdAdd, PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD, SIMD_THRESHOLD,
 };
 
 // ================================================================================================
@@ -152,7 +152,7 @@ use crate::{
 ///
 /// 1. **Aligned Processing**: Processes complete 8-element chunks using `simd_add_block`
 /// 2. **Remainder Processing**: Handles remaining elements using `simd_add_partial_block`
-/// 3. **Memory Management**: Uses aligned memory allocation for optimal performance
+/// 3. **Memory Management**: Uses standard Vec allocation for cross-platform compatibility
 ///
 /// # Arguments
 ///
@@ -161,8 +161,7 @@ use crate::{
 ///
 /// # Returns
 ///
-/// A `Result` containing a new vector with the element-wise sum, allocated with proper alignment,
-/// or an error if validation or allocation fails.
+/// A new vector with the element-wise sum, using standard Vec allocation for cross-platform compatibility.
 ///
 /// # Performance
 ///
@@ -200,7 +199,11 @@ pub(crate) fn simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
 
     let size = a.len();
 
-    let mut c = alloc_uninit_f32_vec(size, f32x8::AVX_ALIGNMENT);
+    let mut c = {
+        let mut c = Vec::with_capacity(size);
+        unsafe { c.set_len(size) };
+        c
+    };
 
     let step = f32x8::LANE_COUNT;
 
@@ -258,8 +261,8 @@ fn simd_add_block(a: *const f32, b: *const f32, c: *mut f32) {
     // Perform vectorized addition (8 operations in parallel)
     let result = a_chunk_simd + b_chunk_simd;
 
-    // Store the result back to memory with aligned access
-    unsafe { result.store_aligned_at(c) };
+    // Store the result back to memory (using unaligned store for Windows compatibility)
+    result.store_at(c);
 }
 
 /// Processes a partial block (fewer than 8 elements) using masked SIMD operations.
@@ -350,7 +353,11 @@ pub(crate) fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
 
     let size = a.len();
 
-    let mut c = alloc_uninit_f32_vec(size, f32x8::AVX_ALIGNMENT);
+    let mut c = {
+        let mut c = Vec::with_capacity(size);
+        unsafe { c.set_len(size) };
+        c
+    };
 
     let step = f32x8::LANE_COUNT;
 
@@ -367,12 +374,22 @@ pub(crate) fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
             // Process complete SIMD blocks within this chunk
             let complete_blocks = (chunk_len / step) * step;
             for i in (0..complete_blocks).step_by(step) {
+                // Bounds check to prevent out-of-bounds access
+                debug_assert!(start_idx + i + step <= a.len(), "Index out of bounds: start_idx={}, i={}, step={}, a.len()={}", start_idx, i, step, a.len());
+                debug_assert!(start_idx + i + step <= b.len(), "Index out of bounds: start_idx={}, i={}, step={}, b.len()={}", start_idx, i, step, b.len());
+                debug_assert!(i + step <= c_chunk.len(), "Index out of bounds: i={}, step={}, c_chunk.len()={}", i, step, c_chunk.len());
+                
                 simd_add_block(&a[start_idx + i], &b[start_idx + i], &mut c_chunk[i]);
             }
 
             // Handle remaining elements in this chunk
             if chunk_len > complete_blocks {
                 let remaining = chunk_len - complete_blocks;
+                // Bounds check for partial block
+                debug_assert!(start_idx + complete_blocks + remaining <= a.len(), "Partial block out of bounds: start_idx={}, complete_blocks={}, remaining={}, a.len()={}", start_idx, complete_blocks, remaining, a.len());
+                debug_assert!(start_idx + complete_blocks + remaining <= b.len(), "Partial block out of bounds: start_idx={}, complete_blocks={}, remaining={}, b.len()={}", start_idx, complete_blocks, remaining, b.len());
+                debug_assert!(complete_blocks + remaining <= c_chunk.len(), "Partial block out of bounds: complete_blocks={}, remaining={}, c_chunk.len()={}", complete_blocks, remaining, c_chunk.len());
+                
                 simd_add_partial_block(
                     &a[start_idx + complete_blocks],
                     &b[start_idx + complete_blocks],
@@ -554,7 +571,11 @@ pub(crate) fn simd_cos(a: &[f32]) -> Vec<f32> {
 
     let size = a.len();
 
-    let mut c = alloc_uninit_f32_vec(size, f32x8::AVX_ALIGNMENT);
+    let mut c = {
+        let mut c = Vec::with_capacity(size);
+        unsafe { c.set_len(size) };
+        c
+    };
 
     let step = f32x8::LANE_COUNT;
 
@@ -582,7 +603,11 @@ pub fn parallel_simd_cos(a: &[f32]) -> Vec<f32> {
 
     let size = a.len();
 
-    let mut c = alloc_uninit_f32_vec(size, f32x8::AVX_ALIGNMENT);
+    let mut c = {
+        let mut c = Vec::with_capacity(size);
+        unsafe { c.set_len(size) };
+        c
+    };
 
     let step = f32x8::LANE_COUNT;
 
@@ -599,12 +624,20 @@ pub fn parallel_simd_cos(a: &[f32]) -> Vec<f32> {
             // Process complete SIMD blocks within this chunk
             let complete_blocks = (chunk_len / step) * step;
             for i in (0..complete_blocks).step_by(step) {
+                // Bounds check to prevent out-of-bounds access
+                debug_assert!(start_idx + i + step <= a.len(), "Index out of bounds: start_idx={}, i={}, step={}, a.len()={}", start_idx, i, step, a.len());
+                debug_assert!(i + step <= c_chunk.len(), "Index out of bounds: i={}, step={}, c_chunk.len()={}", i, step, c_chunk.len());
+                
                 simd_cos_block(&a[start_idx + i], &mut c_chunk[i]);
             }
 
             // Handle remaining elements in this chunk
             if chunk_len > complete_blocks {
                 let remaining = chunk_len - complete_blocks;
+                // Bounds check for partial block
+                debug_assert!(start_idx + complete_blocks + remaining <= a.len(), "Partial block out of bounds: start_idx={}, complete_blocks={}, remaining={}, a.len()={}", start_idx, complete_blocks, remaining, a.len());
+                debug_assert!(complete_blocks + remaining <= c_chunk.len(), "Partial block out of bounds: complete_blocks={}, remaining={}, c_chunk.len()={}", complete_blocks, remaining, c_chunk.len());
+                
                 simd_cos_partial_block(
                     &a[start_idx + complete_blocks],
                     &mut c_chunk[complete_blocks],
@@ -654,8 +687,8 @@ fn simd_cos_block(a: *const f32, c: *mut f32) {
     // Perform vectorized cosine computation (8 operations in parallel)
     let result = a_chunk_simd.cos();
 
-    // Store the result back to memory with aligned access
-    unsafe { result.store_aligned_at(c) };
+    // Store the result back to memory (using unaligned store for Windows compatibility)
+    result.store_at(c);
 }
 
 /// Processes a partial block (fewer than 8 elements) using masked AVX2 operations.
@@ -758,7 +791,11 @@ pub(crate) fn eq_elementwise(a: &[f32], b: &[f32]) -> Vec<f32> {
 
     let size = a.len();
 
-    let mut c = alloc_uninit_f32_vec(size, f32x8::AVX_ALIGNMENT);
+    let mut c = {
+        let mut c = Vec::with_capacity(size);
+        unsafe { c.set_len(size) };
+        c
+    };
 
     let step = f32x8::LANE_COUNT;
 
@@ -797,6 +834,6 @@ fn eq_elementwise_block(a: *const f32, b: *const f32, c: *mut f32) {
     let a_chunk_simd = unsafe { F32x8::load(a, f32x8::LANE_COUNT) };
     let b_chunk_simd = unsafe { F32x8::load(b, f32x8::LANE_COUNT) };
 
-    // Store the result back to memory with aligned access
+    // Store the result back to memory (using unaligned store for Windows compatibility)
     a_chunk_simd.simd_eq(b_chunk_simd).store_at(c);
 }
