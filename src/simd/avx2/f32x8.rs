@@ -621,6 +621,7 @@ impl SimdCmp for F32x8 {
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
