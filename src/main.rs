@@ -4,10 +4,8 @@
 //! The actual SIMD functionality is provided through the library modules.
 
 fn main() {
-    let x = 1;
-    let y = 2;
+    let a: Vec<i32> = (0..100).collect();
+    let b: Vec<i32> = (1..10).collect();
 
-    let c = x < y;
-
-    println!("{c}",);
+    a.iter().zip(b).for_each(|(a, b)| println!("{}, {}", a, b));
 }

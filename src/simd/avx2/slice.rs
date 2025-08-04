@@ -127,7 +127,7 @@ use crate::{
     simd::{
         avx2::f32x8::{self, F32x8},
         slice::scalar_add,
-        SimdLoad, SimdMath, SimdStore,
+        SimdCmp, SimdLoad, SimdMath, SimdStore,
     },
     utils::alloc_uninit_f32_vec,
     FastAdd, SimdAdd, PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD, SIMD_THRESHOLD,
@@ -1288,4 +1288,66 @@ impl FastAdd<Vec<f32>> for Vec<f32> {
     fn fast_add(self, rhs: Vec<f32>) -> Self::Output {
         self.as_slice().fast_add(rhs.as_slice())
     }
+}
+
+impl<'b> SimdCmp<&'b [f32]> for &[f32] {
+    type Output = Vec<f32>;
+
+    #[inline(always)]
+    fn simd_eq(self, rhs: &'b [f32]) -> Self::Output {
+        eq_elementwise(self, rhs)
+    }
+}
+
+#[inline(always)]
+fn eq_elementwise(a: &[f32], b: &[f32]) -> Vec<f32> {
+    debug_assert!(
+        !a.is_empty() & !b.is_empty(),
+        "Size can't be empty (size zero)"
+    );
+    debug_assert_eq!(a.len(), b.len(), "Vectors must be the same length");
+
+    let size = a.len();
+
+    let mut c = alloc_uninit_f32_vec(size, f32x8::AVX_ALIGNMENT);
+
+    let step = f32x8::LANE_COUNT;
+
+    let complete_lanes = size - (size % step);
+    let remaining_lanes = size - complete_lanes;
+
+    for i in (0..complete_lanes).step_by(step) {
+        eq_elementwise_block(&a[i], &b[i], &mut c[i]);
+    }
+
+    if remaining_lanes > 0 {
+        eq_elementwise_partial_block(
+            &a[complete_lanes],
+            &b[complete_lanes],
+            &mut c[complete_lanes],
+            remaining_lanes, // number of remaining incomplete lanes
+        );
+    }
+
+    c
+}
+
+#[inline(always)]
+fn eq_elementwise_partial_block(a: *const f32, b: *const f32, c: *mut f32, size: usize) {
+    // Load partial data using masked operations (prevents buffer overrun)
+    let a_chunk_simd = unsafe { F32x8::load_partial(a, size) };
+    let b_chunk_simd = unsafe { F32x8::load_partial(b, size) };
+
+    // Perform addition and store only the valid elements
+    unsafe { a_chunk_simd.simd_eq(b_chunk_simd).store_at_partial(c) };
+}
+
+#[inline(always)]
+fn eq_elementwise_block(a: *const f32, b: *const f32, c: *mut f32) {
+    // Load 8 f32 values using AVX2 SIMD instructions
+    let a_chunk_simd = unsafe { F32x8::load(a, f32x8::LANE_COUNT) };
+    let b_chunk_simd = unsafe { F32x8::load(b, f32x8::LANE_COUNT) };
+
+    // Store the result back to memory with aligned access
+    a_chunk_simd.simd_eq(b_chunk_simd).store_at(c);
 }

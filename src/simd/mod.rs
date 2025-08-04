@@ -567,3 +567,9 @@ pub trait SimdMath {
     /// Computed with care to avoid intermediate overflow/underflow.
     fn hypot4(&self) -> Self::Output;
 }
+
+pub trait SimdCmp<Rhs = Self> {
+    type Output;
+
+    fn simd_eq(self, rhs: Rhs) -> Self::Output;
+}

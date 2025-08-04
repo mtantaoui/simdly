@@ -12,7 +12,7 @@ use std::arch::x86_64::*;
 
 use std::ops::Add;
 
-use crate::simd::{avx2::math::*, Alignment, SimdLoad, SimdMath, SimdStore};
+use crate::simd::{avx2::math::*, Alignment, SimdCmp, SimdLoad, SimdMath, SimdStore};
 
 pub(crate) const AVX_ALIGNMENT: usize = 32;
 pub(crate) const LANE_COUNT: usize = 8;
@@ -602,6 +602,25 @@ impl Add for F32x8 {
     }
 }
 
+impl SimdCmp for F32x8 {
+    type Output = Self;
+    #[inline(always)]
+    fn simd_eq(self, rhs: Self) -> Self::Output {
+        debug_assert!(
+            self.size == rhs.size,
+            "Operands must have the same size (expected {} lanes, got {} and {})",
+            LANE_COUNT,
+            self.size,
+            rhs.size
+        );
+
+        let elements = unsafe { _mm256_cmp_ps(self.elements, rhs.elements, _CMP_EQ_OQ) };
+        Self {
+            elements,
+            size: self.size,
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

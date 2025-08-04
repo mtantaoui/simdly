@@ -41,6 +41,10 @@ harness = false
 name = "readable_report"
 harness = false
 
+[[bench]]
+name = "eq"
+harness = false
+
 [[example]]
 name = "fast_add"
 
