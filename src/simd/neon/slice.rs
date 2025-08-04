@@ -82,16 +82,55 @@ use crate::{
     simd::{
         neon::f32x4::{self, F32x4},
         slice::scalar_add,
-        SimdLoad, SimdMath, SimdStore,
+        SimdCmp, SimdLoad, SimdMath, SimdStore,
     },
-    SimdAdd, PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD, SIMD_THRESHOLD,
+    PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD, SIMD_THRESHOLD,
 };
 use rayon::prelude::*;
 
-// #[target_feature(enable = "neon")]
+/// Computes element-wise addition using ARM NEON SIMD instructions.
+///
+/// This function provides a vectorized implementation of addition using ARM NEON
+/// 128-bit SIMD instructions. It processes 4 f32 values simultaneously with automatic
+/// fallback to scalar operations for small arrays to avoid SIMD overhead.
+///
+/// # Performance Strategy
+///
+/// - **Adaptive threshold**: Uses `SIMD_THRESHOLD` to determine when SIMD is beneficial
+/// - **Small arrays**: Falls back to `scalar_add` for arrays below threshold
+/// - **Vectorized processing**: Processes 4 f32 elements simultaneously using NEON
+/// - **Remainder handling**: Uses partial SIMD operations for non-multiple-of-4 sizes
+///
+/// # Implementation Details
+///
+/// The function uses a two-phase approach:
+/// 1. **Main loop**: Processes complete 4-element blocks using `simd_add_block`
+/// 2. **Remainder handling**: Uses `simd_add_partial_block` for remaining elements
+///
+/// # Arguments
+///
+/// * `a` - First input slice for addition
+/// * `b` - Second input slice for addition (must be same length as `a`)
+///
+/// # Returns
+///
+/// A new vector containing the element-wise sum of the input arrays.
+///
+/// # Panics
+///
+/// Panics if:
+/// - Either input slice is empty
+/// - Input slices have different lengths
+///
+/// # Safety
+///
+/// This function uses `unsafe` operations for:
+/// - Uninitialized memory allocation (immediately overwritten by SIMD operations)
+/// - Direct NEON intrinsic calls through F32x4 wrapper
+/// - Raw pointer arithmetic for block processing
 #[allow(clippy::uninit_vec)]
 #[inline(always)]
-fn simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
+pub(crate) fn simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
     // For small arrays, fall back to regular SCALAR to avoid threading overhead
     if a.len() < SIMD_THRESHOLD {
         return scalar_add(a, b);
@@ -125,7 +164,7 @@ fn simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
             &a[nb_lanes],
             &b[nb_lanes],
             &mut c[nb_lanes],
-            rem_lanes, // number of reminaing uncomplete lanes
+            rem_lanes, // number of remaining incomplete lanes
         );
     }
 
@@ -348,8 +387,9 @@ fn simd_add_partial_block(a: *const f32, b: *const f32, c: *mut f32, size: usize
 /// assert_eq!(result.len(), 1_000_000);
 /// assert_eq!(result[0], 3.0);
 /// ```
-#[target_feature(enable = "neon")]
-fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
+#[allow(clippy::uninit_vec)]
+#[inline(always)]
+pub(crate) fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
     // For small arrays, fall back to regular SCALAR to avoid threading overhead
     if a.len() < PARALLEL_SIMD_THRESHOLD {
         return scalar_add(a, b);
@@ -364,7 +404,6 @@ fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
 
     let size = a.len();
 
-    #[allow(clippy::uninit_vec)]
     let mut c = {
         let mut c = Vec::with_capacity(size);
         unsafe { c.set_len(size) };
@@ -402,226 +441,6 @@ fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
         });
 
     c
-}
-
-/// Implementation of SIMD addition operations for f32 slices using ARM NEON.
-///
-/// This trait implementation provides the primary interface for performing vectorized
-/// addition operations on f32 slices. It offers three different approaches optimized
-/// for different array sizes and performance requirements.
-///
-/// # Performance-Adaptive Algorithm Selection
-///
-/// The implementation uses intelligent algorithm selection based on array size:
-///
-/// - **Small arrays** (< 64KB): `scalar_add` for minimal overhead
-/// - **Medium arrays** (64KB - 40MB): `simd_add` for vectorized performance  
-/// - **Large arrays** (> 40MB): `par_simd_add` for maximum parallel throughput
-///
-/// # Benchmark Results Summary
-///
-/// Based on comprehensive benchmarking on ARM NEON hardware:
-///
-/// | Array Size | Scalar (ns) | SIMD (ns) | Parallel (ns) | Best Choice |
-/// |------------|-------------|-----------|---------------|-------------|
-/// | 4 KiB      | 81.5        | 82.5      | N/A           | Scalar      |
-/// | 256 KiB    | ~50,000     | ~25,000   | ~30,000       | SIMD        |
-/// | 16 MiB     | ~3,000,000  | ~1,500,000| ~400,000      | Parallel    |
-/// | 128 MiB    | ~25,000,000 | ~12,000,000| ~3,000,000   | Parallel    |
-///
-/// # Implementation Methods
-///
-/// ## `simd_add` - Vectorized Single-Threaded Addition
-/// - **Best for**: Medium-sized arrays (64KB - 40MB)  
-/// - **Performance**: Up to 2x faster than scalar for computational workloads
-/// - **Overhead**: Minimal SIMD setup cost, cache-friendly access patterns
-/// - **Use case**: Most general-purpose addition operations
-///
-/// ## `par_simd_add` - Parallel Vectorized Addition  
-/// - **Best for**: Large arrays (> 40MB) on multi-core systems
-/// - **Performance**: Up to 8x faster than scalar on 8-core ARM processors
-/// - **Overhead**: Thread management cost amortized over large datasets
-/// - **Use case**: High-performance computing, batch processing
-///
-/// ## `scalar_add` - Reference Implementation
-/// - **Best for**: Small arrays (< 64KB) or compatibility
-/// - **Performance**: Highly optimized by LLVM auto-vectorization
-/// - **Overhead**: Minimal function call and loop overhead
-/// - **Use case**: Baseline comparison, small-data operations
-///
-/// # Usage Patterns
-///
-/// ```rust
-/// use simdly::SimdAdd;
-///
-/// let a = vec![1.0f32; 1000];
-/// let b = vec![2.0f32; 1000];
-///
-/// // Automatic algorithm selection (recommended)
-/// let result = a.as_slice().simd_add(b.as_slice());
-///
-/// // Force parallel processing for large arrays
-/// let result = a.as_slice().par_simd_add(b.as_slice());
-///
-/// // Use scalar for comparison/testing
-/// let result = a.as_slice().scalar_add(b.as_slice());
-/// ```
-///
-/// # Safety and Correctness
-///
-/// - **Memory safety**: All implementations handle arbitrary array sizes safely
-/// - **Numerical accuracy**: Full IEEE 754 compliance maintained across all methods
-/// - **Error handling**: Consistent panic behavior for mismatched array lengths
-/// - **Thread safety**: Parallel implementation is safe for concurrent use
-impl<'a> SimdAdd<&'a [f32]> for &[f32] {
-    type Output = Vec<f32>;
-
-    /// Performs element-wise addition using adaptive SIMD optimization.
-    ///
-    /// This method automatically selects the optimal implementation based on array size
-    /// and the current `SIMD_THRESHOLD` setting. For arrays below the threshold, it
-    /// uses scalar addition to avoid SIMD overhead. For larger arrays, it uses
-    /// vectorized NEON SIMD operations.
-    ///
-    /// # Performance
-    /// - **Small arrays**: Delegates to `scalar_add` for optimal performance
-    /// - **Large arrays**: Uses NEON vectorization for up to 2x speedup
-    /// - **Adaptive**: Automatically chooses the best approach
-    ///
-    /// # Example
-    /// ```rust
-    /// use simdly::SimdAdd;
-    ///
-    /// let a = vec![1.0, 2.0, 3.0, 4.0];
-    /// let b = vec![5.0, 6.0, 7.0, 8.0];
-    /// let result = a.as_slice().simd_add(b.as_slice());
-    /// assert_eq!(result, vec![6.0, 8.0, 10.0, 12.0]);
-    /// ```
-    #[inline(always)]
-    fn simd_add(self, rhs: &'a [f32]) -> Self::Output {
-        simd_add(self, rhs)
-    }
-
-    /// Performs element-wise addition using parallel SIMD operations.
-    ///
-    /// This method combines thread-level parallelism with SIMD vectorization for
-    /// maximum performance on large arrays and multi-core systems. It automatically
-    /// falls back to scalar addition for small arrays to avoid threading overhead.
-    ///
-    /// # Performance
-    /// - **Small arrays**: Delegates to `scalar_add` to avoid thread overhead
-    /// - **Large arrays**: Up to 8x speedup on multi-core ARM processors
-    /// - **Memory bandwidth**: Efficiently utilizes system memory bandwidth
-    ///
-    /// # Example
-    /// ```rust
-    /// use simdly::SimdAdd;
-    ///
-    /// let a = vec![1.0f32; 1_000_000];
-    /// let b = vec![2.0f32; 1_000_000];
-    /// let result = a.as_slice().par_simd_add(b.as_slice());
-    /// assert_eq!(result[0], 3.0);
-    /// assert_eq!(result.len(), 1_000_000);
-    /// ```
-    #[inline(always)]
-    fn par_simd_add(self, rhs: &'a [f32]) -> Self::Output {
-        unsafe { parallel_simd_add(self, rhs) }
-    }
-
-    /// Performs element-wise addition using scalar operations.
-    ///
-    /// This method provides a baseline scalar implementation for comparison,
-    /// testing, and use cases where SIMD is not beneficial. It uses Rust's
-    /// iterator-based approach which is highly optimized by LLVM.
-    ///
-    /// # Performance
-    /// - **All arrays**: Consistent performance across all sizes
-    /// - **Auto-vectorization**: LLVM may auto-vectorize for better performance
-    /// - **Minimal overhead**: Simple iterator-based implementation
-    ///
-    /// # Example
-    /// ```rust
-    /// use simdly::SimdAdd;
-    ///
-    /// let a = vec![1.0, 2.0, 3.0];
-    /// let b = vec![4.0, 5.0, 6.0];
-    /// let result = a.as_slice().scalar_add(b.as_slice());
-    /// assert_eq!(result, vec![5.0, 7.0, 9.0]);
-    /// ```
-    fn scalar_add(self, rhs: &'a [f32]) -> Self::Output {
-        scalar_add(self, rhs)
-    }
-}
-
-/// Computes cosine of each element using scalar operations.
-///
-/// This function serves as the baseline implementation for cosine computation,
-/// using Rust's standard library `f32::cos()` method which is typically
-/// implemented using highly optimized math library functions (libm).
-///
-/// # Performance Characteristics
-///
-/// - **High precision**: Uses standard library implementation with full IEEE 754 compliance
-/// - **Auto-vectorization**: LLVM may auto-vectorize this loop for better performance
-/// - **Consistent accuracy**: Provides reference precision for SIMD comparison
-/// - **Simple implementation**: Iterator-based approach with minimal overhead
-///
-/// # Benchmark Results (ARM NEON)
-///
-/// Comprehensive benchmarks show that **SIMD consistently outperforms scalar**
-/// for cosine computation across all tested array sizes:
-///
-/// | Array Size | Scalar (ns) | SIMD (ns) | **SIMD Speedup** |
-/// |------------|-------------|-----------|------------------|
-/// | 4 KiB      | 2,606       | 606       | **4.3x faster**  |
-/// | 64 KiB     | 108,175     | 9,360     | **11.6x faster** |
-/// | 1 MiB      | 2,038,882   | 153,213   | **13.3x faster** |
-/// | 128 MiB    | 272,160,161 | 30,108,277| **9.0x faster**  |
-///
-/// **Key Insights:**
-/// - **Mathematical complexity favors SIMD**: Unlike simple operations (addition),
-///   trigonometric functions have sufficient computational intensity to amortize
-///   vectorization overhead even for small arrays
-/// - **No threshold needed**: SIMD is beneficial from 4 KiB to 128+ MiB
-/// - **Peak performance**: 13.3x speedup at cache-friendly sizes (1 MiB)
-/// - **Memory-bound scaling**: Performance levels off at very large sizes due to bandwidth limits
-///
-/// # Recommendation
-///
-/// For production use, prefer the SIMD implementation (`SimdMath::cos()`) over this
-/// scalar version for all array sizes. This function is primarily useful for:
-/// - Precision validation and testing
-/// - Platforms without NEON support
-/// - Reference implementation for algorithm verification
-///
-/// # Arguments
-///
-/// * `a` - Input slice containing f32 values (angles in radians)
-///
-/// # Returns
-///
-/// A new vector containing the cosine of each input element.
-///
-/// # Panics
-///
-/// Panics if the input slice is empty.
-///
-/// # Example
-///
-/// ```rust
-/// use simdly::simd::neon::slice::scalar_cos;
-///
-/// let angles = vec![0.0, std::f32::consts::PI / 2.0, std::f32::consts::PI];
-/// let results = scalar_cos(&angles);
-/// assert!((results[0] - 1.0).abs() < 1e-6);    // cos(0) ≈ 1
-/// assert!(results[1].abs() < 1e-6);             // cos(π/2) ≈ 0  
-/// assert!((results[2] + 1.0).abs() < 1e-6);    // cos(π) ≈ -1
-/// ```
-#[inline(always)]
-pub fn scalar_cos(a: &[f32]) -> Vec<f32> {
-    debug_assert!(!a.is_empty(), "Size can't be empty (size zero)");
-
-    a.iter().map(|x| x.cos()).collect()
 }
 
 /// Computes cosine of each element using ARM NEON SIMD instructions.
@@ -713,8 +532,8 @@ pub fn scalar_cos(a: &[f32]) -> Vec<f32> {
 /// assert!((results[3] + 1.0).abs() < 1e-5);
 /// ```
 #[allow(clippy::uninit_vec)]
-#[target_feature(enable = "neon")]
-fn simd_cos(a: &[f32]) -> Vec<f32> {
+#[inline(always)]
+pub(crate) fn simd_cos(a: &[f32]) -> Vec<f32> {
     debug_assert!(!a.is_empty(), "Size can't be empty (size zero)");
 
     let size = a.len();
@@ -738,7 +557,7 @@ fn simd_cos(a: &[f32]) -> Vec<f32> {
         simd_cos_partial_block(
             &a[nb_lanes],
             &mut c[nb_lanes],
-            rem_lanes, // number of reminaing uncomplete lanes
+            rem_lanes, // number of remaining incomplete lanes
         );
     }
 
@@ -825,292 +644,209 @@ fn simd_cos_partial_block(a: *const f32, c: *mut f32, size: usize) {
     unsafe { a_chunk_simd.cos().store_at_partial(c) };
 }
 
-/// Implementation of mathematical operations for f32 slices using NEON SIMD.
+/// Computes cosine of each element using parallel ARM NEON SIMD operations.
 ///
-/// This implementation provides vectorized mathematical functions for f32 slices,
-/// leveraging ARM NEON SIMD instructions for improved performance on supported hardware.
+/// This function provides a parallelized implementation of cosine computation for very large
+/// arrays that exceed the capacity of single-threaded SIMD processing. It combines
+/// thread-level parallelism with SIMD vectorization for maximum performance on
+/// multi-core ARM processors.
+///
+/// # Performance Strategy
+///
+/// - **Thread-level parallelism**: Distributes work across CPU cores using Rayon
+/// - **SIMD vectorization**: Each thread processes 4 f32 elements simultaneously using NEON
+/// - **Cache optimization**: Uses optimal chunk sizes to minimize cache misses
+/// - **Work distribution**: Balances computational load across available CPU cores
+///
+/// # Arguments
+///
+/// * `a` - Input slice containing f32 values (angles in radians)
+///
+/// # Returns
+///
+/// A new vector containing the cosine of each input element.
+///
+/// # Safety
+///
+/// This function uses `unsafe` operations for:
+/// - Uninitialized memory allocation (immediately overwritten by parallel SIMD operations)
+/// - Raw pointer arithmetic within each thread's chunk processing
+/// - Direct NEON intrinsic calls through F32x4 wrapper
+///
+/// # Panics
+///
+/// Panics if the input slice is empty.
+#[allow(clippy::uninit_vec)]
+#[inline(always)]
+pub fn parallel_simd_cos(a: &[f32]) -> Vec<f32> {
+    debug_assert!(!a.is_empty(), "Size can't be empty (size zero)");
+
+    let size = a.len();
+
+    let mut c = {
+        let mut c = Vec::with_capacity(size);
+        unsafe { c.set_len(size) };
+        c
+    };
+
+    let step = f32x4::LANE_COUNT;
+
+    // Use parallel chunks for optimal cache utilization and work distribution
+    // Process chunks that are multiples of step size for efficient SIMD operations
+    let chunk_size = ((PARALLEL_CHUNK_SIZE / step) * step).max(step);
+
+    c.par_chunks_mut(chunk_size)
+        .enumerate()
+        .for_each(|(chunk_idx, c_chunk)| {
+            let start_idx = chunk_idx * chunk_size;
+            let chunk_len = c_chunk.len();
+
+            // Process complete SIMD blocks within this chunk
+            let complete_blocks = (chunk_len / step) * step;
+            for i in (0..complete_blocks).step_by(step) {
+                simd_cos_block(&a[start_idx + i], &mut c_chunk[i]);
+            }
+
+            // Handle remaining elements in this chunk
+            if chunk_len > complete_blocks {
+                let remaining = chunk_len - complete_blocks;
+                simd_cos_partial_block(
+                    &a[start_idx + complete_blocks],
+                    &mut c_chunk[complete_blocks],
+                    remaining,
+                );
+            }
+        });
+
+    c
+}
+
+/// Performs element-wise equality comparison using ARM NEON SIMD instructions.
+///
+/// This function compares corresponding elements of two f32 slices and returns a vector
+/// where each element is 1.0 if the elements are equal, 0.0 otherwise. It uses NEON
+/// SIMD instructions to process 4 elements simultaneously for optimal performance.
 ///
 /// # Performance Characteristics
 ///
-/// - **Vectorization**: Most operations process 4 elements simultaneously
-/// - **Custom approximations**: Uses optimized polynomial approximations for transcendental functions
-/// - **Memory efficiency**: Minimizes allocation overhead where possible
-/// - **Remainder handling**: Safely processes arrays of any size using partial SIMD operations
+/// - **Vectorized processing**: Compares 4 f32 pairs simultaneously using NEON
+/// - **Memory efficient**: Minimizes allocation overhead with capacity pre-allocation
+/// - **Remainder handling**: Processes non-multiple-of-4 arrays using partial vectors
+/// - **Floating-point equality**: Uses exact bit-wise comparison (IEEE 754)
 ///
-/// # Precision Trade-offs
+/// # Arguments
 ///
-/// SIMD implementations may have slightly different precision characteristics compared
-/// to standard library functions:
-/// - **Trigonometric functions**: ~1e-5 to 1e-6 accuracy vs libm
-/// - **Exponential/logarithmic**: Similar precision with potential range differences
-/// - **Basic operations**: Full precision maintained (abs, sqrt, floor, ceil)
+/// * `a` - First input slice for comparison
+/// * `b` - Second input slice for comparison (must be same length as `a`)
 ///
-/// # Usage
+/// # Returns
 ///
-/// ```rust
-/// use simdly::simd::SimdMath;
+/// A new vector where each element is 1.0 if the corresponding elements are equal, 0.0 otherwise.
 ///
-/// let data = vec![1.0, 2.0, 3.0, 4.0];
-/// let results = data.as_slice().cos(); // Uses NEON SIMD cosine
-/// ```
-impl SimdMath<&[f32]> for &[f32] {
-    type Output = Vec<f32>;
+/// # Panics
+///
+/// Panics if:
+/// - Either input slice is empty
+/// - Input slices have different lengths
+///
+/// # Safety
+///
+/// This function uses `unsafe` operations for:
+/// - Uninitialized memory allocation (immediately overwritten by SIMD operations)
+/// - Direct NEON intrinsic calls through F32x4 wrapper
+/// - Raw pointer arithmetic for block processing
+#[allow(clippy::uninit_vec)]
+#[inline(always)]
+pub fn eq_elementwise(a: &[f32], b: &[f32]) -> Vec<f32> {
+    debug_assert!(
+        !a.is_empty() & !b.is_empty(),
+        "Size can't be empty (size zero)"
+    );
+    debug_assert_eq!(a.len(), b.len(), "Vectors must be the same length");
 
-    /// Computes absolute value of each element using NEON SIMD.
-    ///
-    /// # Implementation Status
-    /// Currently not implemented - returns `todo!()`.
-    ///
-    /// # Expected Performance
-    /// Should provide ~4x speedup for large arrays using NEON `vabsq_f32` intrinsic.
-    fn abs(&self) -> Self::Output {
-        todo!()
+    let size = a.len();
+
+    let mut c = {
+        let mut c = Vec::with_capacity(size);
+        unsafe { c.set_len(size) };
+        c
+    };
+    let step = f32x4::LANE_COUNT;
+
+    let complete_lanes = size - (size % step);
+    let remaining_lanes = size - complete_lanes;
+
+    for i in (0..complete_lanes).step_by(step) {
+        eq_elementwise_block(&a[i], &b[i], &mut c[i]);
     }
 
-    /// Computes arccosine of each element using NEON SIMD.
-    /// Not yet implemented.
-    fn acos(&self) -> Self::Output {
-        todo!()
+    if remaining_lanes > 0 {
+        eq_elementwise_partial_block(
+            &a[complete_lanes],
+            &b[complete_lanes],
+            &mut c[complete_lanes],
+            remaining_lanes, // number of remaining incomplete lanes
+        );
     }
 
-    /// Computes arcsine of each element using NEON SIMD.
-    /// Not yet implemented.
-    fn asin(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes arctangent of each element using NEON SIMD.
-    /// Not yet implemented.
-    fn atan(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes two-argument arctangent using NEON SIMD.
-    /// Not yet implemented.
-    fn atan2(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes cube root of each element using NEON SIMD.
-    /// Not yet implemented.
-    fn cbrt(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes floor of each element using NEON SIMD.
-    /// Not yet implemented - should use `vrndmq_f32` intrinsic.
-    fn floor(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes exponential of each element using NEON SIMD.
-    /// Not yet implemented.
-    fn exp(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes natural logarithm of each element using NEON SIMD.
-    /// Not yet implemented.
-    fn ln(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes 2D hypotenuse using NEON SIMD.
-    /// Not yet implemented.
-    fn hypot(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes power function using NEON SIMD.
-    /// Not yet implemented.
-    fn pow(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes sine of each element using NEON SIMD.
-    /// Not yet implemented.
-    fn sin(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes cosine of each element using NEON SIMD instructions.
-    ///
-    /// This is the primary entry point for SIMD cosine computation. Uses the
-    /// `simd_cos` internal function which provides vectorized cosine operations
-    /// with custom polynomial approximations optimized for NEON.
-    ///
-    /// # Benchmark-Proven Performance
-    ///
-    /// Comprehensive testing shows **consistent SIMD advantages** across all array sizes:
-    /// - **4 KiB arrays**: 4.3x faster than scalar
-    /// - **64 KiB arrays**: 11.6x faster than scalar  
-    /// - **1 MiB arrays**: 13.3x faster than scalar (peak performance)
-    /// - **128 MiB arrays**: 9.0x faster than scalar
-    ///
-    /// **Unlike simple arithmetic operations**, mathematical functions like cosine
-    /// benefit from SIMD even at small sizes due to their computational complexity.
-    ///
-    /// # Precision & Accuracy
-    /// - **Accuracy**: ~1e-5 to 1e-6 compared to standard library
-    /// - **Range**: Handles full f32 range with appropriate range reduction
-    /// - **Edge cases**: Special handling for infinities and NaN values
-    /// - **Production ready**: Maintains mathematical correctness with performance gains
-    ///
-    /// # Usage Recommendation
-    ///
-    /// **Always prefer this SIMD method** over scalar alternatives for cosine computation.
-    /// The performance benefits are immediate and substantial across all practical array sizes.
-    ///
-    /// # Example
-    /// ```rust
-    /// use simdly::simd::SimdMath;
-    ///
-    /// let angles = vec![0.0, std::f32::consts::PI / 2.0, std::f32::consts::PI];
-    /// let results = angles.as_slice().cos();
-    /// assert!((results[0] - 1.0).abs() < 1e-5);    // cos(0) ≈ 1
-    /// assert!(results[1].abs() < 1e-5);             // cos(π/2) ≈ 0  
-    /// assert!((results[2] + 1.0).abs() < 1e-5);    // cos(π) ≈ -1
-    /// ```
-    fn cos(&self) -> Self::Output {
-        unsafe { simd_cos(self) }
-    }
-
-    /// Computes tangent of each element using NEON SIMD.
-    /// Not yet implemented.
-    fn tan(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes square root of each element using NEON SIMD.
-    /// Not yet implemented - should use `vsqrtq_f32` intrinsic.
-    fn sqrt(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes ceiling of each element using NEON SIMD.
-    /// Not yet implemented - should use `vrndpq_f32` intrinsic.
-    fn ceil(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes 3D hypotenuse using NEON SIMD.
-    /// Not yet implemented.
-    fn hypot3(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes 4D hypotenuse using NEON SIMD.
-    /// Not yet implemented.
-    fn hypot4(&self) -> Self::Output {
-        todo!()
-    }
+    c
 }
 
-/// Implementation of mathematical operations for Vec<f32> using NEON SIMD.
+/// Processes a partial block (1-3 elements) using NEON SIMD equality comparison.
 ///
-/// This implementation provides the same vectorized mathematical functions as the
-/// slice implementation, but operates directly on owned vectors. It delegates to
-/// the slice implementation for actual computation.
+/// This function handles the remainder elements when the input array size is not
+/// a multiple of 4. It uses partial SIMD operations to compare 1-3 elements
+/// safely without reading beyond array bounds.
 ///
-/// # Usage Pattern
+/// # Arguments
 ///
-/// ```rust
-/// use simdly::simd::SimdMath;
+/// * `a` - Raw pointer to first input data (must point to at least `size` valid f32 values)
+/// * `b` - Raw pointer to second input data (must point to at least `size` valid f32 values)
+/// * `c` - Raw pointer to output buffer (must have space for at least `size` f32 values)
+/// * `size` - Number of elements to process (must be 1, 2, or 3)
 ///
-/// let data = vec![1.0, 2.0, 3.0, 4.0];
-/// let results = data.cos(); // Uses NEON SIMD cosine
-/// ```
-impl SimdMath<f32> for Vec<f32> {
-    type Output = Vec<f32>;
+/// # Safety
+///
+/// This function is unsafe because:
+/// - No bounds checking on pointers beyond the `size` parameter
+/// - Caller must ensure pointers are valid for at least `size` elements
+/// - Must guarantee `size` is in range [1, 3]
+/// - Memory regions must not overlap
+#[inline(always)]
+fn eq_elementwise_partial_block(a: *const f32, b: *const f32, c: *mut f32, size: usize) {
+    // Load partial data using masked operations (prevents buffer overrun)
+    let a_chunk_simd = unsafe { F32x4::load_partial(a, size) };
+    let b_chunk_simd = unsafe { F32x4::load_partial(b, size) };
 
-    /// Computes absolute value - delegates to slice implementation.
-    fn abs(&self) -> Self::Output {
-        todo!()
-    }
+    // Perform element-wise equality comparison and store only the valid elements
+    unsafe { a_chunk_simd.simd_eq(b_chunk_simd).store_at_partial(c) };
+}
 
-    /// Computes arccosine - not yet implemented.
-    fn acos(&self) -> Self::Output {
-        todo!()
-    }
+/// Processes a complete 4-element block using NEON SIMD equality comparison.
+///
+/// This function is the core computational kernel for SIMD equality operations.
+/// It loads 4 consecutive f32 values from each input array, performs vectorized
+/// equality comparison using NEON instructions, and stores the results back to memory.
+///
+/// # Arguments
+///
+/// * `a` - Raw pointer to first input data (must point to at least 4 valid f32 values)
+/// * `b` - Raw pointer to second input data (must point to at least 4 valid f32 values)
+/// * `c` - Raw pointer to output buffer (must have space for at least 4 f32 values)
+///
+/// # Safety
+///
+/// This function is unsafe because:
+/// - No bounds checking is performed on input/output pointers
+/// - Caller must ensure all pointers are valid and properly aligned
+/// - Must point to at least 4 f32 values each
+/// - Memory regions must not overlap (undefined behavior)
+#[inline(always)]
+fn eq_elementwise_block(a: *const f32, b: *const f32, c: *mut f32) {
+    // Load 4 f32 values using NEON SIMD instructions
+    let a_chunk_simd = unsafe { F32x4::load(a, f32x4::LANE_COUNT) };
+    let b_chunk_simd = unsafe { F32x4::load(b, f32x4::LANE_COUNT) };
 
-    /// Computes arcsine - not yet implemented.
-    fn asin(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes arctangent - not yet implemented.
-    fn atan(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes two-argument arctangent - not yet implemented.
-    fn atan2(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes cube root - not yet implemented.
-    fn cbrt(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes floor - not yet implemented.
-    fn floor(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes exponential - not yet implemented.
-    fn exp(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes natural logarithm - not yet implemented.
-    fn ln(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes 2D hypotenuse - not yet implemented.
-    fn hypot(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes power function - not yet implemented.
-    fn pow(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes sine - not yet implemented.
-    fn sin(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes cosine using NEON SIMD instructions.
-    /// See `SimdMath<&[f32]> for &[f32]::cos()` for detailed documentation.
-    fn cos(&self) -> Self::Output {
-        unsafe { simd_cos(self) }
-    }
-
-    /// Computes tangent - not yet implemented.
-    fn tan(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes square root - not yet implemented.
-    fn sqrt(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes ceiling - not yet implemented.
-    fn ceil(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes 3D hypotenuse - not yet implemented.
-    fn hypot3(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes 4D hypotenuse - not yet implemented.
-    fn hypot4(&self) -> Self::Output {
-        todo!()
-    }
+    // Store the equality comparison result back to memory with aligned access
+    a_chunk_simd.simd_eq(b_chunk_simd).store_at(c);
 }

@@ -150,6 +150,7 @@ trait CpuFeatureDetector {
 
 // Linux CPU feature detector
 struct LinuxDetector;
+
 impl CpuFeatureDetector for LinuxDetector {
     #[inline(always)]
     fn detect_features(&self, features: &mut [CpuFeature]) -> DetectionResult {
@@ -178,6 +179,7 @@ impl CpuFeatureDetector for LinuxDetector {
 
 // macOS CPU feature detector
 struct MacOSDetector;
+
 impl CpuFeatureDetector for MacOSDetector {
     #[inline(always)]
     fn detect_features(&self, features: &mut [CpuFeature]) -> DetectionResult {
@@ -241,6 +243,7 @@ impl CpuFeatureDetector for MacOSDetector {
 
 // Windows CPU feature detector
 struct WindowsDetector;
+
 impl CpuFeatureDetector for WindowsDetector {
     #[inline(always)]
     fn detect_features(&self, features: &mut [CpuFeature]) -> DetectionResult {

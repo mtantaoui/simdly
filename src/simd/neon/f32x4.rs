@@ -38,7 +38,7 @@
 #[cfg(target_arch = "aarch64")]
 use std::arch::aarch64::*;
 
-use crate::simd::{Alignment, SimdLoad, SimdMath, SimdStore};
+use crate::simd::{Alignment, SimdCmp, SimdLoad, SimdMath, SimdStore};
 use std::ops::{Add, Div, Mul, Sub};
 
 use super::math::*;
@@ -244,7 +244,7 @@ impl SimdLoad<f32> for F32x4 {
     }
 }
 
-impl SimdMath<f32> for F32x4 {
+impl SimdMath for F32x4 {
     type Output = Self;
 
     /// Computes the absolute value of each element using NEON intrinsics.
@@ -648,6 +648,30 @@ impl Div for F32x4 {
                 elements: vdivq_f32(self.elements, rhs.elements),
                 size: self.size,
             }
+        }
+    }
+}
+
+impl SimdCmp for F32x4 {
+    type Output = Self;
+
+    #[inline(always)]
+    fn simd_eq(self, rhs: Self) -> Self::Output {
+        debug_assert!(
+            self.size == rhs.size,
+            "Operands must have the same size (expected {} lanes, got {} and {})",
+            LANE_COUNT,
+            self.size,
+            rhs.size
+        );
+
+        let mask = unsafe { vceqq_f32(self.elements, rhs.elements) };
+
+        let elements = unsafe { vreinterpretq_f32_u32(mask) };
+
+        Self {
+            elements,
+            size: self.size,
         }
     }
 }

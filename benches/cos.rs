@@ -24,13 +24,11 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+#[cfg(avx2)]
 use simdly::simd::avx2::slice::{fast_cos, parallel_simd_cos};
-#[cfg(target_arch = "aarch64")]
-use simdly::simd::neon::slice::scalar_cos;
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use simdly::simd::avx2::slice::scalar_cos;
-
+use simdly::simd::neon::slice::parallel_simd_cos;
+use simdly::simd::slice::{fast_cos, scalar_cos};
 // Import the cosine implementations
 use simdly::simd::SimdMath;
 
@@ -58,6 +56,8 @@ const VECTOR_SIZES: &[usize] = &[
     4_096,      // 16 KiB - L1 cache
     16_384,     // 64 KiB - L1→L2 transition
     65_536,     // 256 KiB - L2 cache
+    2 * 65_536, // 512 KiB - L2 cache
+    3 * 65_536, // 1024 KiB - L2 cache
     262_144,    // 1 MiB - L2 cache
     1_048_576,  // 4 MiB - L2→L3 transition
     4_194_304,  // 16 MiB - L3 cache
@@ -106,7 +106,7 @@ fn generate_test_data(len: usize) -> Vec<f32> {
 /// measurements for scalar and SIMD cosine implementations.
 fn benchmark_cosine_implementations(c: &mut Criterion) {
     for &size in VECTOR_SIZES {
-        let mut group = c.benchmark_group(format!("Cosine_{}", format_size(size)));
+        let mut group = c.benchmark_group(format!("Cosine {}", format_size(size)));
 
         // Configure throughput measurement for bandwidth analysis
         group.throughput(Throughput::Bytes(
@@ -118,18 +118,18 @@ fn benchmark_cosine_implementations(c: &mut Criterion) {
         let input_slice = input_vec.as_slice();
 
         // Benchmark 1: Scalar Cosine (Baseline)
-        group.bench_with_input(BenchmarkId::new("scalar", size), input_slice, |b, input| {
+        group.bench_with_input(BenchmarkId::new("Scalar", size), input_slice, |b, input| {
             b.iter(|| black_box(scalar_cos(black_box(input))))
         });
 
         // Benchmark 2: SIMD Cosine
-        group.bench_with_input(BenchmarkId::new("simd", size), input_slice, |b, input| {
+        group.bench_with_input(BenchmarkId::new("SIMD", size), input_slice, |b, input| {
             b.iter(|| black_box(input.cos()))
         });
 
         // Benchmark 3:
         group.bench_with_input(
-            BenchmarkId::new("parallel SIMD", size),
+            BenchmarkId::new("Parallel SIMD", size),
             input_slice,
             |b, input| b.iter(|| black_box(parallel_simd_cos(black_box(input)))),
         );
@@ -155,15 +155,15 @@ fn format_size(elements: usize) -> String {
 
     if bytes >= 1_073_741_824 {
         // 1 GiB
-        format!("{:.1}_GiB", bytes as f64 / 1_073_741_824.0)
+        format!("{:.1} GiB", bytes as f64 / 1_073_741_824.0)
     } else if bytes >= 1_048_576 {
         // 1 MiB
-        format!("{:.1}_MiB", bytes as f64 / 1_048_576.0)
+        format!("{:.1} MiB", bytes as f64 / 1_048_576.0)
     } else if bytes >= 1024 {
         // 1 KiB
-        format!("{:.1}_KiB", bytes as f64 / 1024.0)
+        format!("{:.1} KiB", bytes as f64 / 1024.0)
     } else {
-        format!("{bytes}_B")
+        format!("{bytes} B")
     }
 }
 

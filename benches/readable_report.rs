@@ -1,12 +1,9 @@
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use simdly::{simd::SimdMath, SimdAdd};
+use simdly::{
+    simd::{slice::scalar_cos, SimdMath},
+    SimdAdd,
+};
 use std::time::Duration;
-
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use simdly::simd::avx2::slice::scalar_cos;
-
-#[cfg(target_arch = "aarch64")]
-use simdly::simd::neon::slice::scalar_cos;
 
 fn configure_criterion() -> Criterion {
     Criterion::default()

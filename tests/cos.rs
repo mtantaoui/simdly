@@ -5,13 +5,7 @@
 
 use std::f32::consts::{PI, TAU};
 
-#[cfg(target_arch = "aarch64")]
-use simdly::simd::neon::slice::scalar_cos;
-
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use simdly::simd::avx2::slice::scalar_cos;
-
-use simdly::simd::SimdMath;
+use simdly::simd::{slice::scalar_cos, SimdMath};
 
 /// Test precision of SIMD cosine against scalar cosine for various input ranges.
 #[test]

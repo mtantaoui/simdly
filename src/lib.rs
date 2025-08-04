@@ -113,18 +113,6 @@ pub(crate) mod utils;
 /// - Available CPU features (AVX2, NEON, etc.)
 /// - Memory alignment characteristics
 /// - Thread pool availability
-///
-/// # Examples
-///
-/// ```rust
-/// use simdly::SimdAdd;
-///
-/// let a = vec![1.0f32, 2.0, 3.0, 4.0];
-/// let b = vec![5.0f32, 6.0, 7.0, 8.0];
-///
-/// // Automatic strategy selection
-/// let result = a.simd_add(b);
-/// ```
 pub trait SimdAdd<Rhs = Self> {
     /// The output type produced by addition operations
     type Output;
@@ -277,7 +265,7 @@ pub trait FastAdd<Rhs = Self> {
 /// - Work distribution costs
 /// - Memory contention between threads
 /// - Context switching overhead
-pub(crate) const PARALLEL_SIMD_THRESHOLD: usize = 131_072;
+pub(crate) const PARALLEL_SIMD_THRESHOLD: usize = 131_072; // 512 KiB (f32)
 
 /// Threshold below which scalar operations outperform SIMD.
 pub(crate) const SIMD_THRESHOLD: usize = 256;
@@ -288,4 +276,4 @@ pub(crate) const SIMD_THRESHOLD: usize = 256;
 /// - Cache locality
 /// - Work distribution granularity
 /// - Memory bandwidth utilization
-pub(crate) const PARALLEL_CHUNK_SIZE: usize = 4_096; // 16KiB - L1 cache
+pub(crate) const PARALLEL_CHUNK_SIZE: usize = 4_096; // 16KiB - L1 cache (f32)

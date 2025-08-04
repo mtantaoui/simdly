@@ -20,8 +20,9 @@ use ndarray::Array1;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 // Import the addition implementations
-use simdly::SimdAdd;
+use simdly::{FastAdd, SimdAdd};
 
 // ================================================================================================
 // BENCHMARK CONFIGURATION
@@ -43,11 +44,12 @@ use simdly::SimdAdd;
 ///
 /// Note: f32 = 4 bytes, so 1M elements = 4 MiB
 const VECTOR_SIZES: &[usize] = &[
-    1_024,       // 4 KiB - L1 cache
-    4_096,       // 16 KiB - L1 cache
-    16_384,      // 64 KiB - L1→L2 transition
-    65_536,      // 256 KiB - L2 cache
-    2 * 65_536,  // 512 KiB - L2 cache
+    // 1_024,       // 4 KiB - L1 cache
+    // 4_096,       // 16 KiB - L1 cache
+    // 16_384,      // 64 KiB - L1→L2 transition
+    // 65_536,      // 256 KiB - L2 cache
+    // 2 * 65_536,  // 512 KiB - L2 cache
+    // 3 * 65_536,  // 1024 KiB - L2 cache
     262_144,     // 1 MiB - L2 cache
     2 * 262_144, // 2 MiB - L2 cache
     1_048_576,   // 4 MiB - L2→L3 transition
@@ -95,6 +97,18 @@ fn generate_test_data(len: usize) -> (Vec<f32>, Vec<f32>) {
     (a, b)
 }
 
+pub fn parallel_scalar_add(a: &[f32], b: &[f32]) -> Vec<f32> {
+    debug_assert!(
+        !a.is_empty() & !b.is_empty(),
+        "Size can't be empty (size zero)"
+    );
+    debug_assert_eq!(a.len(), b.len(), "Vectors must be the same length");
+
+    a.into_par_iter()
+        .zip(b.into_par_iter())
+        .map(|(x, y)| x + y)
+        .collect()
+}
 // ================================================================================================
 // BENCHMARK IMPLEMENTATIONS
 // ================================================================================================
@@ -105,7 +119,7 @@ fn generate_test_data(len: usize) -> (Vec<f32>, Vec<f32>) {
 /// measurements for scalar, SIMD, and parallel addition implementations.
 fn benchmark_addition_implementations(c: &mut Criterion) {
     for &size in VECTOR_SIZES {
-        let mut group = c.benchmark_group(format!("Addition_{}", format_size(size)));
+        let mut group = c.benchmark_group(format!("Addition {}", format_size(size)));
 
         // Configure throughput measurement for bandwidth analysis
         group.throughput(Throughput::Bytes(
@@ -119,14 +133,14 @@ fn benchmark_addition_implementations(c: &mut Criterion) {
 
         // Benchmark 1: SIMD Addition
         group.bench_with_input(
-            BenchmarkId::new("simd", size),
+            BenchmarkId::new("SIMD", size),
             &(a_slice, b_slice),
             |b, (a, b_data)| b.iter(|| black_box(a.simd_add(black_box(*b_data)))),
         );
 
         // Benchmark 2: Scalar Addition (Baseline)
         group.bench_with_input(
-            BenchmarkId::new("scalar", size),
+            BenchmarkId::new("Scalar", size),
             &(a_slice, b_slice),
             |b, (a, b_data)| b.iter(|| black_box(a.scalar_add(black_box(*b_data)))),
         );
@@ -134,20 +148,26 @@ fn benchmark_addition_implementations(c: &mut Criterion) {
         // Benchmark 3: Parallel SIMD Addition (only for larger sizes)
         if size >= PARALLEL_SIZE_THRESHOLD {
             group.bench_with_input(
-                BenchmarkId::new("parallel_simd", size),
+                BenchmarkId::new("Parallel SIMD", size),
                 &(a_slice, b_slice),
                 |b, (a, b_data)| b.iter(|| black_box(a.par_simd_add(black_box(*b_data)))),
             );
+
+            group.bench_with_input(
+                BenchmarkId::new("Parallel Scalar", size),
+                &(a_slice, b_slice),
+                |b, (a, b_data)| b.iter(|| parallel_scalar_add(black_box(*a), black_box(*b_data))),
+            );
         }
 
-        // Benchmark 2: Scalar Addition (Baseline)
+        // Benchmark 4: Fast Scalar Addition (Baseline)
         group.bench_with_input(
-            BenchmarkId::new("scalar", size),
+            BenchmarkId::new("Fast", size),
             &(a_slice, b_slice),
-            |b, (a, b_data)| b.iter(|| black_box(a.scalar_add(black_box(*b_data)))),
+            |b, (a, b_data)| b.iter(|| black_box(a.fast_add(black_box(*b_data)))),
         );
 
-        // Benchmark 4: ndarray Reference Implementation
+        // Benchmark 5: ndarray Reference Implementation
         let a_ndarray = Array1::from_vec(a_vec.clone());
         let b_ndarray = Array1::from_vec(b_vec.clone());
         group.bench_with_input(
