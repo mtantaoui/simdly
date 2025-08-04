@@ -25,10 +25,13 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 #[cfg(avx2)]
-use simdly::simd::avx2::slice::{fast_cos, parallel_simd_cos};
+use simdly::simd::avx2::slice::parallel_simd_cos;
 
+#[cfg(neon)]
 use simdly::simd::neon::slice::parallel_simd_cos;
+
 use simdly::simd::slice::{fast_cos, scalar_cos};
+
 // Import the cosine implementations
 use simdly::simd::SimdMath;
 

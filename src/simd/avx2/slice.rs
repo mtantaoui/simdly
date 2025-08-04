@@ -130,7 +130,7 @@ use crate::{
         SimdCmp, SimdLoad, SimdMath, SimdStore,
     },
     utils::alloc_uninit_f32_vec,
-    FastAdd, SimdAdd, PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD, SIMD_THRESHOLD,
+    SimdAdd, PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD, SIMD_THRESHOLD,
 };
 
 // ================================================================================================
@@ -186,7 +186,7 @@ use crate::{
 /// This function uses `debug_assert!` for validation and will panic rather than return an error.
 /// Memory allocation is handled internally and should not fail under normal circumstances.
 #[inline(always)]
-fn simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
+pub(crate) fn simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
     // For small arrays, fall back to scalar to avoid SIMD overhead
     if a.len() < SIMD_THRESHOLD {
         return scalar_add(a, b);
@@ -336,7 +336,7 @@ fn simd_add_partial_block(a: *const f32, b: *const f32, c: *mut f32, size: usize
 /// This function uses `debug_assert!` for validation and will panic rather than return an error.
 /// Memory allocation is handled internally and should not fail under normal circumstances.
 #[inline(always)]
-fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
+pub(crate) fn parallel_simd_add(a: &[f32], b: &[f32]) -> Vec<f32> {
     // For small arrays, fall back to regular SIMD to avoid threading overhead
     if a.len() <= PARALLEL_SIMD_THRESHOLD {
         return scalar_add(a, b);
@@ -549,7 +549,7 @@ pub fn scalar_cos(a: &[f32]) -> Vec<f32> {
 /// assert!((results[3] + 1.0).abs() < 1e-5);
 /// ```
 #[inline(always)]
-fn simd_cos(a: &[f32]) -> Vec<f32> {
+pub(crate) fn simd_cos(a: &[f32]) -> Vec<f32> {
     debug_assert!(!a.is_empty(), "Size can't be empty (size zero)");
 
     let size = a.len();
@@ -709,266 +709,6 @@ fn simd_cos_partial_block(a: *const f32, c: *mut f32, size: usize) {
 // TRAIT IMPLEMENTATIONS
 // ================================================================================================
 
-/// Implementation of the `SimdAdd` trait for slice addition operations.
-///
-/// This implementation provides three different strategies for adding two f32 slices:
-/// - **SIMD Addition**: Vectorized addition using AVX2 instructions
-/// - **Parallel SIMD Addition**: Multi-threaded vectorized addition (planned)
-/// - **Scalar Addition**: Fallback scalar implementation
-///
-/// # Performance Characteristics
-///
-/// | Method | Best Use Case | Performance |
-/// |--------|---------------|-------------|
-/// | `simd_add` | Medium to large arrays (64-10,000 elements) | ~8x speedup |
-/// | `par_simd_add` | Very large arrays (>10,000 elements) | ~8x × cores speedup |
-/// | `scalar_add` | Small arrays (<64 elements) | Baseline performance |
-///
-/// # Safety
-///
-/// The SIMD methods use `unsafe` internally but provide safe interfaces.
-/// All bounds checking and memory safety is handled automatically.
-impl<'b> SimdAdd<&'b [f32]> for &[f32] {
-    type Output = Vec<f32>;
-
-    /// Performs SIMD-accelerated element-wise addition.
-    ///
-    /// Uses AVX2 instructions to process 8 elements simultaneously,
-    /// providing significant performance improvements for medium to large arrays.
-    ///
-    /// # Performance
-    ///
-    /// Optimal for arrays with 100+ elements. For smaller arrays,
-    /// the overhead may exceed the benefits.
-    ///
-    /// # Panics
-    ///
-    /// Panics if input slices have different lengths or are empty.
-    #[inline(always)]
-    fn simd_add(self, rhs: &'b [f32]) -> Self::Output {
-        simd_add(self, rhs)
-    }
-
-    /// Performs parallel SIMD-accelerated element-wise addition.
-    ///
-    /// Uses Rayon for parallel processing of large arrays.
-    /// Automatically falls back to regular SIMD for arrays smaller than the threshold.
-    ///
-    /// # Performance
-    ///
-    /// Optimal for arrays with more than 10,000 elements where
-    /// the parallelization overhead is justified by the computational load.
-    /// Uses intelligent chunking to maximize cache efficiency.
-    ///
-    /// # Panics
-    ///
-    /// Panics if input slices have different lengths or are empty.
-    #[inline(always)]
-    fn par_simd_add(self, rhs: &'b [f32]) -> Self::Output {
-        parallel_simd_add(self, rhs)
-    }
-
-    /// Performs scalar element-wise addition.
-    ///
-    /// Fallback implementation that processes elements sequentially.
-    /// Guaranteed to work on all platforms and array sizes.
-    ///
-    /// # Performance
-    ///
-    /// Best for small arrays (< 100 elements) or as a compatibility fallback.
-    /// Always available regardless of CPU features.
-    ///
-    /// # Panics
-    ///
-    /// This function delegates to the scalar implementation which may panic
-    /// if input slices have different lengths or are empty.
-    #[inline(always)]
-    fn scalar_add(self, rhs: &'b [f32]) -> Self::Output {
-        scalar_add(self, rhs)
-    }
-}
-
-/// Implementation of mathematical operations for f32 slices using Intel AVX2 SIMD.
-///
-/// This implementation provides vectorized mathematical functions for f32 slices,
-/// leveraging Intel AVX2 SIMD instructions for improved performance on supported hardware.
-///
-/// # Performance Characteristics
-///
-/// - **Vectorization**: Most operations process 8 elements simultaneously using 256-bit AVX2
-/// - **Custom approximations**: Uses optimized polynomial approximations for transcendental functions
-/// - **Memory efficiency**: Uses aligned memory allocation for optimal AVX2 performance
-/// - **Remainder handling**: Safely processes arrays of any size using partial SIMD operations
-///
-/// # Precision Trade-offs
-///
-/// SIMD implementations may have slightly different precision characteristics compared
-/// to standard library functions:
-/// - **Trigonometric functions**: ~1e-5 to 1e-6 accuracy vs libm
-/// - **Exponential/logarithmic**: Similar precision with potential range differences
-/// - **Basic operations**: Full precision maintained (abs, sqrt, floor, ceil)
-///
-/// # Usage
-///
-/// ```rust
-/// use simdly::simd::SimdMath;
-///
-/// let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-/// let results = data.as_slice().cos(); // Uses AVX2 SIMD cosine
-/// ```
-impl SimdMath for &[f32] {
-    type Output = Vec<f32>;
-
-    /// Computes absolute value of each element using AVX2 SIMD.
-    ///
-    /// # Implementation Status
-    /// Currently not implemented - returns `todo!()`.
-    ///
-    /// # Expected Performance
-    /// Should provide ~8x speedup for large arrays using AVX2 vector operations.
-    fn abs(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes arccosine of each element using AVX2 SIMD.
-    /// Not yet implemented.
-    fn acos(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes arcsine of each element using AVX2 SIMD.
-    /// Not yet implemented.
-    fn asin(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes arctangent of each element using AVX2 SIMD.
-    /// Not yet implemented.
-    fn atan(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes two-argument arctangent using AVX2 SIMD.
-    /// Not yet implemented.
-    fn atan2(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes cube root of each element using AVX2 SIMD.
-    /// Not yet implemented.
-    fn cbrt(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes floor of each element using AVX2 SIMD.
-    /// Not yet implemented - should use AVX2 rounding intrinsics.
-    fn floor(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes exponential of each element using AVX2 SIMD.
-    /// Not yet implemented.
-    fn exp(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes natural logarithm of each element using AVX2 SIMD.
-    /// Not yet implemented.
-    fn ln(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes 2D hypotenuse using AVX2 SIMD.
-    /// Not yet implemented.
-    fn hypot(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes power function using AVX2 SIMD.
-    /// Not yet implemented.
-    fn pow(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes sine of each element using AVX2 SIMD.
-    /// Not yet implemented.
-    fn sin(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes cosine of each element using Intel AVX2 SIMD instructions.
-    ///
-    /// This is the primary entry point for SIMD cosine computation. Uses the
-    /// `simd_cos` internal function which provides vectorized cosine operations
-    /// with custom polynomial approximations optimized for AVX2.
-    ///
-    /// # Benchmark-Proven Performance
-    ///
-    /// Comprehensive testing shows **consistent SIMD advantages** across all array sizes:
-    /// - **4 KiB arrays**: 4.4x faster than scalar
-    /// - **64 KiB arrays**: 11.7x faster than scalar  
-    /// - **1 MiB arrays**: 13.3x faster than scalar (peak performance)
-    /// - **128 MiB arrays**: 9.2x faster than scalar
-    ///
-    /// **Unlike simple arithmetic operations**, mathematical functions like cosine
-    /// benefit from SIMD even at small sizes due to their computational complexity.
-    ///
-    /// # Precision & Accuracy
-    /// - **Accuracy**: ~1e-5 to 1e-6 compared to standard library
-    /// - **Range**: Handles full f32 range with appropriate range reduction
-    /// - **Edge cases**: Special handling for infinities and NaN values
-    /// - **Production ready**: Maintains mathematical correctness with performance gains
-    ///
-    /// # Usage Recommendation
-    ///
-    /// **Always prefer this SIMD method** over scalar alternatives for cosine computation.
-    /// The performance benefits are immediate and substantial across all practical array sizes.
-    ///
-    /// # Example
-    /// ```rust
-    /// use simdly::simd::SimdMath;
-    ///
-    /// let angles = vec![0.0, std::f32::consts::PI / 2.0, std::f32::consts::PI];
-    /// let results = angles.as_slice().cos();
-    /// assert!((results[0] - 1.0).abs() < 1e-5);    // cos(0) ≈ 1
-    /// assert!(results[1].abs() < 1e-5);             // cos(π/2) ≈ 0  
-    /// assert!((results[2] + 1.0).abs() < 1e-5);    // cos(π) ≈ -1
-    /// ```
-    fn cos(&self) -> Self::Output {
-        simd_cos(self)
-    }
-
-    /// Computes tangent of each element using AVX2 SIMD.
-    /// Not yet implemented.
-    fn tan(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes square root of each element using AVX2 SIMD.
-    /// Not yet implemented - should use AVX2 `_mm256_sqrt_ps` intrinsic.
-    fn sqrt(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes ceiling of each element using AVX2 SIMD.
-    /// Not yet implemented - should use AVX2 rounding intrinsics.
-    fn ceil(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes 3D hypotenuse using AVX2 SIMD.
-    /// Not yet implemented.
-    fn hypot3(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes 4D hypotenuse using AVX2 SIMD.
-    /// Not yet implemented.
-    fn hypot4(&self) -> Self::Output {
-        todo!()
-    }
-}
-
 /// Implementation of mathematical operations for `Vec<f32>` using Intel AVX2 SIMD.
 ///
 /// This implementation provides the same vectorized mathematical functions as the
@@ -1008,125 +748,8 @@ impl SimdAdd<Vec<f32>> for Vec<f32> {
     }
 }
 
-impl<'b> SimdAdd<&'b [f32]> for Vec<f32> {
-    type Output = Vec<f32>;
-
-    /// Performs SIMD-accelerated element-wise addition between `Vec<f32>` and `&[f32]`.
-    #[inline(always)]
-    fn simd_add(self, rhs: &'b [f32]) -> Self::Output {
-        self.as_slice().simd_add(rhs)
-    }
-
-    /// Performs parallel SIMD-accelerated element-wise addition between `Vec<f32>` and `&[f32]`.
-    #[inline(always)]
-    fn par_simd_add(self, rhs: &'b [f32]) -> Self::Output {
-        self.as_slice().par_simd_add(rhs)
-    }
-
-    /// Performs scalar element-wise addition between `Vec<f32>` and `&[f32]`.
-    #[inline(always)]
-    fn scalar_add(self, rhs: &'b [f32]) -> Self::Output {
-        self.as_slice().scalar_add(rhs)
-    }
-}
-
-impl SimdMath for Vec<f32> {
-    type Output = Vec<f32>;
-
-    /// Computes absolute value - delegates to slice implementation.
-    fn abs(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes arccosine - not yet implemented.
-    fn acos(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes arcsine - not yet implemented.
-    fn asin(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes arctangent - not yet implemented.
-    fn atan(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes two-argument arctangent - not yet implemented.
-    fn atan2(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes cube root - not yet implemented.
-    fn cbrt(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes floor - not yet implemented.
-    fn floor(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes exponential - not yet implemented.
-    fn exp(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes natural logarithm - not yet implemented.
-    fn ln(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes 2D hypotenuse - not yet implemented.
-    fn hypot(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes power function - not yet implemented.
-    fn pow(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes sine - not yet implemented.
-    fn sin(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes cosine using Intel AVX2 SIMD instructions.
-    /// See `SimdMath<&[f32]> for &[f32]::cos()` for detailed documentation.
-    fn cos(&self) -> Self::Output {
-        simd_cos(self)
-    }
-
-    /// Computes tangent - not yet implemented.
-    fn tan(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes square root - not yet implemented.
-    fn sqrt(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes ceiling - not yet implemented.
-    fn ceil(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes 3D hypotenuse - not yet implemented.
-    fn hypot3(&self) -> Self::Output {
-        todo!()
-    }
-
-    /// Computes 4D hypotenuse - not yet implemented.
-    fn hypot4(&self) -> Self::Output {
-        todo!()
-    }
-}
-
 #[inline(always)]
-fn eq_elementwise(a: &[f32], b: &[f32]) -> Vec<f32> {
+pub(crate) fn eq_elementwise(a: &[f32], b: &[f32]) -> Vec<f32> {
     debug_assert!(
         !a.is_empty() & !b.is_empty(),
         "Size can't be empty (size zero)"
