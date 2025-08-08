@@ -14,7 +14,18 @@ use std::ops::Add;
 
 use crate::simd::{avx2::math::*, Alignment, SimdCmp, SimdLoad, SimdMath, SimdStore};
 
+/// AVX2 memory alignment requirement in bytes.
+///
+/// AVX2 operations perform optimally when data is aligned to 32-byte boundaries.
+/// This constant defines the alignment requirement for F32x8 vectors to achieve
+/// maximum performance with `_mm256_load_ps` and `_mm256_store_ps` instructions.
 pub(crate) const AVX_ALIGNMENT: usize = 32;
+
+/// Number of f32 elements that fit in an AVX2 256-bit vector.
+///
+/// AVX2 vectors can contain 8 single-precision floating-point values
+/// (8 × 32 bits = 256 bits). This constant defines the vector capacity
+/// and is used for bounds checking and loop unrolling optimizations.
 pub(crate) const LANE_COUNT: usize = 8;
 
 /// AVX2 SIMD vector containing 8 packed f32 values.

@@ -25,6 +25,7 @@ pub mod avx2;
 #[cfg(neon)]
 pub mod neon;
 
+pub mod fast;
 pub mod slice;
 
 /// Trait for checking memory alignment requirements.
@@ -571,5 +572,5 @@ pub trait SimdMath {
 pub trait SimdCmp<Rhs = Self> {
     type Output;
 
-    fn simd_eq(self, rhs: Rhs) -> Self::Output;
+    fn elementwise_eq(self, rhs: Rhs) -> Self::Output;
 }

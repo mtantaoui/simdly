@@ -48,8 +48,8 @@
 //! - [`vhypotq_f32`]: 2D Euclidean distance (sqrt(x² + y²))
 //! - [`vhypot3q_f32`]: 3D Euclidean distance (sqrt(x² + y² + z²))
 //! - [`vhypot4q_f32`]: 4D Euclidean distance (sqrt(x² + y² + z² + w²))
-//! - [`vfloorq_f32`]: Floor function (round down)
-//! - [`vceilq_f32`]: Ceiling function (round up)
+//! - Floor function: `vrndmq_f32` (round down)
+//! - Ceiling function: `vrndpq_f32` (round up)
 //!
 //! # Usage Examples
 //!

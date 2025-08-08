@@ -45,7 +45,7 @@ fn bench_eq_operations(c: &mut Criterion) {
         // Benchmark SIMD equality
         group.bench_with_input(BenchmarkId::new("simd_eq", size), &size, |b, _| {
             b.iter(|| {
-                let result = data_a.simd_eq(black_box(&data_b));
+                let result = data_a.elementwise_eq(black_box(&data_b));
                 black_box(result)
             });
         });

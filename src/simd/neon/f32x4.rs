@@ -43,8 +43,19 @@ use std::ops::{Add, Div, Mul, Sub};
 
 use super::math::*;
 
+/// NEON memory alignment recommendation in bytes.
+///
+/// While NEON instructions can handle unaligned memory access efficiently,
+/// 16-byte alignment can provide optimal performance for some operations.
+/// This constant defines the preferred alignment for F32x4 vectors.
 #[allow(dead_code)]
 pub(crate) const NEON_ALIGNMENT: usize = 16;
+
+/// Number of f32 elements that fit in a NEON 128-bit vector.
+///
+/// NEON vectors can contain 4 single-precision floating-point values
+/// (4 × 32 bits = 128 bits). This constant defines the vector capacity
+/// and is used for bounds checking and partial load/store operations.
 pub(crate) const LANE_COUNT: usize = 4;
 
 /// NEON SIMD vector containing 4 packed f32 values.
@@ -165,9 +176,9 @@ impl SimdLoad<f32> for F32x4 {
 
     /// Loads 4 elements from aligned memory.
     ///
-    /// On NEON, there's no separate aligned load instruction, so this uses
-    /// the same `vld1q_f32` intrinsic as unaligned loads. NEON handles
-    /// alignment optimizations automatically.
+    /// **Implementation Status**: Currently unimplemented because NEON uses the same
+    /// `vld1q_f32` intrinsic for both aligned and unaligned loads. NEON automatically
+    /// handles alignment optimizations at the hardware level.
     ///
     /// # Arguments
     ///
@@ -176,14 +187,20 @@ impl SimdLoad<f32> for F32x4 {
     /// # Safety
     ///
     /// Pointer must point to at least 4 valid f32 values.
+    ///
+    /// # Implementation Note
+    ///
+    /// This function should be implemented as an alias to the regular `load` function
+    /// since NEON doesn't differentiate between aligned and unaligned loads.
     unsafe fn load_aligned(_ptr: *const f32) -> Self::Output {
         unimplemented!()
     }
 
     /// Loads 4 elements from unaligned memory.
     ///
-    /// On NEON, this uses the same `vld1q_f32` intrinsic as aligned loads.
-    /// NEON efficiently handles unaligned memory access.
+    /// **Implementation Status**: Currently unimplemented because NEON uses the same
+    /// `vld1q_f32` intrinsic for both aligned and unaligned loads. NEON efficiently
+    /// handles unaligned memory access at the hardware level.
     ///
     /// # Arguments
     ///
@@ -192,6 +209,11 @@ impl SimdLoad<f32> for F32x4 {
     /// # Safety
     ///
     /// Pointer must point to at least 4 valid f32 values.
+    ///
+    /// # Implementation Note
+    ///
+    /// This function should be implemented as an alias to the regular `load` function
+    /// since NEON doesn't require separate aligned/unaligned load instructions.
     unsafe fn load_unaligned(_ptr: *const f32) -> Self::Output {
         unimplemented!()
     }
@@ -368,16 +390,28 @@ impl SimdMath for F32x4 {
 
     /// Computes 2D hypotenuse using optimized NEON math functions.
     ///
-    /// Uses the `vhypotq_f32` function from the math module for vectorized
-    /// Euclidean distance computation with overflow protection.
+    /// **Implementation Status**: Not yet implemented - requires implementing
+    /// the `vhypotq_f32` function in the math module for vectorized Euclidean
+    /// distance computation with overflow protection.
+    ///
+    /// # Planned Implementation
+    ///
+    /// Will compute sqrt(x² + y²) for pairs of elements with careful handling
+    /// of intermediate overflow/underflow using scaling techniques.
     fn hypot(&self) -> Self::Output {
         todo!()
     }
 
     /// Computes power using optimized NEON math functions.
     ///
-    /// Uses a combination of logarithm and exponential functions for
-    /// vectorized power computation: x^y = exp(y * ln(x)).
+    /// **Implementation Status**: Not yet implemented - requires implementing
+    /// vectorized power computation using logarithm and exponential functions:
+    /// x^y = exp(y * ln(x)).
+    ///
+    /// # Planned Implementation
+    ///
+    /// Will use a combination of `vlnq_f32` and `vexpq_f32` functions with
+    /// proper handling of special cases and domain validation.
     fn pow(&self) -> Self::Output {
         todo!()
     }
@@ -447,16 +481,28 @@ impl SimdMath for F32x4 {
 
     /// Computes 3D hypotenuse using optimized NEON math functions.
     ///
-    /// Uses the `vhypot3q_f32` function from the math module for vectorized
-    /// 3D Euclidean distance computation.
+    /// **Implementation Status**: Not yet implemented - requires implementing
+    /// the `vhypot3q_f32` function in the math module for vectorized 3D
+    /// Euclidean distance computation.
+    ///
+    /// # Planned Implementation
+    ///
+    /// Will compute sqrt(x² + y² + z²) for triplets of elements with overflow
+    /// protection and efficient memory layout handling.
     fn hypot3(&self) -> Self::Output {
         todo!()
     }
 
     /// Computes 4D hypotenuse using optimized NEON math functions.
     ///
-    /// Uses the `vhypot4q_f32` function from the math module for vectorized
-    /// 4D Euclidean distance computation.
+    /// **Implementation Status**: Not yet implemented - requires implementing
+    /// the `vhypot4q_f32` function in the math module for vectorized 4D
+    /// Euclidean distance computation.
+    ///
+    /// # Planned Implementation
+    ///
+    /// Will compute sqrt(x² + y² + z² + w²) for quadruplets of elements,
+    /// perfectly fitting the 4-element NEON vector capacity.
     fn hypot4(&self) -> Self::Output {
         todo!()
     }
@@ -503,24 +549,36 @@ impl SimdStore<f32> for F32x4 {
 
     /// Stores vector data to aligned memory.
     ///
-    /// On NEON, this uses the same `vst1q_f32` instruction as unaligned stores.
-    /// NEON handles alignment optimizations automatically.
+    /// **Implementation Status**: Currently unimplemented because NEON uses the same
+    /// `vst1q_f32` instruction for both aligned and unaligned stores. NEON automatically
+    /// handles alignment optimizations at the hardware level.
     ///
     /// # Safety
     ///
     /// Pointer must be properly aligned and point to writable memory for all elements.
+    ///
+    /// # Implementation Note
+    ///
+    /// This function should be implemented as an alias to the regular store operation
+    /// since NEON doesn't require separate aligned/unaligned store instructions.
     unsafe fn store_aligned_at(&self, _ptr: *mut f32) {
         unimplemented!()
     }
 
     /// Stores vector data to unaligned memory.
     ///
-    /// On NEON, this uses the same `vst1q_f32` instruction as aligned stores.
-    /// NEON efficiently handles unaligned memory access.
+    /// **Implementation Status**: Currently unimplemented because NEON uses the same
+    /// `vst1q_f32` instruction for both aligned and unaligned stores. NEON efficiently
+    /// handles unaligned memory access at the hardware level.
     ///
     /// # Safety
     ///
     /// Pointer must be valid, non-null, and point to writable memory for all elements.
+    ///
+    /// # Implementation Note
+    ///
+    /// This function should be implemented as an alias to the regular store operation
+    /// since NEON doesn't require separate aligned/unaligned store instructions.
     unsafe fn store_unaligned_at(&self, _ptr: *mut f32) {
         unimplemented!()
     }
@@ -656,7 +714,7 @@ impl SimdCmp for F32x4 {
     type Output = Self;
 
     #[inline(always)]
-    fn simd_eq(self, rhs: Self) -> Self::Output {
+    fn elementwise_eq(self, rhs: Self) -> Self::Output {
         debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",
