@@ -1,10 +1,10 @@
 [package]
-name = "simdly_py"
+name = "simdly"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "simdly_py"
+name = "simdly"
 crate-type = ["cdylib"]
 
 [dependencies]

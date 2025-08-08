@@ -1,6 +1,6 @@
 use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
-use simdly::{simd::SimdMath, FastAdd};
+use ::simdly::simd::SimdMath;
 
 /// Python bindings for the simdly Rust library
 ///
@@ -23,11 +23,11 @@ use simdly::{simd::SimdMath, FastAdd};
 ///     ValueError: If input arrays have different lengths or are empty
 ///
 /// Example:
-///     >>> import simdly_py
+///     >>> import simdly
 ///     >>> import numpy as np
 ///     >>> a = np.array([1.0, 2.0, 3.0], dtype=np.float32)
 ///     >>> b = np.array([4.0, 5.0, 6.0], dtype=np.float32)
-///     >>> result = simdly_py.add(a, b)
+///     >>> result = simdly.add(a, b)
 ///     >>> print(result)  # [5.0, 7.0, 9.0]
 #[pyfunction]
 fn add<'py>(py: Python<'py>, a: PyReadonlyArray1<f32>, b: PyReadonlyArray1<f32>) -> PyResult<Bound<'py, PyArray1<f32>>> {
@@ -65,11 +65,11 @@ fn add<'py>(py: Python<'py>, a: PyReadonlyArray1<f32>, b: PyReadonlyArray1<f32>)
 ///     ValueError: If input array is empty
 ///
 /// Example:
-///     >>> import simdly_py
+///     >>> import simdly
 ///     >>> import numpy as np
 ///     >>> import math
 ///     >>> a = np.array([0.0, math.pi/4, math.pi/2, math.pi], dtype=np.float32)
-///     >>> result = simdly_py.cos(a)
+///     >>> result = simdly.cos(a)
 ///     >>> print(result)  # [1.0, 0.707..., 0.0, -1.0]
 #[pyfunction]
 fn cos<'py>(py: Python<'py>, a: PyReadonlyArray1<f32>) -> PyResult<Bound<'py, PyArray1<f32>>> {
@@ -95,10 +95,10 @@ fn cos<'py>(py: Python<'py>, a: PyReadonlyArray1<f32>) -> PyResult<Bound<'py, Py
 ///     prefix: Optional prefix string to display before the array
 ///
 /// Example:
-///     >>> import simdly_py
+///     >>> import simdly
 ///     >>> import numpy as np
 ///     >>> arr = np.array([1.0, 2.0, 3.0], dtype=np.float32)
-///     >>> simdly_py.print_array(arr, "Result: ")
+///     >>> simdly.print_array(arr, "Result: ")
 #[pyfunction]
 #[pyo3(signature = (array, prefix = "Array"))]
 fn print_array(array: PyReadonlyArray1<f32>, prefix: &str) -> PyResult<()> {
@@ -124,7 +124,7 @@ fn print_array(array: PyReadonlyArray1<f32>, prefix: &str) -> PyResult<()> {
 
 /// A Python module for high-performance SIMD mathematical operations
 #[pymodule]
-fn simdly_py(_py: Python, m: &PyModule) -> PyResult<()> {
+fn simdly(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(add, m)?)?;
     m.add_function(wrap_pyfunction!(cos, m)?)?;
     m.add_function(wrap_pyfunction!(print_array, m)?)?;
