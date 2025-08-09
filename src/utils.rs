@@ -33,11 +33,10 @@
 //! let vec = alloc_uninit_f32_vec(len, 32);    // Fast, aligned, must initialize manually
 //! ```
 
-use std::mem;
-
-#[derive(Clone, Copy)]
-#[repr(C, align(32))]
-struct AlignedF32(f32);
+use std::{
+    alloc::{alloc, alloc_zeroed, handle_alloc_error, Layout},
+    mem,
+};
 
 /// Allocates an uninitialized f32 vector with 32-byte alignment.
 ///
@@ -110,19 +109,38 @@ struct AlignedF32(f32);
 /// 3. 32-byte alignment is required for optimal AVX2 performance
 /// 4. Safe allocation/deallocation using Vec's standard allocator is needed
 #[inline(always)]
-pub(crate) fn alloc_uninit_f32_vec(len: usize, _align: usize) -> Vec<f32> {
+pub(crate) fn alloc_uninit_f32_vec(len: usize, align: usize) -> Vec<f32> {
     if len == 0 {
         return Vec::new();
     }
 
-    let mut vec: Vec<AlignedF32> = Vec::with_capacity(len);
-    let ptr = vec.as_mut_ptr() as *mut f32;
-    let capacity = vec.capacity();
+    // The alignment must be a power of two.
+    assert!(align.is_power_of_two(), "Alignment must be a power of two.");
 
-    // Prevent the original vector from being dropped and deallocating the memory
-    mem::forget(vec);
+    let layout = match Layout::from_size_align(len * mem::size_of::<f32>(), align) {
+        Ok(l) => l.pad_to_align(),
+        Err(_) => {
+            // Handle the error case where a valid layout cannot be created.
+            // This might happen with an invalid size or alignment.
+            // For simplicity, we'll panic, but a real-world scenario might
+            // return a Result.
+            panic!("Failed to create memory layout for allocation");
+        }
+    };
 
-    unsafe { Vec::from_raw_parts(ptr, len, capacity) }
+    // We request raw memory with the specific size and alignment we need.
+    let ptr = unsafe { alloc(layout) };
+    if ptr.is_null() {
+        // The allocator returned a null pointer, meaning allocation failed.
+        // We handle this by calling the collection allocation error handler.
+        handle_alloc_error(layout);
+    }
+
+    let capacity = len; // The capacity is the number of f32 elements.
+
+    // `Vec::from_raw_parts` takes ownership of the pointer and will handle
+    // deallocation correctly using the size of `f32` and the `capacity`.
+    unsafe { Vec::from_raw_parts(ptr as *mut f32, len, capacity) }
 }
 
 /// Allocates a zero-initialized f32 vector with 32-byte alignment.
@@ -198,17 +216,36 @@ pub(crate) fn alloc_uninit_f32_vec(len: usize, _align: usize) -> Vec<f32> {
 /// 3. Safe allocation/deallocation using Vec's standard allocator
 /// 4. No risk of Windows heap corruption
 #[inline(always)]
-pub(crate) fn alloc_zeroed_f32_vec(len: usize, _align: usize) -> Vec<f32> {
+pub(crate) fn alloc_zeroed_f32_vec(len: usize, align: usize) -> Vec<f32> {
     if len == 0 {
         return Vec::new();
     }
 
-    let mut vec: Vec<AlignedF32> = vec![AlignedF32(0.0); len];
-    let ptr = vec.as_mut_ptr() as *mut f32;
-    let capacity = vec.capacity();
+    // The alignment must be a power of two.
+    assert!(align.is_power_of_two(), "Alignment must be a power of two.");
 
-    // Prevent the original vector from being dropped and deallocating the memory
-    mem::forget(vec);
+    let layout = match Layout::from_size_align(len * mem::size_of::<f32>(), align) {
+        Ok(l) => l.pad_to_align(),
+        Err(_) => {
+            // Handle the error case where a valid layout cannot be created.
+            // This might happen with an invalid size or alignment.
+            // For simplicity, we'll panic, but a real-world scenario might
+            // return a Result.
+            panic!("Failed to create memory layout for allocation");
+        }
+    };
 
-    unsafe { Vec::from_raw_parts(ptr, len, capacity) }
+    // We request raw memory with the specific size and alignment we need.
+    let ptr = unsafe { alloc_zeroed(layout) };
+    if ptr.is_null() {
+        // The allocator returned a null pointer, meaning allocation failed.
+        // We handle this by calling the collection allocation error handler.
+        handle_alloc_error(layout);
+    }
+
+    let capacity = len; // The capacity is the number of f32 elements.
+
+    // `Vec::from_raw_parts` takes ownership of the pointer and will handle
+    // deallocation correctly using the size of `f32` and the `capacity`.
+    unsafe { Vec::from_raw_parts(ptr as *mut f32, len, capacity) }
 }
