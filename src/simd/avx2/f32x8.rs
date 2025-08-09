@@ -68,33 +68,8 @@ impl Alignment<f32> for F32x8 {
     }
 }
 
-impl SimdLoad<f32> for F32x8 {
-    type Output = Self;
-
-    /// Loads data from a slice into the SIMD vector.
-    ///
-    /// This is the high-level interface for loading f32 data. It automatically
-    /// handles partial loads for slices smaller than 8 elements and uses the
-    /// most appropriate loading strategy based on slice size.
-    ///
-    /// # Arguments
-    ///
-    /// * `slice` - Input slice of f32 values
-    ///
-    /// # Returns
-    ///
-    /// F32x8 instance with loaded data
-    ///
-    /// # Behavior
-    ///
-    /// - For slices < 8 elements: Uses masked partial loading
-    /// - For slices >= 8 elements: Loads the first 8 elements using full loading
-    ///
-    /// # Panics
-    ///
-    /// Panics in debug builds if the slice is empty.
-    #[inline(always)]
-    fn from_slice(slice: &[f32]) -> Self::Output {
+impl From<&[f32]> for F32x8 {
+    fn from(slice: &[f32]) -> Self {
         debug_assert!(!slice.is_empty(), "data pointer can't be NULL");
 
         let size = slice.len();
@@ -106,6 +81,46 @@ impl SimdLoad<f32> for F32x8 {
             },
         }
     }
+}
+
+impl SimdLoad<f32> for F32x8 {
+    type Output = Self;
+
+    // /// Loads data from a slice into the SIMD vector.
+    // ///
+    // /// This is the high-level interface for loading f32 data. It automatically
+    // /// handles partial loads for slices smaller than 8 elements and uses the
+    // /// most appropriate loading strategy based on slice size.
+    // ///
+    // /// # Arguments
+    // ///
+    // /// * `slice` - Input slice of f32 values
+    // ///
+    // /// # Returns
+    // ///
+    // /// F32x8 instance with loaded data
+    // ///
+    // /// # Behavior
+    // ///
+    // /// - For slices < 8 elements: Uses masked partial loading
+    // /// - For slices >= 8 elements: Loads the first 8 elements using full loading
+    // ///
+    // /// # Panics
+    // ///
+    // /// Panics in debug builds if the slice is empty.
+    // #[inline(always)]
+    // fn from_slice(slice: &[f32]) -> Self::Output {
+    //     debug_assert!(!slice.is_empty(), "data pointer can't be NULL");
+
+    //     let size = slice.len();
+
+    //     match slice.len().cmp(&LANE_COUNT) {
+    //         std::cmp::Ordering::Less => unsafe { Self::load_partial(slice.as_ptr(), size) },
+    //         std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => unsafe {
+    //             Self::load(slice.as_ptr(), LANE_COUNT)
+    //         },
+    //     }
+    // }
 
     /// Loads exactly 8 elements from memory.
     ///
@@ -565,8 +580,8 @@ impl SimdStore<f32> for F32x8 {
 /// # use simdly::simd::SimdLoad;
 /// # #[cfg(target_feature = "avx2")]
 /// # {
-/// let a = F32x8::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
-/// let b = F32x8::from_slice(&[8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0]);
+/// let a = F32x8::from(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+/// let b = F32x8::from(&[8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0]);
 /// let result = a + b; // [9.0, 9.0, 9.0, 9.0, 9.0, 9.0, 9.0, 9.0]
 /// # }
 /// ```
@@ -696,7 +711,7 @@ mod tests {
         #[test]
         fn test_from_slice_full() {
             let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-            let vec = F32x8::from_slice(&data);
+            let vec = F32x8::from(data.as_slice());
 
             assert_eq!(vec.size, 8);
             let elements = extract_elements(&vec);
@@ -706,7 +721,7 @@ mod tests {
         #[test]
         fn test_from_slice_oversized() {
             let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
-            let vec = F32x8::from_slice(&data);
+            let vec = F32x8::from(data.as_slice());
 
             assert_eq!(vec.size, 8); // Should still be 8, not 10
             let elements = extract_elements(&vec);
@@ -716,7 +731,7 @@ mod tests {
         #[test]
         fn test_from_slice_partial() {
             let data = [1.0, 2.0, 3.0, 4.0, 5.0];
-            let vec = F32x8::from_slice(&data);
+            let vec = F32x8::from(data.as_slice());
 
             assert_eq!(vec.size, 5);
             let elements = extract_elements(&vec);
@@ -815,7 +830,7 @@ mod tests {
         #[test]
         fn test_store_aligned() {
             let test_data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-            let vec = F32x8::from_slice(&test_data);
+            let vec = F32x8::from(test_data.as_slice());
 
             let aligned_ptr = alloc_aligned(8, 32);
             unsafe { vec.store_aligned_at(aligned_ptr) };
@@ -829,7 +844,7 @@ mod tests {
         #[test]
         fn test_store_unaligned() {
             let test_data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-            let vec = F32x8::from_slice(&test_data);
+            let vec = F32x8::from(test_data.as_slice());
 
             let mut buffer = [0.0f32; 10];
             let unaligned_ptr = unsafe { buffer.as_mut_ptr().add(1) };
@@ -844,7 +859,7 @@ mod tests {
         #[test]
         fn test_stream_at_aligned() {
             let test_data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-            let vec = F32x8::from_slice(&test_data);
+            let vec = F32x8::from(test_data.as_slice());
 
             // Use properly aligned memory for streaming store
             let aligned_ptr = alloc_aligned(8, 32);
@@ -859,7 +874,7 @@ mod tests {
         #[test]
         fn test_stream_at_alignment_check() {
             let test_data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-            let vec = F32x8::from_slice(&test_data);
+            let vec = F32x8::from(test_data.as_slice());
 
             // Test with properly aligned memory
             let aligned_ptr = alloc_aligned(8, 32);
@@ -938,7 +953,7 @@ mod tests {
         #[test]
         fn test_load_store_roundtrip_full() {
             let original = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-            let vec = F32x8::from_slice(&original);
+            let vec = F32x8::from(original.as_slice());
 
             let mut result = [0.0f32; 8];
             unsafe { vec.store_unaligned_at(result.as_mut_ptr()) };
@@ -987,7 +1002,7 @@ mod tests {
         #[test]
         fn test_stream_roundtrip() {
             let original = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-            let vec = F32x8::from_slice(&original);
+            let vec = F32x8::from(original.as_slice());
 
             // Stream to aligned memory
             let aligned_dst = alloc_aligned(8, 32);
@@ -1006,7 +1021,7 @@ mod tests {
         #[test]
         fn test_zero_values() {
             let zeros = [0.0f32; 8];
-            let vec = F32x8::from_slice(&zeros);
+            let vec = F32x8::from(zeros.as_slice());
 
             let mut result = [1.0f32; 8]; // Initialize with non-zero
             unsafe { vec.store_unaligned_at(result.as_mut_ptr()) };
@@ -1017,7 +1032,7 @@ mod tests {
         #[test]
         fn test_negative_values() {
             let negatives = [-1.0, -2.0, -3.0, -4.0, -5.0, -6.0, -7.0, -8.0];
-            let vec = F32x8::from_slice(&negatives);
+            let vec = F32x8::from(negatives.as_slice());
 
             let mut result = [0.0f32; 8];
             unsafe { vec.store_unaligned_at(result.as_mut_ptr()) };
@@ -1038,7 +1053,7 @@ mod tests {
                 f32::EPSILON,
             ];
 
-            let vec = F32x8::from_slice(&special);
+            let vec = F32x8::from(special.as_slice());
             let mut result = [0.0f32; 8];
             unsafe { vec.store_unaligned_at(result.as_mut_ptr()) };
 
@@ -1093,7 +1108,7 @@ mod tests {
                 f32::EPSILON,
             ];
 
-            let vec = F32x8::from_slice(&special);
+            let vec = F32x8::from(special.as_slice());
 
             // Stream to aligned memory
             let aligned_ptr = alloc_aligned(8, 32);
@@ -1121,7 +1136,7 @@ mod tests {
         #[should_panic(expected = "data pointer can't be NULL")]
         fn test_from_slice_empty_panic() {
             let empty: &[f32] = &[];
-            F32x8::from_slice(empty);
+            let _ = F32x8::from(empty);
         }
 
         #[test]

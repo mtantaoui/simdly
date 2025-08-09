@@ -96,32 +96,32 @@ pub trait Alignment<T> {
 ///
 /// - Aligned loads are generally faster than unaligned loads
 /// - Partial loads use masking and may have additional overhead
-/// - The `from_slice` method automatically chooses the best loading strategy
+/// - The `From<&[T]>` trait implementation automatically chooses the best loading strategy
 pub trait SimdLoad<T> {
     /// The output type returned by load operations
     type Output;
 
-    /// High-level interface to load data from a slice.
+    /// High-level interface to load data from a slice using the `From` trait.
     ///
-    /// Automatically handles partial loads and chooses the most appropriate
+    /// Use `VectorType::from(&slice)` to create vectors from slices.
+    /// This automatically handles partial loads and chooses the most appropriate
     /// loading method based on data size and alignment. This is the recommended
-    /// method for most use cases as it provides optimal performance automatically.
+    /// approach for most use cases as it provides optimal performance automatically.
     ///
-    /// # Arguments
+    /// # Usage
     ///
-    /// * `slice` - Input slice containing data to load
-    ///
-    /// # Returns
-    ///
-    /// A SIMD vector containing the loaded data
+    /// ```rust
+    /// # use simdly::simd::*;
+    /// let data = [1.0, 2.0, 3.0, 4.0];
+    /// let vec = VectorType::from(&data[..]);
+    /// ```
     ///
     /// # Performance
     ///
-    /// This method automatically selects the fastest loading strategy:
+    /// The `From` trait implementation automatically selects the fastest loading strategy:
     /// - For aligned data: Uses fast aligned loads
-    /// - For unaligned data: Uses slower but safe unaligned loads  
+    /// - For unaligned data: Uses slower but safe unaligned loads
     /// - For partial data: Uses masked loads to prevent buffer overruns
-    fn from_slice(slice: &[T]) -> Self::Output;
 
     /// Loads a complete vector from memory.
     ///

@@ -72,7 +72,7 @@ use simdly::simd::{SimdLoad, SimdStore};
 fn main() {
     // Load 8 f32 values into SIMD vector
     let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-    let vec = F32x8::from_slice(&data);
+    let vec = F32x8::from(&data[..]);
     
     // Store results
     let mut output = [0.0f32; 8];
@@ -92,7 +92,7 @@ use simdly::simd::{SimdLoad, SimdStore};
 
 // Handle arrays smaller than 8 elements
 let data = [1.0, 2.0, 3.0]; // Only 3 elements
-let vec = F32x8::from_slice(&data);
+let vec = F32x8::from(&data[..]);
 
 let mut output = [0.0f32; 8];
 unsafe {
@@ -287,7 +287,7 @@ fn process_array(input: &[f32]) -> Vec<f32> {
     
     // Process full chunks of 8 elements
     for (i, chunk) in input.chunks_exact(8).enumerate() {
-        let vec = F32x8::from_slice(chunk);
+        let vec = F32x8::from(chunk);
         
         // Your SIMD operations here...
         
@@ -299,7 +299,7 @@ fn process_array(input: &[f32]) -> Vec<f32> {
     // Handle remaining elements
     let remainder_start = (input.len() / 8) * 8;
     if remainder_start < input.len() {
-        let vec = F32x8::from_slice(&input[remainder_start..]);
+        let vec = F32x8::from(&input[remainder_start..]);
         
         unsafe {
             vec.store_at_partial(output[remainder_start..].as_mut_ptr());

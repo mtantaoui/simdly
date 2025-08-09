@@ -20,7 +20,7 @@
 //! # Supported Operations
 //!
 //! ## Loading and Storing
-//! - `from_slice()` - High-level loading with automatic partial handling
+//! - `From<&[f32]>` trait - High-level loading with automatic partial handling
 //! - `load_aligned()`, `load_unaligned()` - Direct memory loading
 //! - `load_partial()` - Safe partial loading for sizes < 4
 //! - `store_at()` - Automatic store with size detection
@@ -78,7 +78,7 @@ pub(crate) const LANE_COUNT: usize = 4;
 /// use simdly::simd::SimdLoad;
 ///
 /// let data = [1.0f32, 2.0, 3.0, 4.0];
-/// let vector = F32x4::from_slice(&data);
+/// let vector = F32x4::from(&data[..]);
 /// # }
 /// ```
 #[derive(Copy, Clone, Debug)]

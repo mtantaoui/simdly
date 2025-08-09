@@ -49,7 +49,7 @@ For large datasets where data won't be reused, use streaming stores to bypass ca
 use simdly::simd::avx2::f32x8::F32x8;
 use simdly::simd::SimdStore;
 
-let vec = F32x8::from_slice(&data);
+let vec = F32x8::from(&data);
 
 // Stream to aligned memory (bypasses cache)
 unsafe {
@@ -72,7 +72,7 @@ fn process_any_size_array(input: &[f32]) -> Vec<f32> {
     
     // Process full vectors (8 elements at a time)
     while i + 8 <= input.len() {
-        let vec = F32x8::from_slice(&input[i..i + 8]);
+        let vec = F32x8::from(&input[i..i + 8]);
         
         // Your SIMD operations here...
         
@@ -106,7 +106,7 @@ fn process_any_size_array(input: &[f32]) -> Vec<f32> {
 ```rust
 // Good: Sequential memory access
 for chunk in data.chunks_exact(8) {
-    let vec = F32x8::from_slice(chunk);
+    let vec = F32x8::from(chunk);
     // Process vector...
 }
 ```
@@ -133,7 +133,7 @@ fn cache_friendly_processing(data: &[f32]) -> Vec<f32> {
     for chunk in data.chunks(ELEMENTS_PER_CACHE_LINE) {
         // Process each cache line with SIMD
         for simd_chunk in chunk.chunks(8) {
-            let vec = F32x8::from_slice(simd_chunk);
+            let vec = F32x8::from(simd_chunk);
             // Your operations...
         }
     }
@@ -166,7 +166,7 @@ impl SimdProcessor {
         for (chunk_in, chunk_out) in input.chunks(8)
             .zip(self.temp_buffer.chunks_mut(8)) {
             
-            let vec = F32x8::from_slice(chunk_in);
+            let vec = F32x8::from(chunk_in);
             // Your operations...
             
             unsafe {
@@ -200,13 +200,13 @@ pub fn safe_simd_add(a: &[f32], b: &[f32]) -> Result<Vec<f32>, &'static str> {
         let chunk_size = std::cmp::min(8, a.len() - i);
         
         let vec_a = if chunk_size == 8 {
-            F32x8::from_slice(&a[i..i + 8])
+            F32x8::from(&a[i..i + 8])
         } else {
             unsafe { F32x8::load_partial(a[i..].as_ptr(), chunk_size) }
         };
         
         let vec_b = if chunk_size == 8 {
-            F32x8::from_slice(&b[i..i + 8])
+            F32x8::from(&b[i..i + 8])
         } else {
             unsafe { F32x8::load_partial(b[i..].as_ptr(), chunk_size) }
         };
@@ -232,11 +232,11 @@ pub fn safe_simd_add(a: &[f32], b: &[f32]) -> Result<Vec<f32>, &'static str> {
 ## Best Practices
 
 ### 1. Prefer High-Level APIs
-Use `from_slice()` over manual load operations when possible:
+Use `From<&[T]>` trait over manual load operations when possible:
 
 ```rust
 // Good
-let vec = F32x8::from_slice(&data);
+let vec = F32x8::from(&data);
 
 // Less good (manual)
 let vec = unsafe { 
@@ -283,7 +283,7 @@ Process multiple vectors in a loop for better performance:
 ```rust
 // Good - batched processing
 for chunk in data.chunks_exact(8) {
-    let vec = F32x8::from_slice(chunk);
+    let vec = F32x8::from(chunk);
     // Process multiple operations on the same vector
     // ... operations ...
 }

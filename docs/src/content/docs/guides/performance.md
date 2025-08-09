@@ -205,7 +205,7 @@ impl Points3D {
         
         // AVX2: 8 f32 elements
         for chunk in self.x.chunks_exact_mut(8) {
-            let vec = F32x8::from_slice(chunk);
+            let vec = F32x8::from(chunk);
             // Process coordinates using SIMD operations
             // ... SIMD operations ...
             unsafe { vec.store_unaligned_at(chunk.as_mut_ptr()) };
@@ -239,7 +239,7 @@ fn cache_optimized_processing(data: &mut [f32]) {
     for cache_chunk in data.chunks_mut(FLOATS_PER_CACHE_LINE) {
         // Process each cache line with SIMD vectors
         for simd_chunk in cache_chunk.chunks_exact_mut(VECTOR_SIZE) {
-            let vec = F32x8::from_slice(simd_chunk);
+            let vec = F32x8::from(simd_chunk);
             // ... SIMD operations ...
             unsafe { vec.store_unaligned_at(simd_chunk.as_mut_ptr()) };
         }
@@ -359,7 +359,7 @@ Use conditional moves instead of branches:
     
     // Less efficient: Branching in loop
     for chunk in data.chunks_exact(LANE_COUNT) {
-        let vec = F32x8::from_slice(chunk);
+        let vec = F32x8::from(chunk);
 
         if some_condition {
             // Process one way
@@ -371,8 +371,8 @@ Use conditional moves instead of branches:
     // Better: Separate loops or use masking operations
     if some_condition {
         for chunk in data.chunks_exact_mut(LANE_COUNT) {
-            let vec = F32x8::from_slice(chunk);
-            let offset_vec = F32x8::from_slice(&offset_data);
+            let vec = F32x8::from(chunk);
+            let offset_vec = F32x8::from(&offset_data);
             
             // Process one way - add operation
             let result = vec.add(offset_vec);
@@ -380,7 +380,7 @@ Use conditional moves instead of branches:
         }
     } else {
         for chunk in data.chunks_exact_mut(LANE_COUNT) {
-            let vec = F32x8::from_slice(chunk);
+            let vec = F32x8::from(chunk);
             // Process another way - would need scalar multiplication implemented
             unsafe { vec.store_unaligned_at(chunk.as_mut_ptr()) };
         }
@@ -404,7 +404,7 @@ fn process_large_dataset(input: &[f32], output: &mut [f32]) {
 
     // Process in chunks of 8 elements (AVX2 vector size)
     for (input_chunk, output_chunk) in input.chunks_exact(8).zip(output.chunks_exact_mut(8)) {
-        let vec = F32x8::from_slice(input_chunk);
+        let vec = F32x8::from(input_chunk);
 
         // ... your SIMD operations ...
 
@@ -458,7 +458,7 @@ fn benchmark_simd_operations(c: &mut Criterion) {
             |b, data| {
                 b.iter(|| {
                     for chunk in data.chunks_exact(8) {
-                        let vec = F32x8::from_slice(chunk);
+                        let vec = F32x8::from(chunk);
                         // Simulate some operation
                         std::hint::black_box(vec);
                     }
