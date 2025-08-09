@@ -38,28 +38,31 @@
 
 use std::{
     alloc::{alloc, alloc_zeroed, handle_alloc_error, Layout},
-    mem::MaybeUninit,
+    ptr::NonNull,
 };
 
-/// Allocates a zero-initialized f32 vector with specified alignment.
+/// Allocates an uninitialized f32 vector with specified alignment.
 ///
-/// **SAFETY UPDATE**: This function has been changed to zero-initialize all elements
-/// to prevent undefined behavior. The previous uninitialized version was unsafe.
+/// **DANGER - UNINITIALIZED MEMORY**: This function allocates uninitialized memory
+/// using custom alignment. The returned vector contains arbitrary data that must be
+/// overwritten before reading to avoid undefined behavior.
 ///
-/// This function creates a vector of f32 values with custom memory alignment,
-/// where all elements are initialized to 0.0. This may be required for certain
-/// SIMD operations or when interfacing with external libraries that have 
-/// specific alignment requirements.
+/// This function creates a vector of f32 values with custom memory alignment using
+/// direct memory allocation. The memory is **not initialized** and contains undefined
+/// values that must be completely overwritten before use.
 ///
-/// # Performance Impact
+/// # Performance vs Safety Trade-off
 ///
-/// **Warning**: This function introduces allocation overhead compared to standard
-/// `Vec::with_capacity()`. The zero-initialization adds a small performance cost
-/// but eliminates undefined behavior.
+/// **Performance**: Avoids zero-initialization overhead for cases where all elements
+/// will be immediately overwritten by SIMD operations.
 ///
-/// For most operations, prefer:
+/// **Safety Risk**: The returned vector contains uninitialized memory. Reading from
+/// it before writing will result in undefined behavior.
+///
+/// For safer alternatives, prefer:
 /// ```rust, ignore
-/// let vec = vec![0.0f32; len];  // Simple and fast
+/// let vec = vec![0.0f32; len];  // Safe zero-initialized
+/// let vec = alloc_zeroed_f32_vec(len, align);  // Safe aligned zero-initialized
 /// ```
 ///
 /// # Memory Layout
@@ -67,8 +70,8 @@ use std::{
 /// - **Alignment**: Memory is aligned to the specified `align` parameter
 /// - **Size**: Allocated size is `len * sizeof(f32)` bytes
 /// - **Capacity**: Vector capacity equals the requested length
-/// - **Length**: Vector length is set to the requested length
-/// - **Initialization**: All elements are set to 0.0
+/// - **Length**: Vector length is set to the requested length (but data is uninitialized)
+/// - **Initialization**: **NONE - contains undefined data**
 ///
 /// # Arguments
 ///
@@ -77,22 +80,40 @@ use std::{
 ///
 /// # Returns
 ///
-/// A `Vec<f32>` with the specified length and alignment, with all elements set to 0.0.
+/// A `Vec<f32>` with the specified length and alignment containing **uninitialized data**.
 ///
 /// # Panics
 ///
 /// - Panics if `align` is not a power of 2
 /// - Panics if the requested layout is invalid (size overflow)
-/// - Calls `handle_alloc_error` if memory allocation fails
+/// - Panics with "Allocation failed" if memory allocation fails
 ///
-/// # Alternative (Recommended)
+/// # Safety Warning
 ///
-/// For most use cases, prefer the standard approach:
+/// This function is **unsafe** in that it returns uninitialized memory.
+/// Callers must ensure all elements are written before reading to avoid undefined behavior.
+///
+/// # Usage Pattern
+///
 /// ```rust, ignore
-/// let vec = vec![0.0f32; len];  // Simple zero-initialized vector
+/// let mut vec = alloc_uninit_f32_vec(1000, 32);
+/// // MUST overwrite all elements before reading
+/// for i in 0..vec.len() {
+///     vec[i] = compute_value(i);  // Initialize each element
+/// }
+/// // Now safe to read from vec
 /// ```
+///
+/// # Why This Function Exists
+///
+/// This function exists for performance-critical SIMD code where:
+/// 1. All elements will be overwritten immediately by SIMD operations
+/// 2. Zero-initialization overhead needs to be avoided
+/// 3. Custom alignment is required for optimal SIMD performance
 #[inline(always)]
 pub(crate) fn alloc_uninit_f32_vec(len: usize, align: usize) -> Vec<f32> {
+    assert!(align.is_power_of_two(), "Alignment must be a power of two");
+
     if len == 0 {
         return Vec::new();
     }
@@ -100,15 +121,12 @@ pub(crate) fn alloc_uninit_f32_vec(len: usize, align: usize) -> Vec<f32> {
     let layout =
         Layout::from_size_align(len * std::mem::size_of::<f32>(), align).expect("Invalid layout");
 
-    // Allocate zero-initialized memory with the desired alignment
-    let ptr = unsafe { alloc_zeroed(layout) as *mut f32 };
+    unsafe {
+        let ptr = NonNull::new(alloc(layout) as *mut f32).expect("Allocation failed");
 
-    if ptr.is_null() {
-        handle_alloc_error(layout);
+        // SAFETY: ptr came directly from Rust's allocator, capacity matches layout
+        Vec::from_raw_parts(ptr.as_ptr(), len, len)
     }
-
-    // SAFETY: All elements are zero-initialized, safe to use immediately
-    unsafe { Vec::from_raw_parts(ptr, len, len) }
 }
 
 /// Allocates a zero-initialized f32 vector with specified alignment.
@@ -152,7 +170,7 @@ pub(crate) fn alloc_uninit_f32_vec(len: usize, align: usize) -> Vec<f32> {
 ///
 /// - Panics if `align` is not a power of 2
 /// - Panics if the requested layout is invalid (size overflow)
-/// - Calls `handle_alloc_error` if memory allocation fails
+/// - Panics with "Allocation failed" if memory allocation fails
 ///
 /// # Safety
 ///
@@ -179,6 +197,8 @@ pub(crate) fn alloc_uninit_f32_vec(len: usize, align: usize) -> Vec<f32> {
 /// - Interfacing with C APIs that require aligned zero-initialized memory
 #[inline(always)]
 pub(crate) fn alloc_zeroed_f32_vec(len: usize, align: usize) -> Vec<f32> {
+    assert!(align.is_power_of_two(), "Alignment must be a power of two");
+
     if len == 0 {
         return Vec::new();
     }
@@ -186,11 +206,10 @@ pub(crate) fn alloc_zeroed_f32_vec(len: usize, align: usize) -> Vec<f32> {
     let layout =
         Layout::from_size_align(len * std::mem::size_of::<f32>(), align).expect("Invalid layout");
 
-    let ptr = unsafe { alloc_zeroed(layout) as *mut f32 };
+    unsafe {
+        let ptr = NonNull::new(alloc_zeroed(layout) as *mut f32).expect("Allocation failed");
 
-    if ptr.is_null() {
-        handle_alloc_error(layout);
+        // SAFETY: ptr came directly from Rust's allocator, capacity matches layout
+        Vec::from_raw_parts(ptr.as_ptr(), len, len)
     }
-
-    unsafe { Vec::from_raw_parts(ptr, len, len) }
 }
