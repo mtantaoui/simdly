@@ -788,7 +788,11 @@ fn eq_elementwise_partial_block(a: *const f32, b: *const f32, c: *mut f32, size:
     let b_chunk_simd = unsafe { F32x8::load_partial(b, size) };
 
     // Perform addition and store only the valid elements
-    unsafe { a_chunk_simd.simd_eq(b_chunk_simd).store_at_partial(c) };
+    unsafe {
+        a_chunk_simd
+            .elementwise_eq(b_chunk_simd)
+            .store_at_partial(c)
+    };
 }
 
 #[inline(always)]
@@ -798,5 +802,5 @@ fn eq_elementwise_block(a: *const f32, b: *const f32, c: *mut f32) {
     let b_chunk_simd = unsafe { F32x8::load(b, f32x8::LANE_COUNT) };
 
     // Store the result back to memory with aligned access
-    a_chunk_simd.simd_eq(b_chunk_simd).store_at(c);
+    a_chunk_simd.elementwise_eq(b_chunk_simd).store_at(c);
 }

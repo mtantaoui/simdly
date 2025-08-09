@@ -616,7 +616,7 @@ impl Add for F32x8 {
 impl SimdCmp for F32x8 {
     type Output = Self;
     #[inline(always)]
-    fn simd_eq(self, rhs: Self) -> Self::Output {
+    fn elementwise_eq(self, rhs: Self) -> Self::Output {
         debug_assert!(
             self.size == rhs.size,
             "Operands must have the same size (expected {} lanes, got {} and {})",

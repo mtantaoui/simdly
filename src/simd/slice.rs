@@ -31,9 +31,7 @@ use crate::{
 use crate::simd::neon::slice::{eq_elementwise, parallel_simd_add, simd_add, simd_cos};
 
 #[cfg(avx2)]
-use crate::simd::avx2::slice::{
-    eq_elementwise, parallel_simd_add, parallel_simd_cos, simd_add, simd_cos,
-};
+use crate::simd::avx2::slice::{eq_elementwise, parallel_simd_add, simd_add, simd_cos};
 
 /// Performs element-wise addition of two f32 slices using scalar operations.
 ///

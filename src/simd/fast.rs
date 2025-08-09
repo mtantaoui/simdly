@@ -4,9 +4,7 @@ use crate::{simd::slice::scalar_add, FastAdd, PARALLEL_SIMD_THRESHOLD, SIMD_THRE
 use crate::simd::neon::slice::{parallel_simd_add, parallel_simd_cos, simd_add, simd_cos};
 
 #[cfg(avx2)]
-use crate::simd::avx2::slice::{
-    eq_elementwise, parallel_simd_add, parallel_simd_cos, simd_add, simd_cos,
-};
+use crate::simd::avx2::slice::{parallel_simd_add, parallel_simd_cos, simd_add, simd_cos};
 
 /// Performs intelligent element-wise addition with automatic algorithm selection.
 ///
