@@ -135,19 +135,19 @@ fn test_ceil_precision_random_inputs() {
 fn test_ceil_edge_cases() {
     let edge_cases = vec![
         // Exact values where ceil should be known
-        (0.0f32, 0.0f32),           // ceil(0) = 0
-        (1.0f32, 1.0f32),           // ceil(1) = 1
-        (-1.0f32, -1.0f32),         // ceil(-1) = -1
-        (1.5f32, 2.0f32),           // ceil(1.5) = 2
-        (-1.5f32, -1.0f32),         // ceil(-1.5) = -1
-        (2.9f32, 3.0f32),           // ceil(2.9) = 3
-        (-2.9f32, -2.0f32),         // ceil(-2.9) = -2
-        (0.1f32, 1.0f32),           // ceil(0.1) = 1
-        (-0.1f32, 0.0f32),          // ceil(-0.1) = 0
-        (0.9f32, 1.0f32),           // ceil(0.9) = 1
-        (-0.9f32, 0.0f32),          // ceil(-0.9) = 0
-        (42.0f32, 42.0f32),         // ceil(42) = 42
-        (-42.0f32, -42.0f32),       // ceil(-42) = -42
+        (0.0f32, 0.0f32),     // ceil(0) = 0
+        (1.0f32, 1.0f32),     // ceil(1) = 1
+        (-1.0f32, -1.0f32),   // ceil(-1) = -1
+        (1.5f32, 2.0f32),     // ceil(1.5) = 2
+        (-1.5f32, -1.0f32),   // ceil(-1.5) = -1
+        (2.9f32, 3.0f32),     // ceil(2.9) = 3
+        (-2.9f32, -2.0f32),   // ceil(-2.9) = -2
+        (0.1f32, 1.0f32),     // ceil(0.1) = 1
+        (-0.1f32, 0.0f32),    // ceil(-0.1) = 0
+        (0.9f32, 1.0f32),     // ceil(0.9) = 1
+        (-0.9f32, 0.0f32),    // ceil(-0.9) = 0
+        (42.0f32, 42.0f32),   // ceil(42) = 42
+        (-42.0f32, -42.0f32), // ceil(-42) = -42
     ];
 
     for (input, expected) in edge_cases {
@@ -187,9 +187,8 @@ fn test_ceil_edge_cases() {
 #[test]
 fn test_ceil_precision_near_integers() {
     let boundary_values: Vec<f32> = vec![
-        0.9999, 1.0001, 1.9999, 2.0001, -0.0001, -0.9999, -1.0001, -1.9999, -2.0001,
-        9.9999, 10.0001, -9.9999, -10.0001,
-        99.9999, 100.0001, -99.9999, -100.0001,
+        0.9999, 1.0001, 1.9999, 2.0001, -0.0001, -0.9999, -1.0001, -1.9999, -2.0001, 9.9999,
+        10.0001, -9.9999, -10.0001, 99.9999, 100.0001, -99.9999, -100.0001,
     ];
 
     let scalar_results: Vec<f32> = boundary_values.iter().map(|x| x.ceil()).collect();
@@ -226,8 +225,12 @@ fn test_ceil_precision_near_integers() {
 #[test]
 fn test_ceil_precision_large_values() {
     let large_values: Vec<f32> = vec![
-        1000000.1, 1000000.9, -1000000.1, -1000000.9,
-        f32::MAX - 1.0, -f32::MAX + 1.0,
+        1000000.1,
+        1000000.9,
+        -1000000.1,
+        -1000000.9,
+        f32::MAX - 1.0,
+        -f32::MAX + 1.0,
     ];
 
     let scalar_results: Vec<f32> = large_values.iter().map(|x| x.ceil()).collect();

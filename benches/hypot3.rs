@@ -24,7 +24,6 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-
 // Import the hypot3 implementations
 use simdly::simd::SimdMath;
 
@@ -87,25 +86,21 @@ const VECTOR_SIZES: &[usize] = &[
 fn generate_test_data(len: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
     let mut rng = StdRng::seed_from_u64(42); // Fixed seed for reproducibility
 
-    let x_values: Vec<f32> = (0..len)
-        .map(|_| rng.random_range(-100.0..=100.0))
-        .collect();
-        
-    let y_values: Vec<f32> = (0..len)
-        .map(|_| rng.random_range(-100.0..=100.0))
-        .collect();
-        
-    let z_values: Vec<f32> = (0..len)
-        .map(|_| rng.random_range(-100.0..=100.0))
-        .collect();
+    let x_values: Vec<f32> = (0..len).map(|_| rng.random_range(-100.0..=100.0)).collect();
+
+    let y_values: Vec<f32> = (0..len).map(|_| rng.random_range(-100.0..=100.0)).collect();
+
+    let z_values: Vec<f32> = (0..len).map(|_| rng.random_range(-100.0..=100.0)).collect();
 
     (x_values, y_values, z_values)
 }
 
 /// Scalar hypot3 implementation for benchmarking baseline.
 fn scalar_hypot3(x: &[f32], y: &[f32], z: &[f32]) -> Vec<f32> {
-    x.iter().zip(y.iter()).zip(z.iter())
-        .map(|((x, y), z)| (x*x + y*y + z*z).sqrt())
+    x.iter()
+        .zip(y.iter())
+        .zip(z.iter())
+        .map(|((x, y), z)| (x * x + y * y + z * z).sqrt())
         .collect()
 }
 
@@ -133,14 +128,20 @@ fn benchmark_hypot3_implementations(c: &mut Criterion) {
         let z_slice = z_vec.as_slice();
 
         // Benchmark 1: Scalar Hypot3 (Baseline)
-        group.bench_with_input(BenchmarkId::new("Scalar", size), &(x_slice, y_slice, z_slice), |b, (x, y, z)| {
-            b.iter(|| black_box(scalar_hypot3(black_box(x), black_box(y), black_box(z))))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("Scalar", size),
+            &(x_slice, y_slice, z_slice),
+            |b, (x, y, z)| {
+                b.iter(|| black_box(scalar_hypot3(black_box(x), black_box(y), black_box(z))))
+            },
+        );
 
         // Benchmark 2: SIMD Hypot3
-        group.bench_with_input(BenchmarkId::new("SIMD", size), &(x_slice, y_slice, z_slice), |b, (x, y, z)| {
-            b.iter(|| black_box(x.hypot3(black_box(y), black_box(z))))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("SIMD", size),
+            &(x_slice, y_slice, z_slice),
+            |b, (x, y, z)| b.iter(|| black_box(x.hypot3(black_box(y), black_box(z)))),
+        );
 
         // Benchmark 3: Parallel SIMD Hypot3
         group.bench_with_input(

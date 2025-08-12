@@ -24,7 +24,6 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-
 // No fast_abs function available
 
 // Import the absolute value implementations

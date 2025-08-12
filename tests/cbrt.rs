@@ -152,19 +152,19 @@ fn test_cbrt_precision_random_inputs() {
 fn test_cbrt_edge_cases() {
     let edge_cases = vec![
         // Exact values where cbrt should be known
-        (0.0f32, 0.0f32),           // cbrt(0) = 0
-        (1.0f32, 1.0f32),           // cbrt(1) = 1
-        (-1.0f32, -1.0f32),         // cbrt(-1) = -1
-        (8.0f32, 2.0f32),           // cbrt(8) = 2
-        (-8.0f32, -2.0f32),         // cbrt(-8) = -2
-        (27.0f32, 3.0f32),          // cbrt(27) = 3
-        (-27.0f32, -3.0f32),        // cbrt(-27) = -3
-        (64.0f32, 4.0f32),          // cbrt(64) = 4
-        (-64.0f32, -4.0f32),        // cbrt(-64) = -4
-        (125.0f32, 5.0f32),         // cbrt(125) = 5
-        (-125.0f32, -5.0f32),       // cbrt(-125) = -5
-        (0.125f32, 0.5f32),         // cbrt(0.125) = 0.5
-        (-0.125f32, -0.5f32),       // cbrt(-0.125) = -0.5
+        (0.0f32, 0.0f32),     // cbrt(0) = 0
+        (1.0f32, 1.0f32),     // cbrt(1) = 1
+        (-1.0f32, -1.0f32),   // cbrt(-1) = -1
+        (8.0f32, 2.0f32),     // cbrt(8) = 2
+        (-8.0f32, -2.0f32),   // cbrt(-8) = -2
+        (27.0f32, 3.0f32),    // cbrt(27) = 3
+        (-27.0f32, -3.0f32),  // cbrt(-27) = -3
+        (64.0f32, 4.0f32),    // cbrt(64) = 4
+        (-64.0f32, -4.0f32),  // cbrt(-64) = -4
+        (125.0f32, 5.0f32),   // cbrt(125) = 5
+        (-125.0f32, -5.0f32), // cbrt(-125) = -5
+        (0.125f32, 0.5f32),   // cbrt(0.125) = 0.5
+        (-0.125f32, -0.5f32), // cbrt(-0.125) = -0.5
     ];
 
     for (input, expected) in edge_cases {
@@ -178,8 +178,16 @@ fn test_cbrt_edge_cases() {
         // Compare against expected value (allowing for some numerical error)
         let scalar_error = (scalar_result - expected).abs();
         let simd_error = (simd_result - expected).abs();
-        let scalar_rel_error = if expected != 0.0 { scalar_error / expected.abs() } else { scalar_error };
-        let simd_rel_error = if expected != 0.0 { simd_error / expected.abs() } else { simd_error };
+        let scalar_rel_error = if expected != 0.0 {
+            scalar_error / expected.abs()
+        } else {
+            scalar_error
+        };
+        let simd_rel_error = if expected != 0.0 {
+            simd_error / expected.abs()
+        } else {
+            simd_error
+        };
 
         println!("  Scalar error: {scalar_error:.2e} (rel: {scalar_rel_error:.2e}), SIMD error: {simd_error:.2e} (rel: {simd_rel_error:.2e})");
 
@@ -206,12 +214,12 @@ fn test_cbrt_edge_cases() {
 
         // SIMD should be close to scalar
         let simd_vs_scalar_error = (simd_result - scalar_result).abs();
-        let simd_vs_scalar_rel_error = if scalar_result != 0.0 { 
-            simd_vs_scalar_error / scalar_result.abs() 
-        } else { 
-            simd_vs_scalar_error 
+        let simd_vs_scalar_rel_error = if scalar_result != 0.0 {
+            simd_vs_scalar_error / scalar_result.abs()
+        } else {
+            simd_vs_scalar_error
         };
-        
+
         if scalar_result != 0.0 {
             assert!(
                 simd_vs_scalar_rel_error < 1e-5,
@@ -230,8 +238,8 @@ fn test_cbrt_edge_cases() {
 #[test]
 fn test_cbrt_precision_near_zero() {
     let small_values: Vec<f32> = vec![
-        1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 
-        -1e-9, -1e-8, -1e-7, -1e-6, -1e-5, -1e-4, -1e-3, -1e-2, -1e-1,
+        1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, -1e-9, -1e-8, -1e-7, -1e-6, -1e-5,
+        -1e-4, -1e-3, -1e-2, -1e-1,
     ];
 
     let scalar_results: Vec<f32> = small_values.iter().map(|x| x.cbrt()).collect();

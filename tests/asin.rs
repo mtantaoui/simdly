@@ -151,12 +151,12 @@ fn test_asin_precision_random_inputs() {
 fn test_asin_edge_cases() {
     let edge_cases = vec![
         // Exact values where asin should be known
-        (0.0f32, 0.0f32),                           // asin(0) = 0
-        (1.0f32, PI / 2.0),                         // asin(1) = π/2
-        (-1.0f32, -PI / 2.0),                       // asin(-1) = -π/2
-        (0.5f32, PI / 6.0),                         // asin(0.5) = π/6
-        (-0.5f32, -PI / 6.0),                       // asin(-0.5) = -π/6
-        (std::f32::consts::FRAC_1_SQRT_2, PI / 4.0), // asin(1/√2) = π/4
+        (0.0f32, 0.0f32),                              // asin(0) = 0
+        (1.0f32, PI / 2.0),                            // asin(1) = π/2
+        (-1.0f32, -PI / 2.0),                          // asin(-1) = -π/2
+        (0.5f32, PI / 6.0),                            // asin(0.5) = π/6
+        (-0.5f32, -PI / 6.0),                          // asin(-0.5) = -π/6
+        (std::f32::consts::FRAC_1_SQRT_2, PI / 4.0),   // asin(1/√2) = π/4
         (-std::f32::consts::FRAC_1_SQRT_2, -PI / 4.0), // asin(-1/√2) = -π/4
     ];
 
@@ -171,8 +171,16 @@ fn test_asin_edge_cases() {
         // Compare against expected value (allowing for some numerical error)
         let scalar_error = (scalar_result - expected).abs();
         let simd_error = (simd_result - expected).abs();
-        let scalar_rel_error = if expected != 0.0 { scalar_error / expected.abs() } else { scalar_error };
-        let simd_rel_error = if expected != 0.0 { simd_error / expected.abs() } else { simd_error };
+        let scalar_rel_error = if expected != 0.0 {
+            scalar_error / expected.abs()
+        } else {
+            scalar_error
+        };
+        let simd_rel_error = if expected != 0.0 {
+            simd_error / expected.abs()
+        } else {
+            simd_error
+        };
 
         println!("  Scalar error: {scalar_error:.2e} (rel: {scalar_rel_error:.2e}), SIMD error: {simd_error:.2e} (rel: {simd_rel_error:.2e})");
 
@@ -199,12 +207,12 @@ fn test_asin_edge_cases() {
 
         // SIMD should be close to scalar
         let simd_vs_scalar_error = (simd_result - scalar_result).abs();
-        let simd_vs_scalar_rel_error = if scalar_result != 0.0 { 
-            simd_vs_scalar_error / scalar_result.abs() 
-        } else { 
-            simd_vs_scalar_error 
+        let simd_vs_scalar_rel_error = if scalar_result != 0.0 {
+            simd_vs_scalar_error / scalar_result.abs()
+        } else {
+            simd_vs_scalar_error
         };
-        
+
         if scalar_result != 0.0 {
             assert!(
                 simd_vs_scalar_rel_error < 1e-4,

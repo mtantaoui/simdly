@@ -24,7 +24,6 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-
 // Import the power implementations
 use simdly::simd::SimdMath;
 
@@ -90,7 +89,7 @@ fn generate_test_data(len: usize) -> (Vec<f32>, Vec<f32>) {
     let base_values: Vec<f32> = (0..len)
         .map(|_| rng.random_range(0.1..=10.0)) // Positive bases to avoid complex results
         .collect();
-        
+
     let exp_values: Vec<f32> = (0..len)
         .map(|_| rng.random_range(-3.0..=3.0)) // Limited exponent range to avoid overflow
         .collect();
@@ -100,7 +99,10 @@ fn generate_test_data(len: usize) -> (Vec<f32>, Vec<f32>) {
 
 /// Scalar power implementation for benchmarking baseline.
 fn scalar_pow(base: &[f32], exp: &[f32]) -> Vec<f32> {
-    base.iter().zip(exp.iter()).map(|(b, e)| b.powf(*e)).collect()
+    base.iter()
+        .zip(exp.iter())
+        .map(|(b, e)| b.powf(*e))
+        .collect()
 }
 
 // ================================================================================================
@@ -126,14 +128,18 @@ fn benchmark_pow_implementations(c: &mut Criterion) {
         let exp_slice = exp_vec.as_slice();
 
         // Benchmark 1: Scalar Power (Baseline)
-        group.bench_with_input(BenchmarkId::new("Scalar", size), &(base_slice, exp_slice), |b, (base, exp)| {
-            b.iter(|| black_box(scalar_pow(black_box(base), black_box(exp))))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("Scalar", size),
+            &(base_slice, exp_slice),
+            |b, (base, exp)| b.iter(|| black_box(scalar_pow(black_box(base), black_box(exp)))),
+        );
 
         // Benchmark 2: SIMD Power
-        group.bench_with_input(BenchmarkId::new("SIMD", size), &(base_slice, exp_slice), |b, (base, exp)| {
-            b.iter(|| black_box(base.pow(black_box(exp))))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("SIMD", size),
+            &(base_slice, exp_slice),
+            |b, (base, exp)| b.iter(|| black_box(base.pow(black_box(exp)))),
+        );
 
         // Benchmark 3: Parallel SIMD Power
         group.bench_with_input(

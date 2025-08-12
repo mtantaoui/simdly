@@ -151,11 +151,11 @@ fn test_sine_precision_random_inputs() {
 fn test_sine_edge_cases() {
     let edge_cases = vec![
         // Exact values where sine should be known
-        (0.0f32, 0.0f32),                           // sin(0) = 0
-        (std::f32::consts::PI / 2.0, 1.0f32),       // sin(π/2) = 1
-        (std::f32::consts::PI, 0.0f32),             // sin(π) = 0
+        (0.0f32, 0.0f32),                            // sin(0) = 0
+        (std::f32::consts::PI / 2.0, 1.0f32),        // sin(π/2) = 1
+        (std::f32::consts::PI, 0.0f32),              // sin(π) = 0
         (3.0 * std::f32::consts::PI / 2.0, -1.0f32), // sin(3π/2) = -1
-        (2.0 * std::f32::consts::PI, 0.0f32),       // sin(2π) = 0
+        (2.0 * std::f32::consts::PI, 0.0f32),        // sin(2π) = 0
     ];
 
     for (input, expected) in edge_cases {

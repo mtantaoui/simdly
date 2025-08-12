@@ -7,7 +7,6 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-
 // No fast_asin function available
 use simdly::simd::SimdMath;
 

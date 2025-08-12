@@ -24,7 +24,6 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-
 // Import the hypot implementations
 use simdly::simd::SimdMath;
 
@@ -87,13 +86,9 @@ const VECTOR_SIZES: &[usize] = &[
 fn generate_test_data(len: usize) -> (Vec<f32>, Vec<f32>) {
     let mut rng = StdRng::seed_from_u64(42); // Fixed seed for reproducibility
 
-    let x_values: Vec<f32> = (0..len)
-        .map(|_| rng.random_range(-100.0..=100.0))
-        .collect();
-        
-    let y_values: Vec<f32> = (0..len)
-        .map(|_| rng.random_range(-100.0..=100.0))
-        .collect();
+    let x_values: Vec<f32> = (0..len).map(|_| rng.random_range(-100.0..=100.0)).collect();
+
+    let y_values: Vec<f32> = (0..len).map(|_| rng.random_range(-100.0..=100.0)).collect();
 
     (x_values, y_values)
 }
@@ -126,14 +121,18 @@ fn benchmark_hypot_implementations(c: &mut Criterion) {
         let y_slice = y_vec.as_slice();
 
         // Benchmark 1: Scalar Hypot (Baseline)
-        group.bench_with_input(BenchmarkId::new("Scalar", size), &(x_slice, y_slice), |b, (x, y)| {
-            b.iter(|| black_box(scalar_hypot(black_box(x), black_box(y))))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("Scalar", size),
+            &(x_slice, y_slice),
+            |b, (x, y)| b.iter(|| black_box(scalar_hypot(black_box(x), black_box(y)))),
+        );
 
         // Benchmark 2: SIMD Hypot
-        group.bench_with_input(BenchmarkId::new("SIMD", size), &(x_slice, y_slice), |b, (x, y)| {
-            b.iter(|| black_box(x.hypot(black_box(y))))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("SIMD", size),
+            &(x_slice, y_slice),
+            |b, (x, y)| b.iter(|| black_box(x.hypot(black_box(y)))),
+        );
 
         // Benchmark 3: Parallel SIMD Hypot
         group.bench_with_input(

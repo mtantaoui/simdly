@@ -151,12 +151,12 @@ fn test_acos_precision_random_inputs() {
 fn test_acos_edge_cases() {
     let edge_cases = vec![
         // Exact values where acos should be known
-        (1.0f32, 0.0f32),                           // acos(1) = 0
-        (-1.0f32, PI),                              // acos(-1) = π
-        (0.0f32, PI / 2.0),                         // acos(0) = π/2
-        (0.5f32, PI / 3.0),                         // acos(0.5) = π/3
-        (-0.5f32, 2.0 * PI / 3.0),                  // acos(-0.5) = 2π/3
-        (std::f32::consts::FRAC_1_SQRT_2, PI / 4.0), // acos(1/√2) = π/4
+        (1.0f32, 0.0f32),                                   // acos(1) = 0
+        (-1.0f32, PI),                                      // acos(-1) = π
+        (0.0f32, PI / 2.0),                                 // acos(0) = π/2
+        (0.5f32, PI / 3.0),                                 // acos(0.5) = π/3
+        (-0.5f32, 2.0 * PI / 3.0),                          // acos(-0.5) = 2π/3
+        (std::f32::consts::FRAC_1_SQRT_2, PI / 4.0),        // acos(1/√2) = π/4
         (-std::f32::consts::FRAC_1_SQRT_2, 3.0 * PI / 4.0), // acos(-1/√2) = 3π/4
     ];
 
@@ -171,8 +171,16 @@ fn test_acos_edge_cases() {
         // Compare against expected value (allowing for some numerical error)
         let scalar_error = (scalar_result - expected).abs();
         let simd_error = (simd_result - expected).abs();
-        let scalar_rel_error = if expected != 0.0 { scalar_error / expected.abs() } else { scalar_error };
-        let simd_rel_error = if expected != 0.0 { simd_error / expected.abs() } else { simd_error };
+        let scalar_rel_error = if expected != 0.0 {
+            scalar_error / expected.abs()
+        } else {
+            scalar_error
+        };
+        let simd_rel_error = if expected != 0.0 {
+            simd_error / expected.abs()
+        } else {
+            simd_error
+        };
 
         println!("  Scalar error: {scalar_error:.2e} (rel: {scalar_rel_error:.2e}), SIMD error: {simd_error:.2e} (rel: {simd_rel_error:.2e})");
 
@@ -199,12 +207,12 @@ fn test_acos_edge_cases() {
 
         // SIMD should be close to scalar
         let simd_vs_scalar_error = (simd_result - scalar_result).abs();
-        let simd_vs_scalar_rel_error = if scalar_result != 0.0 { 
-            simd_vs_scalar_error / scalar_result.abs() 
-        } else { 
-            simd_vs_scalar_error 
+        let simd_vs_scalar_rel_error = if scalar_result != 0.0 {
+            simd_vs_scalar_error / scalar_result.abs()
+        } else {
+            simd_vs_scalar_error
         };
-        
+
         if scalar_result != 0.0 {
             assert!(
                 simd_vs_scalar_rel_error < 1e-4,
@@ -224,8 +232,8 @@ fn test_acos_edge_cases() {
 fn test_acos_precision_near_boundaries() {
     // Test values near -1 and 1 where acos is most sensitive
     let boundary_values: Vec<f32> = vec![
-        -0.999, -0.99, -0.9, -0.8, -0.5, -0.1, 0.0, 0.1, 0.5, 0.8, 0.9, 0.99, 0.999,
-        -1.0, 1.0, // exact boundaries
+        -0.999, -0.99, -0.9, -0.8, -0.5, -0.1, 0.0, 0.1, 0.5, 0.8, 0.9, 0.99, 0.999, -1.0,
+        1.0, // exact boundaries
     ];
 
     let scalar_results: Vec<f32> = boundary_values.iter().map(|x| x.acos()).collect();

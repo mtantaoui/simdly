@@ -31,10 +31,10 @@ use crate::{
 use crate::simd::neon::slice::{
     eq_elementwise, parallel_simd_abs, parallel_simd_acos, parallel_simd_add, parallel_simd_asin,
     parallel_simd_atan, parallel_simd_atan2, parallel_simd_cbrt, parallel_simd_ceil,
-    parallel_simd_cos, parallel_simd_exp, parallel_simd_floor, parallel_simd_hypot, 
+    parallel_simd_cos, parallel_simd_exp, parallel_simd_floor, parallel_simd_hypot,
     parallel_simd_hypot3, parallel_simd_hypot4, parallel_simd_ln, parallel_simd_pow,
-    parallel_simd_sin, parallel_simd_sqrt, parallel_simd_tan, simd_abs, simd_acos, simd_add, 
-    simd_asin, simd_atan, simd_atan2, simd_cbrt, simd_ceil, simd_cos, simd_exp, simd_floor, 
+    parallel_simd_sin, parallel_simd_sqrt, parallel_simd_tan, simd_abs, simd_acos, simd_add,
+    simd_asin, simd_atan, simd_atan2, simd_cbrt, simd_ceil, simd_cos, simd_exp, simd_floor,
     simd_hypot, simd_hypot3, simd_hypot4, simd_ln, simd_pow, simd_sin, simd_sqrt, simd_tan,
 };
 
@@ -42,10 +42,10 @@ use crate::simd::neon::slice::{
 use crate::simd::avx2::slice::{
     eq_elementwise, parallel_simd_abs, parallel_simd_acos, parallel_simd_add, parallel_simd_asin,
     parallel_simd_atan, parallel_simd_atan2, parallel_simd_cbrt, parallel_simd_ceil,
-    parallel_simd_cos, parallel_simd_exp, parallel_simd_floor, parallel_simd_hypot, 
+    parallel_simd_cos, parallel_simd_exp, parallel_simd_floor, parallel_simd_hypot,
     parallel_simd_hypot3, parallel_simd_hypot4, parallel_simd_ln, parallel_simd_pow,
-    parallel_simd_sin, parallel_simd_sqrt, parallel_simd_tan, simd_abs, simd_acos, simd_add, 
-    simd_asin, simd_atan, simd_atan2, simd_cbrt, simd_ceil, simd_cos, simd_exp, simd_floor, 
+    parallel_simd_sin, parallel_simd_sqrt, parallel_simd_tan, simd_abs, simd_acos, simd_add,
+    simd_asin, simd_atan, simd_atan2, simd_cbrt, simd_ceil, simd_cos, simd_exp, simd_floor,
     simd_hypot, simd_hypot3, simd_hypot4, simd_ln, simd_pow, simd_sin, simd_sqrt, simd_tan,
 };
 
@@ -429,14 +429,16 @@ impl SimdMath for Vec<f32> {
     ///
     /// Delegates to slice implementation with automatic parallel selection.
     fn par_hypot3(&self, other1: Self, other2: Self) -> Self::Output {
-        self.as_slice().par_hypot3(other1.as_slice(), other2.as_slice())
+        self.as_slice()
+            .par_hypot3(other1.as_slice(), other2.as_slice())
     }
 
     /// Computes 4D Euclidean distance using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
     fn par_hypot4(&self, other1: Self, other2: Self, other3: Self) -> Self::Output {
-        self.as_slice().par_hypot4(other1.as_slice(), other2.as_slice(), other3.as_slice())
+        self.as_slice()
+            .par_hypot4(other1.as_slice(), other2.as_slice(), other3.as_slice())
     }
 
     /// Computes power function using size-adaptive parallel SIMD.

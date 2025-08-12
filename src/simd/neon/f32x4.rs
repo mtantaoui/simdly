@@ -1,6 +1,6 @@
 //! ARM NEON F32x4 vector implementation for high-performance SIMD operations.
 //!
-//! This module provides `F32x4`, a comprehensive SIMD vector type that wraps ARM's NEON 
+//! This module provides `F32x4`, a comprehensive SIMD vector type that wraps ARM's NEON
 //! `float32x4_t` intrinsic to perform vectorized operations on 4 single-precision floating-point
 //! values simultaneously using 128-bit NEON instructions. The implementation emphasizes both
 //! performance optimization and developer ergonomics.
@@ -149,10 +149,10 @@
 //! - **Infinity Support**: Proper handling of positive and negative infinity
 //! - **Zero Handling**: Special cases for division by zero and log(0)
 //! - **Domain Validation**: Input clamping for domain-restricted functions
-#[cfg(target_arch = "aarch64")]
-use std::arch::aarch64::*;
 #[cfg(not(target_arch = "aarch64"))]
 use super::math::{float32x4_t, uint32x4_t};
+#[cfg(target_arch = "aarch64")]
+use std::arch::aarch64::*;
 
 use crate::simd::{Alignment, SimdCmp, SimdLoad, SimdMath, SimdStore};
 use std::ops::{Add, Div, Mul, Sub};
@@ -776,7 +776,9 @@ impl SimdStore<f32> for F32x4 {
     ///
     /// For NEON targets, use the standard `store_at` function instead.
     unsafe fn store_aligned_at(&self, _ptr: *mut f32) {
-        panic!("store_aligned_at is not applicable for ARM NEON architecture. Use store_at() instead.")
+        panic!(
+            "store_aligned_at is not applicable for ARM NEON architecture. Use store_at() instead."
+        )
     }
 
     /// Stores vector data to unaligned memory.

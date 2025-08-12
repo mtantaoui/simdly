@@ -24,7 +24,6 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-
 // Import the hypot4 implementations
 use simdly::simd::SimdMath;
 
@@ -87,29 +86,24 @@ const VECTOR_SIZES: &[usize] = &[
 fn generate_test_data(len: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
     let mut rng = StdRng::seed_from_u64(42); // Fixed seed for reproducibility
 
-    let x_values: Vec<f32> = (0..len)
-        .map(|_| rng.random_range(-100.0..=100.0))
-        .collect();
-        
-    let y_values: Vec<f32> = (0..len)
-        .map(|_| rng.random_range(-100.0..=100.0))
-        .collect();
-        
-    let z_values: Vec<f32> = (0..len)
-        .map(|_| rng.random_range(-100.0..=100.0))
-        .collect();
-        
-    let w_values: Vec<f32> = (0..len)
-        .map(|_| rng.random_range(-100.0..=100.0))
-        .collect();
+    let x_values: Vec<f32> = (0..len).map(|_| rng.random_range(-100.0..=100.0)).collect();
+
+    let y_values: Vec<f32> = (0..len).map(|_| rng.random_range(-100.0..=100.0)).collect();
+
+    let z_values: Vec<f32> = (0..len).map(|_| rng.random_range(-100.0..=100.0)).collect();
+
+    let w_values: Vec<f32> = (0..len).map(|_| rng.random_range(-100.0..=100.0)).collect();
 
     (x_values, y_values, z_values, w_values)
 }
 
 /// Scalar hypot4 implementation for benchmarking baseline.
 fn scalar_hypot4(x: &[f32], y: &[f32], z: &[f32], w: &[f32]) -> Vec<f32> {
-    x.iter().zip(y.iter()).zip(z.iter()).zip(w.iter())
-        .map(|(((x, y), z), w)| (x*x + y*y + z*z + w*w).sqrt())
+    x.iter()
+        .zip(y.iter())
+        .zip(z.iter())
+        .zip(w.iter())
+        .map(|(((x, y), z), w)| (x * x + y * y + z * z + w * w).sqrt())
         .collect()
 }
 
@@ -138,20 +132,37 @@ fn benchmark_hypot4_implementations(c: &mut Criterion) {
         let w_slice = w_vec.as_slice();
 
         // Benchmark 1: Scalar Hypot4 (Baseline)
-        group.bench_with_input(BenchmarkId::new("Scalar", size), &(x_slice, y_slice, z_slice, w_slice), |b, (x, y, z, w)| {
-            b.iter(|| black_box(scalar_hypot4(black_box(x), black_box(y), black_box(z), black_box(w))))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("Scalar", size),
+            &(x_slice, y_slice, z_slice, w_slice),
+            |b, (x, y, z, w)| {
+                b.iter(|| {
+                    black_box(scalar_hypot4(
+                        black_box(x),
+                        black_box(y),
+                        black_box(z),
+                        black_box(w),
+                    ))
+                })
+            },
+        );
 
         // Benchmark 2: SIMD Hypot4
-        group.bench_with_input(BenchmarkId::new("SIMD", size), &(x_slice, y_slice, z_slice, w_slice), |b, (x, y, z, w)| {
-            b.iter(|| black_box(x.hypot4(black_box(y), black_box(z), black_box(w))))
-        });
+        group.bench_with_input(
+            BenchmarkId::new("SIMD", size),
+            &(x_slice, y_slice, z_slice, w_slice),
+            |b, (x, y, z, w)| {
+                b.iter(|| black_box(x.hypot4(black_box(y), black_box(z), black_box(w))))
+            },
+        );
 
         // Benchmark 3: Parallel SIMD Hypot4
         group.bench_with_input(
             BenchmarkId::new("Parallel SIMD", size),
             &(x_slice, y_slice, z_slice, w_slice),
-            |b, (x, y, z, w)| b.iter(|| black_box(x.par_hypot4(black_box(y), black_box(z), black_box(w)))),
+            |b, (x, y, z, w)| {
+                b.iter(|| black_box(x.par_hypot4(black_box(y), black_box(z), black_box(w))))
+            },
         );
 
         group.finish();
