@@ -128,69 +128,46 @@ cargo build --release --target x86_64-pc-windows-msvc     # x86_64 Windows
 
 ## Memory Optimization
 
-### Memory Alignment
+### Algorithm Selection for Performance
 
-Properly aligned memory provides significant performance benefits across platforms:
+Choose the right algorithm based on your data size for optimal performance:
 
 ```rust
-use std::alloc::{alloc, dealloc, Layout};
-use simdly::simd::avx2::f32x8::F32x8;
-use simdly::simd::{Alignment, SimdLoad, SimdStore};
+use simdly::SimdAdd;
+use simdly::simd::SimdMath;
 
-// Platform-appropriate alignment
-fn get_optimal_alignment() -> usize {
-    if cfg!(target_arch = "x86_64") || cfg!(target_arch = "x86") {
-        32  // AVX2 alignment (256-bit)
-    } else if cfg!(target_arch = "aarch64") {
-        16  // NEON alignment (128-bit) 
-    } else {
-        std::mem::align_of::<f32>()
+// Smart algorithm selection based on data size
+fn optimized_vector_add(a: &[f32], b: &[f32]) -> Vec<f32> {
+    match a.len() {
+        // Small arrays: scalar is fastest (avoids SIMD overhead)
+        0..128 => a.scalar_add(b),
+        
+        // Medium arrays: SIMD is optimal
+        128..262_144 => a.simd_add(b),
+        
+        // Large arrays: parallel SIMD is best
+        _ => a.par_simd_add(b),
     }
 }
 
-// Allocate optimally aligned memory
-fn alloc_aligned_f32(count: usize) -> (*mut f32, Layout) {
-    let alignment = get_optimal_alignment();
-    let layout = Layout::from_size_align(
-        count * std::mem::size_of::<f32>(),
-        alignment
-    ).unwrap();
-
-    let ptr = unsafe { alloc(layout) as *mut f32 };
-    (ptr, layout)
-}
-
-// Example usage (x86_64 with AVX2)
-#[cfg(target_arch = "x86_64")]
-{
-    let (aligned_ptr, layout) = alloc_aligned_f32(1024);
-
-    // Verify alignment
-    assert!(F32x8::is_aligned(aligned_ptr));
-
-    // Use aligned operations for best performance
-    let vec = unsafe { F32x8::load_aligned(aligned_ptr) };
-    // ... your SIMD operations ...
-    unsafe { vec.store_aligned_at(aligned_ptr as *mut f32) };
-
-    // Clean up
-    unsafe { dealloc(aligned_ptr as *mut u8, layout) };
+// Mathematical operations automatically use SIMD
+fn math_operations_example(data: Vec<f32>) -> Vec<f32> {
+    // High-level SIMD operations
+    let step1 = data.cos();      // SIMD accelerated cosine
+    let step2 = step1.exp();     // SIMD accelerated exponential
+    step2.sqrt()                 // SIMD accelerated square root
 }
 ```
 
-### Memory Layout Optimization
+### High-Level SIMD Usage
 
-Organize data for sequential access patterns:
+Leverage the high-level SIMD traits for optimal performance:
 
 ```rust
-// Good: Array of Structures (AoS) for simple operations
-struct Point3D {
-    x: f32,
-    y: f32,
-    z: f32,
-}
+use simdly::simd::SimdMath;
+use simdly::SimdAdd;
 
-// Better: Structure of Arrays (SoA) for SIMD operations
+// Structure of Arrays (SoA) for SIMD operations
 struct Points3D {
     x: Vec<f32>,  // All x coordinates together
     y: Vec<f32>,  // All y coordinates together
@@ -198,61 +175,49 @@ struct Points3D {
 }
 
 impl Points3D {
-    #[cfg(target_arch = "x86_64")]
-    fn process_x_coordinates(&mut self) {
-        use simdly::simd::avx2::f32x8::F32x8;
-        use simdly::simd::{SimdLoad, SimdStore};
-        
-        // AVX2: 8 f32 elements
-        for chunk in self.x.chunks_exact_mut(8) {
-            let vec = F32x8::from(chunk);
-            // Process coordinates using SIMD operations
-            // ... SIMD operations ...
-            unsafe { vec.store_unaligned_at(chunk.as_mut_ptr()) };
-        }
+    fn process_coordinates(&mut self) {
+        // Use high-level SIMD operations automatically
+        self.x = self.x.cos();        // SIMD accelerated cosine
+        self.y = self.y.sin();        // SIMD accelerated sine
+        self.z = self.z.sqrt();       // SIMD accelerated square root
     }
     
-    #[cfg(target_arch = "aarch64")]
-    fn process_x_coordinates(&mut self) {
-        // Use NEON implementation when available
-        // Similar pattern with 4 f32 elements
-        for chunk in self.x.chunks_exact_mut(4) {
-            // ... NEON SIMD operations ...
-        }
+    fn add_offset(&mut self, offset: f32) {
+        let offset_vec = vec![offset; self.x.len()];
+        
+        // Choose algorithm based on data size
+        self.x = match self.x.len() {
+            0..128 => self.x.scalar_add(&offset_vec),
+            128..262_144 => self.x.simd_add(&offset_vec),
+            _ => self.x.par_simd_add(&offset_vec),
+        };
+    }
+    
+    fn compute_distances(&self) -> Vec<f32> {
+        // 2D distance calculation using SIMD
+        self.x.hypot(&self.y)
     }
 }
 ```
 
-### Cache-Friendly Access Patterns
+### Parallel Processing for Large Datasets
 
 ```rust
-#[cfg(target_arch = "x86_64")]
-fn cache_optimized_processing(data: &mut [f32]) {
-    use simdly::simd::avx2::f32x8::F32x8;
-    use simdly::simd::{SimdLoad, SimdStore};
-    
-    const CACHE_LINE_SIZE: usize = 64;  // bytes
-    const FLOATS_PER_CACHE_LINE: usize = CACHE_LINE_SIZE / 4;  // 16 f32s
-    const VECTOR_SIZE: usize = 8;  // AVX2 processes 8 f32s
+use simdly::simd::SimdMath;
 
-    // Process data in cache line chunks
-    for cache_chunk in data.chunks_mut(FLOATS_PER_CACHE_LINE) {
-        // Process each cache line with SIMD vectors
-        for simd_chunk in cache_chunk.chunks_exact_mut(VECTOR_SIZE) {
-            let vec = F32x8::from(simd_chunk);
-            // ... SIMD operations ...
-            unsafe { vec.store_unaligned_at(simd_chunk.as_mut_ptr()) };
-        }
+fn process_large_dataset(data: Vec<f32>) -> Vec<f32> {
+    // Parallel methods automatically handle PARALLEL_SIMD_THRESHOLD!
+    // No manual threshold checking needed
+    data.par_cos()  // Automatically uses parallel for arrays ≥ 262,144 elements
+                    // Automatically uses single-threaded SIMD for smaller arrays
+}
 
-        // Handle remainder in cache line
-        let remainder = cache_chunk.len() % VECTOR_SIZE;
-        if remainder > 0 {
-            let start = cache_chunk.len() - remainder;
-            let vec = unsafe { F32x8::load_partial(cache_chunk[start..].as_ptr(), remainder) };
-            // ... SIMD operations ...
-            unsafe { vec.store_at_partial(cache_chunk[start..].as_mut_ptr()) };
-        }
-    }
+// Chain multiple operations efficiently with automatic thresholds
+fn complex_mathematical_pipeline(data: Vec<f32>) -> Vec<f32> {
+    // All par_ methods automatically handle thresholds - much simpler!
+    data.par_sin()       // Automatically chooses parallel vs single-threaded
+        .par_exp()       // Each method handles its own threshold
+        .par_sqrt()      // Clean and efficient
 }
 ```
 
@@ -263,27 +228,23 @@ fn cache_optimized_processing(data: &mut [f32]) {
 Prefer in-register operations over memory loads/stores:
 
 ```rust
-// Good: Multiple operations on same vector
-#[cfg(target_arch = "x86_64")]
-{
-    use simdly::simd::avx2::f32x8::F32x8;
-    use simdly::simd::{SimdLoad, SimdStore, SimdMath};
-    use std::ops::Add;
-    
-    let vec = unsafe { F32x8::load_unaligned(data.as_ptr()) };
-    let other_vec = unsafe { F32x8::load_unaligned(other_data.as_ptr()) };
-    
-    // Perform multiple operations without storing intermediate results
-    let result1 = vec.add(other_vec);    // operation 1
-    let result2 = result1.abs();         // operation 2 (using SimdMath trait)
-    // Store only final result
-    unsafe { result2.store_unaligned_at(output.as_mut_ptr()) };
+// Good: Chain multiple high-level operations
+use simdly::simd::SimdMath;
+use simdly::SimdAdd;
 
-    // Less efficient: Store/load between operations
-    let vec1 = unsafe { F32x8::load_unaligned(data.as_ptr()) };
-    unsafe { vec1.store_unaligned_at(temp.as_mut_ptr()) };     // Store intermediate result
-    let vec2 = unsafe { F32x8::load_unaligned(temp.as_ptr()) };  // Load again for next operation
-    // ... inefficient memory operations
+// Efficient operation chaining
+fn efficient_operations(data: Vec<f32>, other: Vec<f32>) -> Vec<f32> {
+    // Chain operations efficiently
+    let result1 = data.simd_add(&other);  // SIMD addition
+    let result2 = result1.abs();          // SIMD absolute value
+    result2.sqrt()                        // SIMD square root
+}
+
+// Less efficient: Separate operations
+fn less_efficient_operations(data: Vec<f32>, other: Vec<f32>) -> Vec<f32> {
+    let temp1 = data.simd_add(&other);    // Store intermediate result
+    let temp2 = temp1.abs();              // Another intermediate result
+    temp2.sqrt()                          // Final result
 }
 ```
 
@@ -292,54 +253,29 @@ Prefer in-register operations over memory loads/stores:
 Process multiple vectors per iteration:
 
 ```rust
-#[cfg(target_arch = "x86_64")]
-fn unrolled_processing(data: &[f32], scale: f32) -> Vec<f32> {
-    use simdly::simd::avx2::f32x8::F32x8;
-    use simdly::simd::{SimdLoad, SimdStore};
+fn batch_processing_example(data: Vec<f32>) -> Vec<f32> {
+    use simdly::simd::SimdMath;
     
-    let mut result = vec![0.0; data.len()];
-    let mut i = 0;
+    // Use appropriate algorithm based on data size
+    if data.len() >= 262_144 {
+        // Large data: use parallel SIMD for maximum throughput
+        data.par_cos()
+    } else {
+        // Smaller data: use regular SIMD
+        data.cos()
+    }
+}
+
+// Complex mathematical processing
+fn complex_batch_processing(data: Vec<f32>) -> Vec<f32> {
+    use simdly::simd::SimdMath;
     
-    const LANE_COUNT: usize = 8;  // AVX2 processes 8 f32s
-    const UNROLL_FACTOR: usize = 4;
-    const UNROLL_SIZE: usize = LANE_COUNT * UNROLL_FACTOR;
-
-    // Process 4 vectors per iteration
-    while i + UNROLL_SIZE <= data.len() {
-        let vec1 = unsafe { F32x8::load_unaligned(data[i..].as_ptr()) };
-        let vec2 = unsafe { F32x8::load_unaligned(data[i + LANE_COUNT..].as_ptr()) };
-        let vec3 = unsafe { F32x8::load_unaligned(data[i + LANE_COUNT * 2..].as_ptr()) };
-        let vec4 = unsafe { F32x8::load_unaligned(data[i + LANE_COUNT * 3..].as_ptr()) };
-
-        // Process all 4 vectors - multiply by scale factor
-        // Note: Would need to implement scalar multiplication in your crate
-        // For now showing the pattern with existing operations
-        
-        // Store results
-        unsafe {
-            vec1.store_unaligned_at(result[i..].as_mut_ptr());
-            vec2.store_unaligned_at(result[i + LANE_COUNT..].as_mut_ptr());
-            vec3.store_unaligned_at(result[i + LANE_COUNT * 2..].as_mut_ptr());
-            vec4.store_unaligned_at(result[i + LANE_COUNT * 3..].as_mut_ptr());
-        }
-
-        i += UNROLL_SIZE;
-    }
-
-    // Handle remaining full vectors
-    while i + LANE_COUNT <= data.len() {
-        let vec = unsafe { F32x8::load_unaligned(data[i..].as_ptr()) };
-        unsafe { vec.store_unaligned_at(result[i..].as_mut_ptr()) };
-        i += LANE_COUNT;
-    }
-
-    // Handle final partial vector
-    if i < data.len() {
-        let remaining = data.len() - i;
-        let vec = unsafe { F32x8::load_partial(data[i..].as_ptr(), remaining) };
-        unsafe { vec.store_at_partial(result[i..].as_mut_ptr()) };
-    }
-
+    // Chain multiple operations efficiently
+    let result = data
+        .sin()      // Step 1: SIMD sine
+        .abs()      // Step 2: SIMD absolute value
+        .sqrt();    // Step 3: SIMD square root
+    
     result
 }
 ```
@@ -357,34 +293,29 @@ Use conditional moves instead of branches:
     
     const LANE_COUNT: usize = 8;
     
-    // Less efficient: Branching in loop
-    for chunk in data.chunks_exact(LANE_COUNT) {
-        let vec = F32x8::from(chunk);
-
-        if some_condition {
-            // Process one way
-        } else {
-            // Process another way
-        }
-    }
-
-    // Better: Separate loops or use masking operations
-    if some_condition {
-        for chunk in data.chunks_exact_mut(LANE_COUNT) {
-            let vec = F32x8::from(chunk);
-            let offset_vec = F32x8::from(&offset_data);
-            
-            // Process one way - add operation
-            let result = vec.add(offset_vec);
-            unsafe { result.store_unaligned_at(chunk.as_mut_ptr()) };
-        }
+    // Avoid branching by using conditional processing
+fn conditional_processing(data: Vec<f32>, use_cosine: bool) -> Vec<f32> {
+    use simdly::simd::SimdMath;
+    
+    // Better: Process the entire array with one operation
+    if use_cosine {
+        data.cos()  // Process entire array with cosine
     } else {
-        for chunk in data.chunks_exact_mut(LANE_COUNT) {
-            let vec = F32x8::from(chunk);
-            // Process another way - would need scalar multiplication implemented
-            unsafe { vec.store_unaligned_at(chunk.as_mut_ptr()) };
-        }
+        data.sin()  // Process entire array with sine
     }
+}
+
+// Example with multiple operations
+fn complex_conditional_processing(data: Vec<f32>, operation_type: u32) -> Vec<f32> {
+    use simdly::simd::SimdMath;
+    
+    match operation_type {
+        0 => data.cos().abs(),           // Cosine then absolute value
+        1 => data.sin().sqrt(),          // Sine then square root
+        2 => data.exp().ln(),            // Exponential then natural log
+        _ => data,                       // No operation
+    }
+}
 }
 ```
 
@@ -395,31 +326,49 @@ Use conditional moves instead of branches:
 For large datasets, focus on efficient chunking and memory access patterns:
 
 ```rust
-#[cfg(target_arch = "x86_64")]
-fn process_large_dataset(input: &[f32], output: &mut [f32]) {
-    use simdly::simd::avx2::f32x8::F32x8;
-    use simdly::simd::{SimdLoad, SimdStore, Alignment};
+fn process_large_dataset_auto(input: Vec<f32>) -> Vec<f32> {
+    use simdly::simd::SimdMath;
     
-    assert_eq!(input.len(), output.len());
+    // Simplest approach: let par_cos handle everything automatically
+    input.par_cos()  // Automatically chooses optimal strategy
+}
 
-    // Process in chunks of 8 elements (AVX2 vector size)
-    for (input_chunk, output_chunk) in input.chunks_exact(8).zip(output.chunks_exact_mut(8)) {
-        let vec = F32x8::from(input_chunk);
-
-        // ... your SIMD operations ...
-
-        // Store results
-        unsafe {
-            vec.store_unaligned_at(output_chunk.as_mut_ptr());
-        }
+// If you want manual control over algorithm selection:
+fn process_large_dataset_manual(input: Vec<f32>) -> Vec<f32> {
+    use simdly::simd::SimdMath;
+    
+    match input.len() {
+        // Use parallel SIMD for large datasets
+        262_144.. => input.par_cos(),
+        
+        // Use regular SIMD for medium datasets
+        128.. => input.cos(),
+        
+        // Use scalar for small datasets
+        _ => input.into_iter().map(|x| x.cos()).collect(),
     }
+}
 
-    // Handle remainder with scalar operations
-    let remainder_start = (input.len() / 8) * 8;
-    if remainder_start < input.len() {
-        for i in remainder_start..input.len() {
-            output[i] = input[i]; // Your scalar operation here
-        }
+// Multi-step processing pipeline
+fn processing_pipeline(input: Vec<f32>) -> Vec<f32> {
+    use simdly::simd::SimdMath;
+    
+    let step1 = if input.len() >= 262_144 {
+        input.par_sin()     // Parallel SIMD sine
+    } else {
+        input.sin()         // Regular SIMD sine
+    };
+    
+    let step2 = if step1.len() >= 262_144 {
+        step1.par_abs()     // Parallel SIMD absolute value
+    } else {
+        step1.abs()         // Regular SIMD absolute value
+    };
+    
+    if step2.len() >= 262_144 {
+        step2.par_sqrt()    // Parallel SIMD square root
+    } else {
+        step2.sqrt()        // Regular SIMD square root
     }
 }
 ```
@@ -441,37 +390,35 @@ harness = false
 ```
 
 ```rust
-// benches/simd_benchmarks.rs
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
-use simdly::simd::avx2::f32x8::F32x8;
-use simdly::simd::SimdLoad;
+The simdly crate includes comprehensive benchmarks that demonstrate real performance improvements.
 
-fn benchmark_simd_operations(c: &mut Criterion) {
-    let mut group = c.benchmark_group("simd_operations");
+### Running Benchmarks
 
-    for size in [64, 256, 1024, 4096, 16384].iter() {
-        let data: Vec<f32> = (0..*size).map(|i| i as f32).collect();
+```bash
+# Run all benchmarks
+cargo bench
 
-        group.bench_with_input(
-            BenchmarkId::new("load_store", size),
-            &data,
-            |b, data| {
-                b.iter(|| {
-                    for chunk in data.chunks_exact(8) {
-                        let vec = F32x8::from(chunk);
-                        // Simulate some operation
-                        std::hint::black_box(vec);
-                    }
-                });
-            },
-        );
-    }
+# View detailed results in your browser
+open target/criterion/report/index.html
+```
 
-    group.finish();
-}
+### Available Benchmarks
 
-criterion_group!(benches, benchmark_simd_operations);
-criterion_main!(benches);
+The crate includes benchmarks for:
+- Mathematical operations (`cos`, `sin`, `exp`, `sqrt`, `ln`, etc.)
+- Vector addition with different algorithms (`scalar_add`, `simd_add`, `par_simd_add`)
+- Comparison operations
+- Various array sizes to demonstrate threshold effects
+
+### Understanding Results
+
+Benchmark results show:
+- **Actual speedup** on your specific hardware
+- **Threshold effects** where parallel methods switch strategies
+- **Memory bandwidth** limitations for very large arrays
+- **Platform differences** between AVX2 and NEON architectures
+
+*Note: Performance varies significantly by CPU architecture, so always benchmark on your target hardware.*
 ```
 
 ### Performance Monitoring
@@ -533,20 +480,20 @@ for chunk in input.chunks(8) {
 Always consider alignment for optimal performance:
 
 ```rust
-// Check alignment when performance is critical
-#[cfg(target_arch = "x86_64")]
-{
-    use simdly::simd::avx2::f32x8::F32x8;
-    use simdly::simd::{Alignment, SimdLoad};
-    
-    if F32x8::is_aligned(data.as_ptr()) {
-        // Use aligned operations
-        let vec = unsafe { F32x8::load_aligned(data.as_ptr()) };
-    } else {
-        // Use unaligned operations or realign data
-        let vec = unsafe { F32x8::load_unaligned(data.as_ptr()) };
-    }
-}
+// Use high-level APIs that handle performance automatically
+use simdly::simd::SimdMath;
+use simdly::SimdAdd;
+
+// Good: High-level API handles optimization automatically
+let result = data.cos();           // Automatically optimized
+let sum = a.simd_add(&b);          // Automatically optimized
+
+// Algorithm selection based on data size
+let smart_result = match data.len() {
+    0..128 => data.iter().map(|x| x.cos()).collect::<Vec<f32>>(),  // Scalar
+    128..262_144 => data.cos(),                                     // SIMD
+    _ => data.par_cos(),                                            // Parallel SIMD
+};
 ```
 
 ## Next Steps

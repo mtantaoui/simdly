@@ -1,229 +1,235 @@
 ---
 title: SIMD Operations
-description: Learn about advanced SIMD operations and optimization techniques.
+description: Learn about SIMD operations and optimization techniques with simdly.
 ---
 
 # SIMD Operations
 
-This guide covers advanced SIMD operations available in simdly and how to use them effectively.
+This guide covers SIMD operations available in simdly and how to use them effectively.
 
 ## Understanding SIMD
 
-SIMD (Single Instruction, Multiple Data) allows you to perform the same operation on multiple data elements simultaneously. With AVX2, you can process 8 f32 values in parallel using 256-bit vectors.
+SIMD (Single Instruction, Multiple Data) allows you to perform the same operation on multiple data elements simultaneously. Simdly automatically uses AVX2 on x86_64 (8 f32 values) and NEON on ARM (4 f32 values) for optimal performance.
 
 ## Core Operations
 
-### Loading and Storing
+### High-Level Mathematical Operations
 
-simdly provides several loading and storing strategies optimized for different scenarios:
+simdly provides high-level mathematical operations that automatically use SIMD:
 
-#### Aligned vs Unaligned Access
+#### Basic Mathematical Functions
 
 ```rust
-use simdly::simd::avx2::f32x8::F32x8;
-use simdly::simd::{Alignment, SimdLoad, SimdStore};
+use simdly::simd::SimdMath;
 
-let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
 
-// Check if pointer is aligned
-let is_aligned = F32x8::is_aligned(data.as_ptr());
+// Trigonometric functions (automatically SIMD accelerated)
+let cosines = data.cos();
+let sines = data.sin();
+let tangents = data.tan();
 
-if is_aligned {
-    // Use faster aligned operations
-    let vec = unsafe { F32x8::load_aligned(data.as_ptr()) };
-    // ... operations ...
-    unsafe { vec.store_aligned_at(output.as_mut_ptr()) };
-} else {
-    // Use unaligned operations (slightly slower)
-    let vec = unsafe { F32x8::load_unaligned(data.as_ptr()) };
-    // ... operations ...
-    unsafe { vec.store_unaligned_at(output.as_mut_ptr()) };
-}
+// Exponential and logarithmic functions
+let exponentials = data.exp();
+let logarithms = data.ln();
+let square_roots = data.sqrt();
+
+println!("Cosines: {:?}", cosines);
 ```
 
-#### Streaming Stores
+#### Vector Addition Operations
 
-For large datasets where data won't be reused, use streaming stores to bypass cache:
+Choose the right algorithm based on your data size:
 
 ```rust
-use simdly::simd::avx2::f32x8::F32x8;
-use simdly::simd::SimdStore;
+use simdly::SimdAdd;
 
-let vec = F32x8::from(&data);
+let a = vec![1.0, 2.0, 3.0, 4.0];
+let b = vec![5.0, 6.0, 7.0, 8.0];
 
-// Stream to aligned memory (bypasses cache)
-unsafe {
-    vec.stream_at(aligned_output.as_mut_ptr());
-}
+// Choose algorithm based on data size:
+let result = a.scalar_add(&b);      // For small arrays (< 128 elements)
+let result = a.simd_add(&b);        // For medium arrays (128+ elements)
+let result = a.par_simd_add(&b);    // For large arrays (262,144+ elements)
 ```
 
-### Partial Operations
+### Power and Distance Operations
 
-Handle arrays that don't align perfectly with vector sizes:
+Advanced mathematical operations for scientific computing:
 
 ```rust
-use simdly::simd::avx2::f32x8::F32x8;
-use simdly::simd::{SimdLoad, SimdStore};
+use simdly::simd::SimdMath;
 
-fn process_any_size_array(input: &[f32]) -> Vec<f32> {
-    let mut output = vec![0.0; input.len()];
+fn advanced_math_operations() {
+    // Power operations
+    let base = vec![2.0, 3.0, 4.0, 5.0];
+    let exponent = vec![2.0, 2.0, 2.0, 2.0];
+    let powers = base.pow(exponent);  // [4.0, 9.0, 16.0, 25.0]
     
-    let mut i = 0;
+    // 2D Euclidean distance
+    let x = vec![3.0, 5.0, 8.0, 7.0];
+    let y = vec![4.0, 12.0, 15.0, 24.0];
+    let distances_2d = x.hypot(&y);   // [5.0, 13.0, 17.0, 25.0]
     
-    // Process full vectors (8 elements at a time)
-    while i + 8 <= input.len() {
-        let vec = F32x8::from(&input[i..i + 8]);
-        
-        // Your SIMD operations here...
-        
-        unsafe {
-            vec.store_unaligned_at(output[i..].as_mut_ptr());
-        }
-        i += 8;
-    }
+    // 3D Euclidean distance
+    let z = vec![0.0, 5.0, 20.0, 0.0];
+    let distances_3d = x.hypot3(&y, &z);
     
-    // Handle remaining elements with partial operations
-    if i < input.len() {
-        let remaining = input.len() - i;
-        let vec = unsafe { F32x8::load_partial(input[i..].as_ptr(), remaining) };
-        
-        // Your SIMD operations here...
-        
-        unsafe {
-            vec.store_at_partial(output[i..].as_mut_ptr());
-        }
-    }
+    // 4D Euclidean distance
+    let w = vec![1.0, 0.0, 0.0, 7.0];
+    let distances_4d = x.hypot4(&y, &z, &w);
     
-    output
+    println!("2D distances: {:?}", distances_2d);
+    println!("3D distances: {:?}", distances_3d);
+    println!("4D distances: {:?}", distances_4d);
 }
 ```
 
 ## Performance Optimization Patterns
 
-### Memory Access Patterns
+### Algorithm Selection Strategy
 
-#### Sequential Access (Optimal)
 ```rust
-// Good: Sequential memory access
-for chunk in data.chunks_exact(8) {
-    let vec = F32x8::from(chunk);
-    // Process vector...
+use simdly::simd::SimdMath;
+use simdly::SimdAdd;
+
+// Smart algorithm selection based on data size
+fn optimized_processing(data: Vec<f32>) -> Vec<f32> {
+    match data.len() {
+        // Small arrays: scalar operations are faster
+        0..128 => data.into_iter().map(|x| x.cos()).collect(),
+        
+        // Medium arrays: SIMD operations are optimal
+        128..262_144 => data.cos(),
+        
+        // Large arrays: parallel SIMD for maximum performance
+        _ => data.par_cos(),
+    }
+}
+
+// Addition with smart algorithm selection
+fn smart_vector_add(a: Vec<f32>, b: Vec<f32>) -> Vec<f32> {
+    match a.len() {
+        0..128 => a.scalar_add(&b),
+        128..262_144 => a.simd_add(&b),
+        _ => a.par_simd_add(&b),
+    }
 }
 ```
 
-#### Strided Access (Less Optimal)
+### Parallel Processing for Large Datasets
+
 ```rust
-// Less optimal: Strided access requires gathering
-// Consider restructuring data layout when possible
+use simdly::simd::SimdMath;
+
+fn parallel_processing_example(data: Vec<f32>) -> Vec<f32> {
+    // Parallel methods automatically handle PARALLEL_SIMD_THRESHOLD
+    // No need to manually check array size!
+    data.par_cos()  // Automatically uses parallel for arrays ≥ 262,144 elements
+                    // Automatically uses single-threaded SIMD for smaller arrays
+}
+
+// Complex mathematical pipeline with parallel processing
+fn parallel_math_pipeline(data: Vec<f32>) -> Vec<f32> {
+    let threshold = 262_144;
+    
+    let step1 = if data.len() >= threshold {
+        data.par_sin()       // Parallel SIMD sine
+    } else {
+        data.sin()           // Regular SIMD sine
+    };
+    
+    let step2 = if step1.len() >= threshold {
+        step1.par_abs()      // Parallel SIMD absolute value
+    } else {
+        step1.abs()          // Regular SIMD absolute value
+    };
+    
+    if step2.len() >= threshold {
+        step2.par_sqrt()     // Parallel SIMD square root
+    } else {
+        step2.sqrt()         // Regular SIMD square root
+    }
+}
 ```
 
-### Cache-Friendly Processing
+### Operation Chaining
 
 ```rust
-use simdly::simd::avx2::f32x8::F32x8;
-use simdly::simd::{SimdLoad, SimdStore};
+use simdly::simd::SimdMath;
 
-fn cache_friendly_processing(data: &[f32]) -> Vec<f32> {
-    let mut result = vec![0.0; data.len()];
+// Efficient operation chaining
+struct MathProcessor;
+
+impl MathProcessor {
+    // Chain multiple operations efficiently
+    fn complex_transform(data: Vec<f32>) -> Vec<f32> {
+        data.sin()          // Step 1: SIMD sine
+            .abs()          // Step 2: SIMD absolute value
+            .sqrt()         // Step 3: SIMD square root
+    }
     
-    // Process in cache-friendly chunks
-    const CACHE_LINE_SIZE: usize = 64; // bytes
-    const ELEMENTS_PER_CACHE_LINE: usize = CACHE_LINE_SIZE / std::mem::size_of::<f32>();
-    
-    for chunk in data.chunks(ELEMENTS_PER_CACHE_LINE) {
-        // Process each cache line with SIMD
-        for simd_chunk in chunk.chunks(8) {
-            let vec = F32x8::from(simd_chunk);
-            // Your operations...
+    // Conditional processing without branching
+    fn conditional_transform(data: Vec<f32>, use_cosine: bool) -> Vec<f32> {
+        if use_cosine {
+            data.cos().exp()   // Cosine then exponential
+        } else {
+            data.sin().ln()    // Sine then natural log
         }
     }
     
-    result
-}
-```
-
-### Minimizing Memory Allocations
-
-```rust
-use simdly::simd::avx2::f32x8::F32x8;
-
-// Pre-allocate buffers to avoid repeated allocations
-struct SimdProcessor {
-    temp_buffer: Vec<f32>,
-}
-
-impl SimdProcessor {
-    fn new(max_size: usize) -> Self {
-        Self {
-            temp_buffer: vec![0.0; max_size],
-        }
-    }
-    
-    fn process(&mut self, input: &[f32]) -> &[f32] {
-        self.temp_buffer.resize(input.len(), 0.0);
-        
-        // Process using pre-allocated buffer
-        for (chunk_in, chunk_out) in input.chunks(8)
-            .zip(self.temp_buffer.chunks_mut(8)) {
-            
-            let vec = F32x8::from(chunk_in);
-            // Your operations...
-            
-            unsafe {
-                vec.store_unaligned_at(chunk_out.as_mut_ptr());
-            }
-        }
-        
-        &self.temp_buffer[..input.len()]
+    // Advanced mathematical pipeline
+    fn scientific_pipeline(x: Vec<f32>, y: Vec<f32>) -> Vec<f32> {
+        // Compute 2D distance, then apply mathematical transformations
+        x.hypot(&y)         // 2D Euclidean distance
+         .ln()              // Natural logarithm
+         .abs()             // Absolute value
+         .sqrt()            // Square root
     }
 }
 ```
 
 ## Error Handling and Safety
 
-### Safe Wrappers
+### Safe High-Level Operations
 
-Create safe wrappers around unsafe SIMD operations:
+simdly's high-level operations are safe and handle edge cases automatically:
 
 ```rust
-use simdly::simd::avx2::f32x8::F32x8;
-use simdly::simd::{SimdLoad, SimdStore};
+use simdly::simd::SimdMath;
+use simdly::SimdAdd;
 
-pub fn safe_simd_add(a: &[f32], b: &[f32]) -> Result<Vec<f32>, &'static str> {
+pub fn safe_mathematical_operations(data: Vec<f32>) -> Vec<f32> {
+    // All operations are safe and handle edge cases automatically
+    data.cos()  // Automatically handles any array size
+}
+
+pub fn safe_vector_addition(a: Vec<f32>, b: Vec<f32>) -> Result<Vec<f32>, &'static str> {
     if a.len() != b.len() {
         return Err("Arrays must have the same length");
     }
     
-    let mut result = vec![0.0; a.len()];
+    // Choose the optimal algorithm automatically
+    let result = match a.len() {
+        0..128 => a.scalar_add(&b),
+        128..262_144 => a.simd_add(&b),
+        _ => a.par_simd_add(&b),
+    };
     
-    for i in (0..a.len()).step_by(8) {
-        let chunk_size = std::cmp::min(8, a.len() - i);
-        
-        let vec_a = if chunk_size == 8 {
-            F32x8::from(&a[i..i + 8])
-        } else {
-            unsafe { F32x8::load_partial(a[i..].as_ptr(), chunk_size) }
-        };
-        
-        let vec_b = if chunk_size == 8 {
-            F32x8::from(&b[i..i + 8])
-        } else {
-            unsafe { F32x8::load_partial(b[i..].as_ptr(), chunk_size) }
-        };
-        
-        // Perform addition (would need actual SIMD add operation)
-        // This is a placeholder - actual math operations would go here
-        
-        if chunk_size == 8 {
-            unsafe {
-                vec_a.store_unaligned_at(result[i..].as_mut_ptr());
-            }
-        } else {
-            unsafe {
-                vec_a.store_at_partial(result[i..].as_mut_ptr());
-            }
-        }
+    Ok(result)
+}
+
+// Complex operations with error handling
+pub fn safe_complex_math(data: Vec<f32>) -> Result<Vec<f32>, &'static str> {
+    if data.is_empty() {
+        return Err("Input data cannot be empty");
     }
+    
+    // Chain operations safely
+    let result = data
+        .abs()      // Ensure positive values for sqrt
+        .sqrt()     // Square root
+        .cos();     // Cosine
     
     Ok(result)
 }
@@ -231,67 +237,87 @@ pub fn safe_simd_add(a: &[f32], b: &[f32]) -> Result<Vec<f32>, &'static str> {
 
 ## Best Practices
 
-### 1. Prefer High-Level APIs
-Use `From<&[T]>` trait over manual load operations when possible:
+### 1. Use High-Level Mathematical Operations
+Prefer `SimdMath` trait operations over low-level SIMD operations:
 
 ```rust
-// Good
-let vec = F32x8::from(&data);
+use simdly::simd::SimdMath;
 
-// Less good (manual)
-let vec = unsafe { 
-    if data.len() < 8 {
-        F32x8::load_partial(data.as_ptr(), data.len())
+// Good - high-level, safe, automatic optimization
+let result = data.cos();
+
+// Also good - algorithm selection
+let result = match data.len() {
+    0..128 => data.iter().map(|x| x.cos()).collect(),  // Scalar
+    128..262_144 => data.cos(),                        // SIMD
+    _ => data.par_cos(),                               // Parallel SIMD
+};
+```
+
+### 2. Choose Algorithms Based on Data Size
+Use the appropriate algorithm for your dataset size:
+
+```rust
+use simdly::SimdAdd;
+use simdly::simd::SimdMath;
+
+// Best - automatic algorithm selection
+fn smart_processing_auto(data: Vec<f32>) -> Vec<f32> {
+    data.par_cos()  // Automatically handles all thresholds!
+}
+
+// Manual algorithm selection (if you need explicit control)
+fn smart_processing_manual(data: Vec<f32>) -> Vec<f32> {
+    if data.len() >= 262_144 {
+        data.par_cos()    // Parallel SIMD for large data
+    } else if data.len() >= 128 {
+        data.cos()        // Regular SIMD for medium data
     } else {
-        F32x8::load(data.as_ptr(), 8)
+        data.into_iter().map(|x| x.cos()).collect()  // Scalar for small data
     }
-};
+}
 ```
 
-### 2. Handle Alignment Automatically
-Let simdly handle alignment detection:
+### 3. Chain Operations Efficiently
+Chain multiple mathematical operations for better performance:
 
 ```rust
-// Good - automatic alignment detection
-let vec = unsafe { F32x8::load(ptr, 8) };
+use simdly::simd::SimdMath;
 
-// Manual alignment check (unnecessary)
-let vec = if F32x8::is_aligned(ptr) {
-    unsafe { F32x8::load_aligned(ptr) }
+// Good - efficient operation chaining
+let result = data
+    .sin()      // SIMD sine
+    .abs()      // SIMD absolute value
+    .sqrt();    // SIMD square root
+
+// Less efficient - separate operations
+let step1 = data.sin();
+let step2 = step1.abs();
+let step3 = step2.sqrt();
+```
+
+### 4. Use Parallel Operations for Large Datasets
+Leverage parallel SIMD for maximum performance on large data:
+
+```rust
+use simdly::simd::SimdMath;
+
+// Best - automatic selection (recommended)
+let result = data.par_cos();  // Automatically handles all thresholds!
+
+// Manual selection (if you want explicit control)
+if data.len() >= 262_144 {
+    let result = data.par_cos();  // Uses multiple CPU cores
 } else {
-    unsafe { F32x8::load_unaligned(ptr) }
+    let result = data.cos();      // Uses single-threaded SIMD
+}
+
+// Also manual - pattern matching
+let result = match data.len() {
+    262_144.. => data.par_cos(),
+    128.. => data.cos(),
+    _ => data.into_iter().map(|x| x.cos()).collect(),
 };
-```
-
-### 3. Use Appropriate Store Operations
-Choose the right store operation for your use case:
-
-```rust
-// For normal operations
-unsafe { vec.store_unaligned_at(output.as_mut_ptr()) };
-
-// For large datasets (bypasses cache)
-unsafe { vec.stream_at(aligned_output.as_mut_ptr()) };
-
-// For partial data
-unsafe { vec.store_at_partial(output.as_mut_ptr()) };
-```
-
-### 4. Batch Process When Possible
-Process multiple vectors in a loop for better performance:
-
-```rust
-// Good - batched processing
-for chunk in data.chunks_exact(8) {
-    let vec = F32x8::from(chunk);
-    // Process multiple operations on the same vector
-    // ... operations ...
-}
-
-// Less efficient - processing one element at a time
-for element in data {
-    // Process individual elements
-}
 ```
 
 ## Next Steps

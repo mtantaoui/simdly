@@ -121,10 +121,7 @@ use simdly::SimdAdd;
 
 fn add_vectors_simd(a: &[f32], b: &[f32]) -> Vec<f32> {
     // Use the high-level SimdAdd trait for easy vector addition
-    a.simd_add(b).unwrap_or_else(|_| {
-        // Fallback to scalar addition if SIMD fails
-        a.iter().zip(b.iter()).map(|(x, y)| x + y).collect()
-    })
+    a.simd_add(b)
 }
 ```
 

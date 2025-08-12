@@ -34,7 +34,7 @@ Add simdly to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-simdly = "0.1.6"
+simdly = "0.1.7"
 ```
 
 For optimal performance, enable AVX2 support:
@@ -46,18 +46,26 @@ rustflags = ["-C", "target-feature=+avx2"]
 
 ## 🚀 Quick Start
 
-### Simple Vector Addition with Automatic Optimization
+### Simple Vector Addition with Multiple Algorithms
 
 ```rust
-use simdly::FastAdd;
+use simdly::SimdAdd;
 
 fn main() {
     // Create two vectors
     let a = vec![1.0, 2.0, 3.0, 4.0, 5.0];
     let b = vec![2.0, 3.0, 4.0, 5.0, 6.0];
     
-    // FastAdd automatically chooses the best algorithm
-    let result = a.as_slice().fast_add(b.as_slice());
+    // Choose the appropriate algorithm based on your needs:
+    
+    // For small arrays (< 128 elements)
+    let result = a.as_slice().scalar_add(b.as_slice());
+    
+    // For medium arrays (128+ elements) - uses SIMD
+    let result = a.as_slice().simd_add(b.as_slice());
+    
+    // For large arrays (262,144+ elements) - uses parallel SIMD
+    let result = a.as_slice().par_simd_add(b.as_slice());
     
     println!("Result: {:?}", result); // [3.0, 5.0, 7.0, 9.0, 11.0]
 }
@@ -193,17 +201,17 @@ fn main() {
 
 ## 📊 Performance
 
-simdly provides significant performance improvements for numerical computations with intelligent algorithm selection:
+simdly provides significant performance improvements for numerical computations with multiple algorithm options:
 
-### Intelligent Algorithm Selection
+### Algorithm Selection
 
-The `FastAdd` trait automatically selects the optimal algorithm based on empirically determined thresholds:
+The `SimdAdd` trait provides multiple algorithms that you can choose based on your data size:
 
-| Array Size Range | Algorithm | Rationale |
-|------------------|-----------|-----------|
-| < 128 elements | **Scalar** | Avoids SIMD setup overhead |
-| 128 - 262,143 elements | **SIMD** | Optimal vectorization benefits |
-| ≥ 262,144 elements | **Parallel SIMD** | Memory bandwidth + multi-core scaling |
+| Array Size Range | Recommended Method | Algorithm | Rationale |
+|------------------|-------------------|-----------|-----------|
+| < 128 elements | `scalar_add()` | **Scalar** | Avoids SIMD setup overhead |
+| 128 - 262,143 elements | `simd_add()` | **SIMD** | Optimal vectorization benefits |
+| ≥ 262,144 elements | `par_simd_add()` | **Parallel SIMD** | Memory bandwidth + multi-core scaling |
 
 ### Performance Characteristics
 
@@ -216,12 +224,12 @@ The `FastAdd` trait automatically selects the optimal algorithm based on empiric
 
 Performance measurements on modern x64 with AVX2:
 
-| Vector Size | Elements | FastAdd Strategy | Performance Benefit |
-|-------------|----------|------------------|---------------------|
-| 512 B | 128 | Scalar | Baseline (no overhead) |
-| 20 KiB | 5,000 | SIMD | ~4-8x throughput |
-| 1 MiB | 262,144 | Parallel SIMD | ~4-8x × cores |
-| 4 MiB | 1,048,576 | Parallel SIMD | Memory bandwidth limited |
+| Vector Size | Elements | Recommended Method | Performance Benefit |
+|-------------|----------|-------------------|---------------------|
+| 512 B | 128 | `scalar_add()` | Baseline (no overhead) |
+| 20 KiB | 5,000 | `simd_add()` | ~4-8x throughput |
+| 1 MiB | 262,144 | `par_simd_add()` | ~4-8x × cores |
+| 4 MiB | 1,048,576 | `par_simd_add()` | Memory bandwidth limited |
 
 ### Mathematical Functions Performance
 
@@ -236,8 +244,8 @@ Complex mathematical operations benefit from SIMD across all sizes:
 
 ### Key Features
 
-- **Automatic Optimization**: `FastAdd` chooses the best algorithm without manual tuning
-- **Zero-Cost Abstraction**: Intelligent selection with no runtime overhead
+- **Manual Optimization**: Choose the best algorithm for your specific use case
+- **Zero-Cost Abstraction**: Direct method calls with no runtime overhead
 - **Memory Efficiency**: Cache-aware chunking and aligned memory access
 - **Scalable Performance**: Near-linear scaling with available CPU cores
 
@@ -259,28 +267,28 @@ codegen-units = 1
 
 ## 🔧 Usage Examples
 
-### Intelligent Algorithm Selection with FastAdd
+### Manual Algorithm Selection with SimdAdd
 
-simdly provides intelligent algorithm selection that automatically chooses the optimal addition strategy based on input size:
+simdly provides multiple algorithms that you can choose based on your specific needs:
 
 ```rust
-use simdly::FastAdd;
+use simdly::SimdAdd;
 
 fn main() {
-    // Small arrays (< 128 elements) - uses scalar addition
+    // Small arrays (< 128 elements) - use scalar addition
     let small_a = vec![1.0; 100];
     let small_b = vec![2.0; 100];
-    let result = small_a.as_slice().fast_add(small_b.as_slice());
+    let result = small_a.as_slice().scalar_add(small_b.as_slice());
     
-    // Medium arrays (128 - 262,143 elements) - uses SIMD
+    // Medium arrays (128 - 262,143 elements) - use SIMD
     let medium_a = vec![1.0; 5_000];
     let medium_b = vec![2.0; 5_000];
-    let result = medium_a.as_slice().fast_add(medium_b.as_slice());
+    let result = medium_a.as_slice().simd_add(medium_b.as_slice());
     
-    // Large arrays (≥ 262,144 elements) - uses parallel SIMD
+    // Large arrays (≥ 262,144 elements) - use parallel SIMD
     let large_a = vec![1.0; 300_000];
     let large_b = vec![2.0; 300_000];
-    let result = large_a.as_slice().fast_add(large_b.as_slice());
+    let result = large_a.as_slice().par_simd_add(large_b.as_slice());
 }
 ```
 
@@ -474,11 +482,22 @@ cargo build --release
 cargo test
 ```
 
-### Benchmarking
+### Performance Benchmarks
+
+The crate includes comprehensive benchmarks showing real-world performance improvements:
 
 ```bash
+# Run benchmarks to measure performance on your hardware
 cargo bench
+
+# View detailed benchmark reports
+open target/criterion/report/index.html
 ```
+
+**Key Findings from Benchmarks:**
+- Mathematical operations (`cos`, `sin`, `exp`, etc.) show significant SIMD acceleration
+- Parallel methods automatically optimize based on array size using `PARALLEL_SIMD_THRESHOLD`
+- Performance varies by CPU architecture - benchmarks show actual improvements on your hardware
 
 ## 🤝 Contributing
 

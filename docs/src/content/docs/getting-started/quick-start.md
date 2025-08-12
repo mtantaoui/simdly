@@ -14,146 +14,152 @@ This guide will get you up and running with Simdly cross-platform SIMD in just a
 Here's a simple cross-platform example:
 
 ```rust
-use simdly::f32x8;
+use simdly::simd::SimdMath;
+use simdly::SimdAdd;
 
 fn main() {
     // Create some data
+    let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    
+    // Perform SIMD mathematical operations
+    let doubled = data.iter().map(|x| x * 2.0).collect::<Vec<f32>>();
+    let cosines = data.cos(); // SIMD accelerated cosine
+    
+    println!("Original: {:?}", data);
+    println!("Doubled: {:?}", doubled);
+    println!("Cosines: {:?}", cosines);
+}
+```
+
+## Vector Operations
+
+### High-Level SIMD Operations
+
+```rust
+use simdly::simd::SimdMath;
+
+// Mathematical operations on vectors
+let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+let results = data.cos(); // SIMD accelerated cosine
+let sqrt_results = data.sqrt(); // SIMD accelerated square root
+let exp_results = data.exp(); // SIMD accelerated exponential
+```
+
+### Vector Addition
+
+```rust
+use simdly::SimdAdd;
+
+let a = vec![1.0, 2.0, 3.0, 4.0];
+let b = vec![5.0, 6.0, 7.0, 8.0];
+
+// Choose algorithm based on data size:
+let result = a.scalar_add(&b);    // For small arrays (< 128 elements)
+let result = a.simd_add(&b);      // For medium arrays (128+ elements)
+let result = a.par_simd_add(&b);  // For large arrays (262,144+ elements)
+```
+
+### Platform-Specific SIMD Types
+
+```rust
+#[cfg(target_arch = "x86_64")]
+use simdly::simd::avx2::f32x8::F32x8;
+
+#[cfg(target_arch = "aarch64")]
+use simdly::simd::neon::f32x4::F32x4;
+
+use simdly::simd::{SimdLoad, SimdStore};
+
+#[cfg(target_arch = "x86_64")]
+fn process_with_avx2() {
     let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    let vec = F32x8::from(&data[..]);
     
-    // Load into SIMD vector (works on both AVX2 and NEON)
-    let vec = f32x8::load_unaligned(&data);
-    
-    // Perform vector operations
-    let doubled = vec.mul(f32x8::splat(2.0));
-    
-    println!("Processing {} lanes using universal SIMD API", f32x8::lanes());
-}
-```
-
-## Loading Data
-
-### Full Vector Loading
-
-```rust
-use simdly::f32x8;
-
-// Platform-adaptive loading (8 elements on AVX2, 4 on NEON)
-let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-let vec = f32x8::load_unaligned(&data);
-assert_eq!(f32x8::lanes(), vec.len()); // Check platform lane count
-```
-
-### Partial Loading
-
-```rust
-use simdly::f32x8;
-
-let data = [1.0, 2.0, 3.0]; // Fewer elements than vector lanes
-let vec = f32x8::load_partial(&data, data.len());
-// Automatically handles partial loads on both platforms
-```
-
-### Aligned vs Unaligned Loading
-
-```rust
-use simdly::f32x8;
-
-let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-
-// Unaligned (works with any memory)
-let vec1 = f32x8::load_unaligned(&data);
-
-// Aligned (requires proper alignment - 32 bytes on x86, 16 on ARM)
-if f32x8::is_aligned(data.as_ptr()) {
-    let vec2 = f32x8::load_aligned(&data);
-}
-```
-
-## Storing Data
-
-### Basic Storing
-
-```rust
-use simdly::f32x8;
-
-let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-let vec = f32x8::load_unaligned(&data);
-
-// Process the vector
-let doubled = vec.mul(f32x8::splat(2.0));
-
-// Store results (platform-adaptive)
-let mut output = [0.0f32; 8];
-doubled.store_unaligned(&mut output);
-```
-
-### Partial Storing
-
-```rust
-use simdly::f32x8;
-
-let data = [1.0, 2.0, 3.0]; // Only 3 elements
-let vec = f32x8::load_partial(&data, data.len());
-let doubled = vec.mul(f32x8::splat(2.0));
-
-let mut output = [0.0f32; 8];
-doubled.store_partial(&mut output, data.len());
-
-// Only first 3 elements are written
-assert_eq!(&output[..3], &[2.0, 4.0, 6.0]);
-assert_eq!(&output[3..], &[0.0; 5]); // Rest remain zero
-```
-
-## Memory Alignment
-
-For optimal performance, consider using platform-appropriate aligned memory:
-
-```rust
-use simdly::f32x8;
-use std::alloc::{alloc, dealloc, Layout};
-
-// Platform-appropriate alignment (32 bytes on x86, 16 on ARM)
-fn get_optimal_alignment() -> usize {
-    if cfg!(target_arch = "x86_64") || cfg!(target_arch = "x86") {
-        32  // AVX2 alignment
-    } else {
-        16  // NEON alignment
+    let mut output = [0.0f32; 8];
+    unsafe {
+        vec.store_at(output.as_mut_ptr());
     }
 }
-
-let alignment = get_optimal_alignment();
-let layout = Layout::from_size_align(8 * std::mem::size_of::<f32>(), alignment).unwrap();
-let aligned_ptr = unsafe { alloc(layout) as *mut f32 };
-
-// Check alignment
-assert!(f32x8::is_aligned(aligned_ptr));
-
-// Use aligned operations for better performance
-let test_data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-unsafe {
-    std::ptr::copy_nonoverlapping(test_data.as_ptr(), aligned_ptr, 8);
-    let slice = std::slice::from_raw_parts(aligned_ptr, f32x8::lanes());
-    let vec = f32x8::load_aligned(slice);
-    vec.store_aligned(slice);
-}
-
-// Clean up
-unsafe { dealloc(aligned_ptr as *mut u8, layout) };
 ```
+
+## Mathematical Operations
+
+### Basic Mathematical Functions
+
+```rust
+use simdly::simd::SimdMath;
+
+let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+
+// Trigonometric functions
+let cosines = data.cos();
+let sines = data.sin();
+let tangents = data.tan();
+
+// Exponential and logarithmic
+let exponentials = data.exp();
+let logarithms = data.ln();
+let square_roots = data.sqrt();
+
+println!("Cosines: {:?}", cosines);
+```
+
+### Power and Distance Operations
+
+```rust
+use simdly::simd::SimdMath;
+
+let base = vec![2.0, 3.0, 4.0, 5.0];
+let exponent = vec![2.0, 2.0, 2.0, 2.0];
+let powers = base.pow(exponent); // [4.0, 9.0, 16.0, 25.0]
+
+let x = vec![3.0, 5.0, 8.0, 7.0];
+let y = vec![4.0, 12.0, 15.0, 24.0];
+let distances = x.hypot(y); // 2D Euclidean distance
+
+println!("Powers: {:?}", powers);
+println!("Distances: {:?}", distances);
+```
+
+## Algorithm Selection
+
+Choose the right algorithm for your data size:
+
+```rust
+use simdly::SimdAdd;
+
+fn choose_algorithm_example() {
+    let small_data = vec![1.0; 100];  // < 128 elements
+    let medium_data = vec![1.0; 5000]; // 128-262,143 elements
+    let large_data = vec![1.0; 500_000]; // ≥ 262,144 elements
+    
+    let other = vec![2.0; 100];
+    
+    // For small arrays - scalar is fastest
+    let result = small_data.scalar_add(&other);
+    
+    // For medium arrays - SIMD is optimal
+    let medium_other = vec![2.0; 5000];
+    let result = medium_data.simd_add(&medium_other);
+    
+    // For large arrays - parallel SIMD is best
+    let large_other = vec![2.0; 500_000];
+    let result = large_data.par_simd_add(&large_other);
+}
 
 ## Performance Tips
 
-1. **Zero Configuration**: Simdly automatically uses optimal SIMD features thanks to its built-in `.cargo/config.toml` with `target-cpu=native`. No setup required!
+1. **Choose the Right Algorithm**: Use `scalar_add()` for small arrays, `simd_add()` for medium arrays, and `par_simd_add()` for large arrays.
 
-2. **Use Platform-Appropriate Alignment**: 32-byte on x86, 16-byte on ARM.
+2. **Release Mode**: Always benchmark in release mode with optimizations enabled.
 
-3. **Adaptive Batch Processing**: Use `f32x8::lanes()` to get platform vector size.
+3. **Use SIMD Math**: Leverage `SimdMath` trait for mathematical operations on vectors.
 
-4. **Release Mode**: Always benchmark in release mode with optimizations enabled.
+4. **Parallel Processing**: Use parallel SIMD methods (`par_cos()`, `par_sin()`, etc.) for large datasets.
 
-5. **Cross-Platform Code**: Use the universal API for code that runs optimally on both architectures.
+5. **Platform Detection**: The library automatically uses AVX2 on x86_64 and NEON on ARM.
 
-6. **Automatic Optimization**: Just `cargo build --release` and Simdly automatically uses the best instructions for your CPU.
+6. **Compilation Flags**: For maximum performance, compile with: `RUSTFLAGS="-C target-feature=+avx2" cargo build --release`
 
 ## Next Steps
 
@@ -163,40 +169,47 @@ unsafe { dealloc(aligned_ptr as *mut u8, layout) };
 
 ## Common Patterns
 
-### Cross-Platform Array Processing
+### High-Level Vector Processing
 
 ```rust
-use simdly::f32x8;
+use simdly::simd::SimdMath;
 
-fn process_array(input: &[f32], output: &mut [f32]) {
-    assert_eq!(input.len(), output.len());
-    
-    let lane_count = f32x8::lanes();
-    let chunks = input.len() / lane_count;
-    let remainder = input.len() % lane_count;
-    
-    // Process full chunks (platform-adaptive)
-    for i in 0..chunks {
-        let start = i * lane_count;
-        let vec = f32x8::load_unaligned(&input[start..]);
-        
-        // Your SIMD operations here (example: multiply by 2)
-        let result = vec.mul(f32x8::splat(2.0));
-        
-        result.store_unaligned(&mut output[start..]);
-    }
-    
-    // Handle remainder with partial operations
-    if remainder > 0 {
-        let start = chunks * lane_count;
-        let vec = f32x8::load_partial(&input[start..], remainder);
-        
-        // Your SIMD operations here
-        let result = vec.mul(f32x8::splat(2.0));
-        
-        result.store_partial(&mut output[start..], remainder);
+fn process_array(input: Vec<f32>) -> Vec<f32> {
+    // Simple mathematical processing
+    input.cos() // Automatically uses SIMD
+}
+
+fn complex_processing(input: Vec<f32>) -> Vec<f32> {
+    let step1 = input.sin();
+    let step2 = step1.exp();
+    step2.sqrt()
+}
+```
+
+### Algorithm Selection Pattern
+
+```rust
+use simdly::SimdAdd;
+
+fn smart_add(a: &[f32], b: &[f32]) -> Vec<f32> {
+    match a.len() {
+        0..128 => a.scalar_add(b),        // Small: use scalar
+        128..262_144 => a.simd_add(b),    // Medium: use SIMD
+        _ => a.par_simd_add(b),           // Large: use parallel SIMD
     }
 }
 ```
 
-This pattern efficiently processes arrays of any size using cross-platform SIMD operations that automatically adapt to AVX2 (8 lanes) or NEON (4 lanes).
+### Platform-Specific Low-Level Operations
+
+```rust
+#[cfg(target_arch = "x86_64")]
+fn low_level_processing() {
+    use simdly::simd::avx2::f32x8::F32x8;
+    use simdly::simd::{SimdLoad, SimdMath};
+    
+    let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    let vec = F32x8::from(&data[..]);
+    let result = vec.sin(); // 8 parallel sine calculations
+}
+```
