@@ -30,26 +30,26 @@
 //! # Supported Functions
 //!
 //! ## Trigonometric Functions
-//! - [`vsinq_f32`]: Sine function with range reduction
-//! - [`vcosq_f32`]: Cosine function with range reduction
-//! - [`vtanq_f32`]: Tangent function with range reduction
-//! - [`vasinq_f32`]: Arcsine (inverse sine) function
-//! - [`vacosq_f32`]: Arccosine (inverse cosine) function
-//! - [`vatanq_f32`]: Arctangent (inverse tangent) function
-//! - [`vatan2q_f32`]: Two-argument arctangent with quadrant handling
+//! - **Sine**: Range reduction with polynomial approximation for accurate sin(x)
+//! - **Cosine**: Range reduction with polynomial approximation for accurate cos(x)
+//! - **Tangent**: Range reduction with rational approximation for tan(x)
+//! - **Arcsine**: Inverse sine with domain clamping and polynomial approximation
+//! - **Arccosine**: Inverse cosine with domain validation and range mapping
+//! - **Arctangent**: Inverse tangent with optimized polynomial approximation
+//! - **Two-argument arctangent**: Quadrant-aware atan2(y,x) with special case handling
 //!
 //! ## Elementary Functions
-//! - [`vabsq_f32`]: Absolute value (sign bit manipulation)  
-//! - [`vsqrtq_f32`]: Square root (hardware accelerated)
-//! - [`vcbrtq_f32`]: Cube root with Newton-Raphson iteration
-//! - [`vexpq_f32`]: Natural exponential function (e^x)
-//! - [`vlnq_f32`]: Natural logarithm function
-//! - [`vpowq_f32`]: Power function (x^y)
-//! - [`vhypotq_f32`]: 2D Euclidean distance (sqrt(x² + y²))
-//! - [`vhypot3q_f32`]: 3D Euclidean distance (sqrt(x² + y² + z²))
-//! - [`vhypot4q_f32`]: 4D Euclidean distance (sqrt(x² + y² + z² + w²))
-//! - [`vfloorq_f32`]: Floor function (round down)
-//! - [`vceilq_f32`]: Ceiling function (round up)
+//! - **Absolute value**: Sign bit manipulation for efficient |x| computation
+//! - **Square root**: Hardware-accelerated NEON square root instructions
+//! - **Cube root**: Newton-Raphson iteration with SIMD optimization
+//! - **Natural exponential**: e^x with range reduction and polynomial approximation
+//! - **Natural logarithm**: Domain-validated ln(x) with optimized scaling
+//! - **Power function**: General x^y computation using exp and ln
+//! - **2D Euclidean distance**: sqrt(x² + y²) with overflow protection
+//! - **3D Euclidean distance**: sqrt(x² + y² + z²) for 3D vectors
+//! - **4D Euclidean distance**: sqrt(x² + y² + z² + w²) for 4D vectors
+//! - **Floor function**: Round down to nearest integer using NEON rounding instructions
+//! - **Ceiling function**: Round up to nearest integer using NEON rounding instructions
 //!
 //! # Usage Examples
 //!
@@ -123,10 +123,10 @@ use std::arch::aarch64::*;
 // Mock types and functions for documentation generation on non-ARM platforms
 #[cfg(not(target_arch = "aarch64"))]
 #[allow(non_camel_case_types)]
-type float32x4_t = [f32; 4];
+pub(crate) type float32x4_t = [f32; 4];
 #[cfg(not(target_arch = "aarch64"))]
 #[allow(non_camel_case_types)]
-type uint32x4_t = [u32; 4];
+pub(crate) type uint32x4_t = [u32; 4];
 
 // Mock NEON intrinsics for documentation compilation on x86_64
 #[cfg(not(target_arch = "aarch64"))]
@@ -277,11 +277,13 @@ const PI_HIGH_PRECISION_PART_3: f32 = 6.277_114_152_908_325_195_3_e-7;
 const PI_HIGH_PRECISION_PART_4: f32 = 1.215_420_125_655_342_076_2_e-10;
 
 // Sine Taylor series coefficients
-const SIN_COEFF_1: f32 = -0.16666667f32; // -1/3!
-const SIN_COEFF_2: f32 = 0.0083333375f32; // +1/5!
-const SIN_COEFF_3: f32 = -0.00019841341f32; // -1/7!
-const SIN_COEFF_4: f32 = 2.7551241e-6f32; // +1/9!
-const SIN_COEFF_5: f32 = -2.4535176e-8f32; // -1/11!
+// Enhanced sine polynomial coefficients (matching AVX2 precision exactly)
+const SIN_COEFF_1: f32 = -0.1666666666666666574f32; // -1/3! (enhanced precision)
+const SIN_COEFF_2: f32 = 0.008333333333333333f32; // +1/5! (enhanced precision)
+const SIN_COEFF_3: f32 = -0.0001984126984126984f32; // -1/7! (enhanced precision)
+const SIN_COEFF_4: f32 = 2.7557319223985890e-6f32; // +1/9! (enhanced precision)
+const SIN_COEFF_5: f32 = -2.5052108385441720e-8f32; // -1/11! (enhanced precision)
+const SIN_COEFF_6: f32 = 1.6059043836821614e-10f32; // +1/13! (additional precision term)
 
 // Tangent polynomial coefficients (9 terms, Remez-optimized)
 const TAN_COEFF_1: f32 = 0.3333353561669567628359f32;
@@ -706,29 +708,26 @@ pub unsafe fn vatan2q_f32(y: float32x4_t, x: float32x4_t) -> float32x4_t {
     let pi = vdupq_n_f32(std::f32::consts::PI);
     let pi_half = vdupq_n_f32(std::f32::consts::FRAC_PI_2);
 
-    // Special case detection
     let x_zero = vceqq_f32(x, zero);
     let y_zero = vceqq_f32(y, zero);
     let both_zero = vandq_u32(x_zero, y_zero);
-
-    let _x_positive = vcgtq_f32(x, zero);
-    let y_positive = vcgtq_f32(y, zero);
     let x_negative = vcltq_f32(x, zero);
+    let y_positive = vcgtq_f32(y, zero);
 
-    // Main computation: atan(y/x)
     let ratio = vdivq_f32(y, x);
     let atan_ratio = vatanq_f32(ratio);
 
-    // Quadrant corrections
-    let pi_correction = vbslq_f32(y_positive, pi, vnegq_f32(pi));
+    // Reinterpret to check the sign bit of y directly.
+    let y_is_negative_mask = vtstq_u32(vreinterpretq_u32_f32(y), vdupq_n_u32(0x80000000));
+    // Select +PI if y is positive or +0.0, and -PI if y is negative or -0.0.
+    let pi_correction = vbslq_f32(y_is_negative_mask, vnegq_f32(pi), pi);
+
     let quadrant_corrected =
         vbslq_f32(x_negative, vaddq_f32(atan_ratio, pi_correction), atan_ratio);
 
-    // Handle x = 0 cases (y-axis)
     let y_axis_result = vbslq_f32(y_positive, pi_half, vnegq_f32(pi_half));
     let result = vbslq_f32(x_zero, y_axis_result, quadrant_corrected);
 
-    // Handle origin case: both x and y are zero -> return 0 (common convention)
     vbslq_f32(both_zero, zero, result)
 }
 
@@ -896,18 +895,20 @@ pub unsafe fn vexpq_f32(x: float32x4_t) -> float32x4_t {
     r = vfmsq_f32(r, n_float, ln2_lo); // (x - n*ln2_hi) - n*ln2_lo
 
     // Polynomial approximation for exp(r) where |r| ≤ ln(2)/2
-    // exp(r) ≈ 1 + r + r²/2! + r³/3! + r⁴/4! + r⁵/5! + r⁶/6!
-    // Optimized coefficients for best accuracy
+    // exp(r) ≈ 1 + r + r²/2! + r³/3! + r⁴/4! + r⁵/5! + r⁶/6! + r⁷/7!
+    // Enhanced precision coefficients matching AVX2 exactly
     let c1 = vdupq_n_f32(1.0);
-    let c2 = vdupq_n_f32(0.5);
-    let c3 = vdupq_n_f32(0.16666666666666666); // 1/6
-    let c4 = vdupq_n_f32(0.041666666666666664); // 1/24
-    let c5 = vdupq_n_f32(0.008333333333333333); // 1/120
-    let c6 = vdupq_n_f32(0.001388888888888889); // 1/720
+    let c2 = vdupq_n_f32(0.5000000000000000000); // 1/2
+    let c3 = vdupq_n_f32(0.1666666666666666574); // 1/6 (enhanced precision)
+    let c4 = vdupq_n_f32(0.0416666666666666644); // 1/24 (enhanced precision)
+    let c5 = vdupq_n_f32(0.0083333333333333332); // 1/120 (enhanced precision)
+    let c6 = vdupq_n_f32(0.0013888888888888889); // 1/720 (enhanced precision)
+    let c7 = vdupq_n_f32(0.0001984126984126984); // 1/5040 (additional term for precision)
 
-    // Polynomial evaluation using Horner's method for better numerical stability
-    // p(r) = 1 + r*(1 + r*(1/2 + r*(1/6 + r*(1/24 + r*(1/120 + r/720)))))
-    let mut poly = vfmaq_f32(c5, r, c6);
+    // Enhanced polynomial evaluation using Horner's method for better numerical stability
+    // p(r) = 1 + r*(1 + r*(1/2 + r*(1/6 + r*(1/24 + r*(1/120 + r*(1/720 + r/5040))))))
+    let mut poly = vfmaq_f32(c6, r, c7); // Start with highest order terms
+    poly = vfmaq_f32(c5, r, poly);
     poly = vfmaq_f32(c4, r, poly);
     poly = vfmaq_f32(c3, r, poly);
     poly = vfmaq_f32(c2, r, poly);
@@ -1529,9 +1530,10 @@ pub unsafe fn vcosq_f32(x: float32x4_t) -> float32x4_t {
     r = vfmsq_f32(r, q_float, vdupq_n_f32(PI_HIGH_PRECISION_PART_3));
     r = vfmsq_f32(r, q_float, vdupq_n_f32(PI_HIGH_PRECISION_PART_4));
 
-    // Compute sine polynomial: r * (1 + r²*(c₁ + r²*(c₂ + r²*(c₃ + r²*(c₄ + r²*c₅)))))
+    // Enhanced sine polynomial: r * (1 + r²*(c₁ + r²*(c₂ + r²*(c₃ + r²*(c₄ + r²*(c₅ + r²*c₆))))))
     let r2 = vmulq_f32(r, r);
-    let mut sin_poly = vdupq_n_f32(SIN_COEFF_5);
+    let mut sin_poly = vdupq_n_f32(SIN_COEFF_6); // Start with highest order term
+    sin_poly = vfmaq_f32(vdupq_n_f32(SIN_COEFF_5), sin_poly, r2);
     sin_poly = vfmaq_f32(vdupq_n_f32(SIN_COEFF_4), sin_poly, r2);
     sin_poly = vfmaq_f32(vdupq_n_f32(SIN_COEFF_3), sin_poly, r2);
     sin_poly = vfmaq_f32(vdupq_n_f32(SIN_COEFF_2), sin_poly, r2);

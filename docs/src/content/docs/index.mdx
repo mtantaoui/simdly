@@ -1,0 +1,172 @@
+---
+title: Welcome to Simdly
+description: Cross-platform Rust library with AVX2 and NEON SIMD support for fast computations.
+template: splash
+hero:
+  tagline: ⚡ Cross-platform SIMD operations in Rust - AVX2 on x86, NEON on ARM
+  actions:
+    - text: Get Started
+      link: /getting-started/installation/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/mtantaoui/simdly
+      icon: external
+      variant: minimal
+    - text: 📊 Benchmarks
+      link: /guides/performance/
+      variant: minimal
+---
+
+import {
+  Card,
+  CardGrid,
+  Code,
+  Tabs,
+  TabItem,
+} from "@astrojs/starlight/components";
+import ParallaxScript from "../../components/ParallaxScript.astro";
+
+<div
+  className="parallax-bg-container"
+  style={{
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100vw",
+    height: "100vh",
+    zIndex: -999,
+    background:
+      "linear-gradient(135deg, #000000 0%, #0a0a1a 25%, #001122 50%, #000815 75%, #000000 100%)",
+    opacity: 1,
+  }}
+>
+  <div
+    className="parallax-bg-layer"
+    id="parallax-layer-1"
+    style={{
+      position: "absolute",
+      top: "-10%",
+      left: "-10%",
+      width: "120vw",
+      height: "120vh",
+      backgroundImage:
+        'url("https://images.pexels.com/photos/2150/sky-space-dark-galaxy.jpg?auto=compress&cs=tinysrgb&w=1920&h=1080")',
+      backgroundSize: "cover",
+      backgroundPosition: "center center",
+      backgroundRepeat: "no-repeat",
+    }}
+  ></div>
+  <div
+    className="parallax-bg-layer"
+    id="parallax-layer-2"
+    style={{
+      position: "absolute",
+      top: "-10%",
+      left: "-10%",
+      width: "120vw",
+      height: "120vh",
+      backgroundSize: "cover",
+      backgroundPosition: "center center",
+      backgroundRepeat: "no-repeat",
+      opacity: 0.8,
+    }}
+  ></div>
+</div>
+
+<div class="hero-content-wrapper">
+
+## Why Choose Simdly?
+
+<div class="performance-badge">Up to 8x faster than scalar operations</div>
+
+<CardGrid stagger>
+  <Card title="🚀 Cross-Platform SIMD" icon="rocket">
+    Leverages both AVX2 (x86/x86_64) and NEON (ARM) instructions for
+    high-performance vector operations across multiple architectures with
+    automatic vectorization.
+  </Card>
+  <Card title="🧠 Memory Efficient" icon="setting">
+    Supports both aligned and unaligned memory access patterns with
+    cache-friendly data structures and optimized memory layouts.
+  </Card>
+  <Card title="🛡️ Safe Abstractions" icon="approve-check">
+    Wraps unsafe SIMD operations in safe, ergonomic APIs that prevent common
+    pitfalls while maintaining zero-cost abstractions.
+  </Card>
+  <Card title="🔧 Universal API" icon="puzzle">
+    Provides consistent interfaces across AVX2 and NEON implementations,
+    allowing the same code to run optimally on both x86 and ARM architectures.
+  </Card>
+</CardGrid>
+
+## Quick Example
+
+See Simdly in action with a simple vector addition:
+
+<Tabs>
+<TabItem label="Scalar (Slow)">
+
+```rust
+fn add_vectors(a: &[f32], b: &[f32]) -> Vec<f32> {
+    a.iter().zip(b.iter()).map(|(x, y)| x + y).collect()
+}
+```
+
+</TabItem>
+<TabItem label="SIMD (Fast)">
+
+```rust
+use simdly::SimdAdd;
+
+fn add_vectors_simd(a: &[f32], b: &[f32]) -> Vec<f32> {
+    // Use the high-level SimdAdd trait for easy vector addition
+    a.simd_add(b).unwrap_or_else(|_| {
+        // Fallback to scalar addition if SIMD fails
+        a.iter().zip(b.iter()).map(|(x, y)| x + y).collect()
+    })
+}
+```
+
+</TabItem>
+</Tabs>
+
+
+## Key Features
+
+- ⚡ **Multi-Platform SIMD**: AVX2 instructions on x86/x86_64 and NEON on ARM for optimal performance across architectures
+- 🔧 **Zero Configuration**: Pre-configured with `target-cpu=native` - just `cargo add simdly` and start coding
+- 🚀 **Zero-Cost**: Compile-time optimizations with no runtime overhead
+- 🛡️ **Memory Safe**: Rust's safety guarantees with optimized unsafe internals
+- 🔧 **Universal API**: Write once, run optimally on both Intel/AMD and ARM processors
+- 📊 **Benchmarked**: Thoroughly tested performance characteristics across platforms
+- 🎯 **Production Ready**: Used in high-performance computing applications on diverse hardware
+
+## Architecture Support
+
+<div style="display: flex; gap: 1rem; margin: 1rem 0; flex-wrap: wrap;">
+  <span style="background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 600; box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);">
+    ✅ x86/x86_64 + AVX2
+  </span>
+  <span style="background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 600; box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);">
+    ✅ ARM64 + NEON
+  </span>
+  <span style="background: rgba(100, 116, 139, 0.1); color: #64748b; padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 600; border: 1px solid rgba(100, 116, 139, 0.3);">
+    🚧 x86/x86_64 + AVX512 (Planned)
+  </span>
+  <span style="background: rgba(100, 116, 139, 0.1); color: #64748b; padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 600; border: 1px solid rgba(100, 116, 139, 0.3);">
+    🚧 WebAssembly SIMD (Planned)
+  </span>
+</div>
+
+## Get Started in Minutes
+
+```bash
+cargo add simdly
+```
+
+Jump into the [Quick Start Guide](/getting-started/quick-start/) to start accelerating your code today!
+
+</div>
+
+<ParallaxScript />

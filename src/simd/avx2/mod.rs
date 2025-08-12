@@ -33,7 +33,7 @@
 //!
 //! // Load 8 f32 values into a 256-bit AVX2 vector
 //! let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-//! let vector = F32x8::from_slice(&data);
+//! let vector = F32x8::from(&data[..]);
 //! # }
 //! ```
 //!
@@ -48,3 +48,5 @@ pub mod f32x8;
 
 #[allow(clippy::excessive_precision, clippy::empty_line_after_doc_comments)]
 pub mod math;
+
+pub mod slice;

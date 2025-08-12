@@ -1,6 +1,6 @@
 [package]
 name = "simdly"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 
 authors = ["Mahdi Tantaoui <mohamedalmahdi.tantaoui@gmail.com>"]
@@ -24,3 +24,94 @@ rustdoc-args = ["--cfg", "docsrs", "--cfg", "avx2", "--cfg", "neon"]
 [profile.release]
 lto = "fat" 
 codegen-units = 1
+
+[dependencies]
+rayon = "1.10.0"
+
+
+[[bench]]
+name = "addition"
+harness = false
+
+[[bench]]
+name = "cos"
+harness = false
+
+[[bench]]
+name = "eq"
+harness = false
+
+# SIMD Math Function Benchmarks
+
+[[bench]]
+name = "abs"
+harness = false
+
+[[bench]]
+name = "sin"
+harness = false
+
+[[bench]]
+name = "tan"
+harness = false
+
+[[bench]]
+name = "sqrt"
+harness = false
+
+[[bench]]
+name = "exp"
+harness = false
+
+[[bench]]
+name = "ln"
+harness = false
+
+[[bench]]
+name = "asin"
+harness = false
+
+[[bench]]
+name = "acos"
+harness = false
+
+[[bench]]
+name = "atan"
+harness = false
+
+[[bench]]
+name = "atan2"
+harness = false
+
+[[bench]]
+name = "cbrt"
+harness = false
+
+[[bench]]
+name = "floor"
+harness = false
+
+[[bench]]
+name = "ceil"
+harness = false
+
+[[bench]]
+name = "pow"
+harness = false
+
+[[bench]]
+name = "hypot"
+harness = false
+
+[[bench]]
+name = "hypot3"
+harness = false
+
+[[bench]]
+name = "hypot4"
+harness = false
+
+[dev-dependencies]
+criterion = { version = "0.5.1", default-features = true, features=["default", "plotters"]}
+ndarray = "0.16.1"
+rand = "0.9.2"
