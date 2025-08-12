@@ -87,11 +87,10 @@ pub(crate) const LANE_COUNT: usize = 8;
 ///
 /// ## Mathematical Operations
 /// ```rust
-/// # use simdly::simd::avx2::f32x8::F32x8;
+/// # use simdly::simd::avx2::f32x8::{self, F32x8};
 /// # use simdly::simd::{SimdLoad, SimdMath};
 /// let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-/// let vec = F32x8::from_slice(&data);
-///
+/// let vec = F32x8::from(data.as_slice());
 /// // Compute square root of all elements simultaneously
 /// let sqrt_vec = vec.sqrt();
 ///

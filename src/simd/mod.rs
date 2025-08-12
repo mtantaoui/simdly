@@ -107,14 +107,6 @@ pub trait SimdLoad<T> {
     /// loading method based on data size and alignment. This is the recommended
     /// approach for most use cases as it provides optimal performance automatically.
     ///
-    /// # Usage
-    ///
-    /// ```rust
-    /// # use simdly::simd::*;
-    /// let data = [1.0, 2.0, 3.0, 4.0];
-    /// let vec = VectorType::from(&data[..]);
-    /// ```
-    ///
     /// # Performance
     ///
     /// The `From` trait implementation automatically selects the fastest loading strategy:

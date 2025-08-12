@@ -178,7 +178,7 @@ pub fn scalar_cos(a: &[f32]) -> Vec<f32> {
 ///
 /// let a = vec![1.0, 2.0, 3.0, 4.0];
 /// let b = vec![1.0, 0.0, 3.0, 0.0];
-/// let result = a.as_slice().simd_eq(b.as_slice());
+/// let result = a.as_slice().elementwise_eq(b.as_slice());
 /// // result contains [1.0, 0.0, 1.0, 0.0] where 1.0 = equal, 0.0 = not equal
 /// ```
 impl<'b> SimdCmp<&'b [f32]> for &[f32] {
