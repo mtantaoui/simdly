@@ -1288,11 +1288,7 @@ pub unsafe fn _mm256_exp_ps(x: __m256) -> __m256 {
 ///
 /// Calling this function on hardware without AVX2 support will result in undefined behavior,
 /// potentially causing illegal instruction exceptions or program crashes.
-<<<<<<< HEAD
-#[inline]
-=======
 #[inline(always)]
->>>>>>> develop
 pub unsafe fn _mm256_ln_ps(x: __m256) -> __m256 {
     // Handle special cases
     let zero_mask = _mm256_cmp_ps(x, _mm256_setzero_ps(), _CMP_EQ_OQ);
@@ -1384,19 +1380,12 @@ pub unsafe fn _mm256_ln_ps(x: __m256) -> __m256 {
     result
 }
 
-<<<<<<< HEAD
-#[inline]
-=======
->>>>>>> develop
 /// Computes 2D Euclidean distance with high precision and proper edge case handling
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
-<<<<<<< HEAD
-=======
 #[inline(always)]
->>>>>>> develop
 pub unsafe fn _mm256_hypot_ps(x: __m256, y: __m256) -> __m256 {
     let x_abs = _mm256_abs_ps(x);
     let y_abs = _mm256_abs_ps(y);
@@ -1433,19 +1422,12 @@ pub unsafe fn _mm256_hypot_ps(x: __m256, y: __m256) -> __m256 {
     _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_nan)
 }
 
-<<<<<<< HEAD
-#[inline]
-=======
->>>>>>> develop
 /// Computes 3D Euclidean distance with high precision and proper edge case handling
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
-<<<<<<< HEAD
-=======
 #[inline(always)]
->>>>>>> develop
 pub unsafe fn _mm256_hypot3_ps(x: __m256, y: __m256, z: __m256) -> __m256 {
     let x_abs = _mm256_abs_ps(x);
     let y_abs = _mm256_abs_ps(y);
@@ -1488,19 +1470,12 @@ pub unsafe fn _mm256_hypot3_ps(x: __m256, y: __m256, z: __m256) -> __m256 {
     _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_nan)
 }
 
-<<<<<<< HEAD
-#[inline]
-=======
->>>>>>> develop
 /// Computes 4D Euclidean distance with high precision and proper edge case handling
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
-<<<<<<< HEAD
-=======
 #[inline(always)]
->>>>>>> develop
 pub unsafe fn _mm256_hypot4_ps(x: __m256, y: __m256, z: __m256, w: __m256) -> __m256 {
     let x_abs = _mm256_abs_ps(x);
     let y_abs = _mm256_abs_ps(y);
@@ -1555,19 +1530,12 @@ pub unsafe fn _mm256_hypot4_ps(x: __m256, y: __m256, z: __m256, w: __m256) -> __
     _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_nan)
 }
 
-<<<<<<< HEAD
-#[inline]
-=======
->>>>>>> develop
 /// Computes x^y (power function) with high precision and proper edge case handling
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
-<<<<<<< HEAD
-=======
 #[inline(always)]
->>>>>>> develop
 pub unsafe fn _mm256_pow_ps(x: __m256, y: __m256) -> __m256 {
     // Handle special cases first
     let x_is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
@@ -1791,19 +1759,12 @@ const TAN_COEFF_2: f32 = 0.1332909226735641872812f32;
 /// Dominant correction term: approximately 1/3 from tan(x) ≈ x + x³/3
 const TAN_COEFF_1: f32 = 0.3333353561669567628359f32;
 
-<<<<<<< HEAD
-#[inline]
-=======
->>>>>>> develop
 /// Computes sine function with high precision using polynomial approximation
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
-<<<<<<< HEAD
-=======
 #[inline(always)]
->>>>>>> develop
 pub unsafe fn _mm256_sin_ps(x: __m256) -> __m256 {
     // Handle special cases first
     let x_is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
@@ -1813,11 +1774,7 @@ pub unsafe fn _mm256_sin_ps(x: __m256) -> __m256 {
 
     // Range reduction: reduce x to [-π/2, π/2] range
     // q = round(x / π)
-<<<<<<< HEAD
-    let inv_pi = _mm256_set1_ps(std::f32::consts::FRAC_1_PI);
-=======
     let inv_pi = _mm256_set1_ps(FRAC_1_PI);
->>>>>>> develop
     let x_over_pi = _mm256_mul_ps(x, inv_pi);
 
     // Round to nearest integer using round-to-even
@@ -1861,19 +1818,12 @@ pub unsafe fn _mm256_sin_ps(x: __m256) -> __m256 {
     _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_special)
 }
 
-<<<<<<< HEAD
-#[inline]
-=======
->>>>>>> develop
 /// Computes cosine function with high precision using polynomial approximation
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
-<<<<<<< HEAD
-=======
 #[inline(always)]
->>>>>>> develop
 pub unsafe fn _mm256_cos_ps(x: __m256) -> __m256 {
     // Handle special cases first
     let x_is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
@@ -1886,19 +1836,11 @@ pub unsafe fn _mm256_cos_ps(x: __m256) -> __m256 {
 
     // Use the identity: cos(x) = sin(x + π/2)
     // Add π/2 to convert cosine to sine
-<<<<<<< HEAD
-    let x_shifted = _mm256_add_ps(x_abs, _mm256_set1_ps(std::f32::consts::FRAC_PI_2));
-
-    // Range reduction: reduce to [-π/2, π/2] range
-    // q = round(x_shifted / π)
-    let inv_pi = _mm256_set1_ps(std::f32::consts::FRAC_1_PI);
-=======
     let x_shifted = _mm256_add_ps(x_abs, _mm256_set1_ps(FRAC_PI_2));
 
     // Range reduction: reduce to [-π/2, π/2] range
     // q = round(x_shifted / π)
     let inv_pi = _mm256_set1_ps(FRAC_1_PI);
->>>>>>> develop
     let x_over_pi = _mm256_mul_ps(x_shifted, inv_pi);
 
     // Round to nearest integer using round-to-even
@@ -1940,66 +1882,11 @@ pub unsafe fn _mm256_cos_ps(x: __m256) -> __m256 {
     _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_special)
 }
 
-<<<<<<< HEAD
-#[inline]
-=======
->>>>>>> develop
 /// Computes tangent function with high precision using polynomial approximation
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
-<<<<<<< HEAD
-pub unsafe fn _mm256_tan_ps(d: __m256) -> __m256 {
-    // Range reduction: reduce to [-π/4, π/4]
-    let q = _mm256_round_ps(
-        _mm256_mul_ps(d, _mm256_set1_ps(std::f32::consts::FRAC_2_PI)),
-        _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC,
-    );
-    let qf = _mm256_cvtps_epi32(q);
-
-    // Reduced range: r = d - q * π/2
-    // Use high-precision π/2 decomposition for accuracy
-    let mut r = _mm256_fmadd_ps(q, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_1 * 0.5), d);
-    r = _mm256_fmadd_ps(q, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_2 * 0.5), r);
-    r = _mm256_fmadd_ps(q, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_3 * 0.5), r);
-    r = _mm256_fmadd_ps(q, _mm256_set1_ps(-PI_HIGH_PRECISION_PART_4 * 0.5), r);
-
-    // Determine if q is even or odd for correct branch selection
-    let is_even = _mm256_cmpeq_epi32(
-        _mm256_and_si256(qf, _mm256_set1_epi32(1)),
-        _mm256_setzero_si256(),
-    );
-
-    // No sign correction needed here - handle it in the final result
-    let is_even_f = _mm256_castsi256_ps(is_even);
-
-    let x2 = _mm256_mul_ps(r, r);
-
-    // Compute tangent polynomial approximation
-    // tan(r) ≈ r * (1 + x²*(c₁ + x²*(c₂ + x²*(c₃ + x²*(c₄ + x²*c₅)))))
-    let mut res = _mm256_set1_ps(TAN_COEFF_9);
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_8));
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_7));
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_6));
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_5));
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_4));
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_3));
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_2));
-    res = _mm256_fmadd_ps(res, x2, _mm256_set1_ps(TAN_COEFF_1));
-    res = _mm256_fmadd_ps(res, _mm256_mul_ps(x2, r), r);
-
-    // For even q: result = tan(r)
-    // For odd q: result = -cot(r) = -1/tan(r)
-    let cot_result = _mm256_div_ps(_mm256_set1_ps(1.0), res);
-    res = _mm256_blendv_ps(
-        _mm256_sub_ps(_mm256_setzero_ps(), cot_result),
-        res,
-        is_even_f,
-    );
-
-    res
-=======
 #[inline(always)]
 pub unsafe fn _mm256_tan_ps(x: __m256) -> __m256 {
     let zero = _mm256_setzero_ps();
@@ -2085,17 +1972,12 @@ pub unsafe fn _mm256_tan_ps(x: __m256) -> __m256 {
     result = _mm256_blendv_ps(result, nan, special_mask);
 
     result
->>>>>>> develop
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-<<<<<<< HEAD
-    use std::f32::consts::{FRAC_PI_2, FRAC_PI_3, FRAC_PI_4, FRAC_PI_6, PI, SQRT_2};
-=======
     use std::f32::consts::{E, FRAC_1_SQRT_2, FRAC_PI_3, FRAC_PI_6, LN_10, LOG10_2};
->>>>>>> develop
 
     const SQRT_3: f32 = 1.7320508075688772935274463415058723669428052538103806280558069794;
 
@@ -4093,11 +3975,7 @@ mod tests {
             }
 
             // Test ln(e) = 1
-<<<<<<< HEAD
-            let e_input = create_f32x8([std::f32::consts::E; 8]);
-=======
             let e_input = create_f32x8([E; 8]);
->>>>>>> develop
             let e_result = unsafe { _mm256_ln_ps(e_input) };
             let e_vals = extract_f32x8(e_result);
             for val in e_vals {
@@ -4105,11 +3983,7 @@ mod tests {
             }
 
             // Test ln(e^2) = 2
-<<<<<<< HEAD
-            let e2_input = create_f32x8([std::f32::consts::E * std::f32::consts::E; 8]);
-=======
             let e2_input = create_f32x8([E * E; 8]);
->>>>>>> develop
             let e2_result = unsafe { _mm256_ln_ps(e2_input) };
             let e2_vals = extract_f32x8(e2_result);
             for val in e2_vals {
@@ -4880,10 +4754,6 @@ mod tests {
     }
 
     mod pow_tests {
-<<<<<<< HEAD
-        use std::f32::consts::{E, LOG10_2};
-=======
->>>>>>> develop
 
         use super::*;
 
@@ -5198,25 +5068,11 @@ mod tests {
         #[test]
         fn test_pow_precision_comparison() {
             // Test precision against known values
-<<<<<<< HEAD
-            let x_input = [2.0, std::f32::consts::E, 10.0, 0.5, 3.0, 7.0, 1.5, 2.5];
-=======
             let x_input = [2.0, E, 10.0, 0.5, 3.0, 7.0, 1.5, 2.5];
->>>>>>> develop
             let y_input = [10.0, 2.0, LOG10_2, 4.0, 4.0, 2.0, 6.0, 3.0];
 
             // Known precise values
             let expected = [
-<<<<<<< HEAD
-                1024.0,                      // 2^10
-                std::f32::consts::E.powi(2), // e^2
-                2.0,                         // 10^(log10(2)) ≈ 2
-                0.0625,                      // 0.5^4 = 1/16
-                81.0,                        // 3^4
-                49.0,                        // 7^2
-                11.390625,                   // 1.5^6
-                15.625,                      // 2.5^3
-=======
                 1024.0,    // 2^10
                 E.powi(2), // e^2
                 2.0,       // 10^(log10(2)) ≈ 2
@@ -5225,7 +5081,6 @@ mod tests {
                 49.0,      // 7^2
                 11.390625, // 1.5^6
                 15.625,    // 2.5^3
->>>>>>> develop
             ];
 
             let result = unsafe { _mm256_pow_ps(create_f32x8(x_input), create_f32x8(y_input)) };
@@ -5252,11 +5107,7 @@ mod tests {
             let expected = [
                 0.0,
                 0.5,
-<<<<<<< HEAD
-                std::f32::consts::FRAC_1_SQRT_2,
-=======
                 FRAC_1_SQRT_2,
->>>>>>> develop
                 3.0_f32.sqrt() / 2.0,
                 1.0,
                 0.0,
