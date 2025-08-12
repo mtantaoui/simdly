@@ -10,8 +10,8 @@
 //! CPU features:
 //!
 //! - **AVX2**: 256-bit vectors for x86/x86_64 processors (when compiled with `avx2` feature)
+//! - **NEON**: 128-bit vectors for ARM/AArch64 processors (when compiled with `neon` feature)
 //! - **SSE**: 128-bit vectors for x86/x86_64 processors (future implementation)
-//! - **NEON**: 128-bit vectors for ARM/AArch64 processors (future implementation)
 //!
 //! # Usage
 //!
@@ -24,6 +24,9 @@ pub mod avx2;
 
 #[cfg(neon)]
 pub mod neon;
+
+pub mod slice;
+
 /// Trait for checking memory alignment requirements.
 ///
 /// Different SIMD instruction sets have different alignment requirements for
@@ -33,6 +36,13 @@ pub mod neon;
 /// # Type Parameters
 ///
 /// * `T` - The element type being checked for alignment
+///
+/// # Performance Impact
+///
+/// Proper alignment can significantly improve SIMD performance:
+/// - **Aligned loads/stores**: Can be 2-4x faster than unaligned operations
+/// - **Memory bandwidth**: Better utilization of cache lines and memory buses
+/// - **Instruction efficiency**: Some SIMD instructions require aligned data
 ///
 /// # Examples
 ///
@@ -44,9 +54,17 @@ pub mod neon;
 /// # }
 /// let data = [1.0f32, 2.0, 3.0, 4.0];
 /// let is_aligned = MySimdType::is_aligned(data.as_ptr());
+/// if is_aligned {
+///     // Use fast aligned operations
+/// } else {
+///     // Fall back to unaligned operations
+/// }
 /// ```
 pub trait Alignment<T> {
     /// Checks if a pointer meets the alignment requirements.
+    ///
+    /// This method should be called before using aligned SIMD operations
+    /// to ensure optimal performance and avoid potential undefined behavior.
     ///
     /// # Arguments
     ///
@@ -54,7 +72,12 @@ pub trait Alignment<T> {
     ///
     /// # Returns
     ///
-    /// `true` if the pointer is properly aligned, `false` otherwise
+    /// `true` if the pointer is properly aligned for this SIMD type, `false` otherwise
+    ///
+    /// # Performance
+    ///
+    /// This function is typically very fast (single bitwise operation) and should
+    /// be inlined by the compiler for zero-cost abstraction.
     fn is_aligned(ptr: *const T) -> bool;
 }
 
@@ -72,29 +95,29 @@ pub trait Alignment<T> {
 ///
 /// - Aligned loads are generally faster than unaligned loads
 /// - Partial loads use masking and may have additional overhead
-/// - The `from_slice` method automatically chooses the best loading strategy
+/// - The `From<&[T]>` trait implementation automatically chooses the best loading strategy
 pub trait SimdLoad<T> {
     /// The output type returned by load operations
     type Output;
 
-    /// High-level interface to load data from a slice.
+    /// High-level interface to load data from a slice using the `From` trait.
     ///
-    /// Automatically handles partial loads and chooses the most appropriate
-    /// loading method based on data size and alignment.
+    /// Use `VectorType::from(&slice)` to create vectors from slices.
+    /// This automatically handles partial loads and chooses the most appropriate
+    /// loading method based on data size and alignment. This is the recommended
+    /// approach for most use cases as it provides optimal performance automatically.
     ///
-    /// # Arguments
+    /// # Performance
     ///
-    /// * `slice` - Input slice containing data to load
+    /// The `From` trait implementation automatically selects the fastest loading strategy:
+    /// - For aligned data: Uses fast aligned loads
+    /// - For unaligned data: Uses slower but safe unaligned loads
+    /// - For partial data: Uses masked loads to prevent buffer overruns
     ///
-    /// # Returns
-    ///
-    /// A SIMD vector containing the loaded data
-    fn from_slice(slice: &[T]) -> Self::Output;
-
     /// Loads a complete vector from memory.
     ///
     /// Automatically detects alignment and uses the most efficient load operation.
-    /// The size parameter must match the vector's lane count.
+    /// The size parameter must match the vector's lane count exactly.
     ///
     /// # Arguments
     ///
@@ -103,7 +126,14 @@ pub trait SimdLoad<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must be valid and point to at least `size` elements.
+    /// - Pointer must be valid and non-null
+    /// - Must point to at least `size` consecutive, initialized elements
+    /// - Elements must remain valid for the duration of the load operation
+    /// - Size must exactly match the vector's lane count
+    ///
+    /// # Panics
+    ///
+    /// May panic in debug builds if size doesn't match the expected lane count.
     unsafe fn load(ptr: *const T, size: usize) -> Self::Output;
 
     /// Loads data from aligned memory.
@@ -117,12 +147,21 @@ pub trait SimdLoad<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must be properly aligned and point to sufficient data.
+    /// - Pointer must be properly aligned for this SIMD type
+    /// - Must be valid and non-null
+    /// - Must point to at least enough consecutive, initialized elements to fill the vector
+    /// - Undefined behavior if alignment requirements are not met
+    ///
+    /// # Performance
+    ///
+    /// This is typically the fastest loading method available, as it can use
+    /// the most efficient CPU instructions designed for aligned data access.
     unsafe fn load_aligned(ptr: *const T) -> Self::Output;
 
     /// Loads data from unaligned memory.
     ///
     /// Works with any memory alignment but may be slower than aligned loads.
+    /// Use this when alignment cannot be guaranteed.
     ///
     /// # Arguments
     ///
@@ -130,13 +169,21 @@ pub trait SimdLoad<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must point to sufficient valid data.
+    /// - Pointer must be valid and non-null
+    /// - Must point to at least enough consecutive, initialized elements to fill the vector
+    /// - No alignment requirements, but data must be properly initialized
+    ///
+    /// # Performance
+    ///
+    /// Typically 10-20% slower than aligned loads, but still much faster than
+    /// scalar operations. Modern CPUs have optimized unaligned access.
     unsafe fn load_unaligned(ptr: *const T) -> Self::Output;
 
     /// Loads fewer elements than the vector's full capacity.
     ///
     /// Uses masking operations to safely load partial data without reading
-    /// beyond valid memory boundaries.
+    /// beyond valid memory boundaries. Remaining vector lanes will contain
+    /// undefined values.
     ///
     /// # Arguments
     ///
@@ -145,7 +192,18 @@ pub trait SimdLoad<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must point to at least `size` valid elements.
+    /// - Pointer must be valid and non-null
+    /// - Must point to at least `size` consecutive, initialized elements
+    /// - Size must be less than the vector's lane count
+    ///
+    /// # Performance
+    ///
+    /// Slightly slower than full loads due to masking overhead, but prevents
+    /// buffer overruns and segmentation faults when working with partial data.
+    ///
+    /// # Panics
+    ///
+    /// May panic in debug builds if size is greater than or equal to the vector capacity.
     unsafe fn load_partial(ptr: *const T, size: usize) -> Self::Output;
 }
 
@@ -171,7 +229,8 @@ pub trait SimdStore<T> {
     /// Stores vector data with automatic alignment detection.
     ///
     /// Automatically chooses between aligned and unaligned store based on
-    /// the destination pointer's alignment.
+    /// the destination pointer's alignment. This is the recommended method
+    /// for most use cases.
     ///
     /// # Arguments
     ///
@@ -179,13 +238,21 @@ pub trait SimdStore<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must point to sufficient writable memory.
+    /// - Pointer must be valid and non-null
+    /// - Must point to sufficient writable memory for all vector elements
+    /// - Memory must remain valid and writable during the store operation
+    ///
+    /// # Performance
+    ///
+    /// Automatically selects the fastest store method based on alignment,
+    /// providing optimal performance without manual alignment checking.
     fn store_at(&self, ptr: *const T);
 
     /// Non-temporal store that bypasses cache.
     ///
     /// Optimal for large datasets where data won't be accessed again soon.
-    /// Prevents cache pollution during bulk memory operations.
+    /// Prevents cache pollution during bulk memory operations by writing
+    /// directly to main memory.
     ///
     /// # Arguments
     ///
@@ -193,7 +260,18 @@ pub trait SimdStore<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must point to sufficient writable memory.
+    /// - Pointer must be valid, non-null, and properly aligned
+    /// - Must point to sufficient writable memory for all vector elements
+    /// - Memory must remain valid during the store operation
+    ///
+    /// # Performance
+    ///
+    /// Best for:
+    /// - Large sequential writes that won't be read soon
+    /// - Avoiding cache pollution in streaming algorithms
+    /// - Write-once, read-never or read-much-later patterns
+    ///
+    /// Avoid for data that will be accessed again soon.
     unsafe fn stream_at(&self, ptr: *mut T);
 
     /// Stores data to aligned memory.
@@ -207,12 +285,21 @@ pub trait SimdStore<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must be properly aligned and point to sufficient writable memory.
+    /// - Pointer must be properly aligned for this SIMD type
+    /// - Must be valid, non-null, and writable
+    /// - Must point to sufficient memory for all vector elements
+    /// - Undefined behavior if alignment requirements are not met
+    ///
+    /// # Performance
+    ///
+    /// This is typically the fastest store method, using the most efficient
+    /// CPU instructions designed for aligned memory access.
     unsafe fn store_aligned_at(&self, ptr: *mut T);
 
     /// Stores data to unaligned memory.
     ///
     /// Works with any memory alignment but may be slower than aligned stores.
+    /// Use when alignment cannot be guaranteed.
     ///
     /// # Arguments
     ///
@@ -220,13 +307,21 @@ pub trait SimdStore<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must point to sufficient writable memory.
+    /// - Pointer must be valid, non-null, and writable
+    /// - Must point to sufficient memory for all vector elements
+    /// - No alignment requirements
+    ///
+    /// # Performance
+    ///
+    /// Typically 10-20% slower than aligned stores, but still much faster
+    /// than scalar operations. Modern CPUs handle unaligned access well.
     unsafe fn store_unaligned_at(&self, ptr: *mut T);
 
     /// Stores only the valid elements using masked operations.
     ///
     /// Uses masking to safely store partial vector data without writing
-    /// beyond the intended memory range.
+    /// beyond the intended memory range. Only stores elements up to the
+    /// vector's valid size.
     ///
     /// # Arguments
     ///
@@ -234,7 +329,14 @@ pub trait SimdStore<T> {
     ///
     /// # Safety
     ///
-    /// Pointer must point to sufficient writable memory for the valid elements.
+    /// - Pointer must be valid, non-null, and writable
+    /// - Must point to sufficient memory for the vector's valid elements
+    /// - Safe from buffer overruns due to masking
+    ///
+    /// # Performance
+    ///
+    /// Slightly slower than full stores due to masking overhead, but prevents
+    /// writing beyond buffer boundaries when working with partial data.
     unsafe fn store_at_partial(&self, ptr: *mut T);
 }
 
@@ -262,7 +364,7 @@ pub trait SimdStore<T> {
 /// - Handle special values according to IEEE 754 standards
 /// - Provide consistent accuracy across all vector lanes
 /// - Maintain thread safety for concurrent usage
-pub trait SimdMath<T> {
+pub trait SimdMath {
     /// The output type returned by mathematical operations
     type Output;
 
@@ -319,7 +421,7 @@ pub trait SimdMath<T> {
     /// - Input: All real number pairs (y, x)
     /// - Output: [-π, π] radians
     /// - Handles signs correctly for all quadrants
-    fn atan2(&self) -> Self::Output;
+    fn atan2(&self, other: Self) -> Self::Output;
 
     /// Computes the cube root of each element.
     ///
@@ -367,27 +469,6 @@ pub trait SimdMath<T> {
     /// - Output: (-∞, ∞)
     /// - ln(x) = NaN for x ≤ 0
     fn ln(&self) -> Self::Output;
-
-    /// Computes the Euclidean distance (2D hypotenuse) for element pairs.
-    ///
-    /// Returns sqrt(x² + y²) for corresponding elements, computed in a way
-    /// that avoids overflow for large values and underflow for small values.
-    ///
-    /// # Algorithm
-    ///
-    /// Uses careful scaling to prevent intermediate overflow/underflow.
-    fn hypot(&self) -> Self::Output;
-
-    /// Computes x raised to the power y for each element pair.
-    ///
-    /// Returns x^y for corresponding elements.
-    /// Handles special cases according to IEEE 754 standards.
-    ///
-    /// # Domain
-    ///
-    /// Complex rules apply for negative bases and fractional exponents.
-    /// Consult IEEE 754 for complete specification.
-    fn pow(&self) -> Self::Output;
 
     /// Computes the sine of each element.
     ///
@@ -445,15 +526,229 @@ pub trait SimdMath<T> {
     /// - ceil(4.0) = 4.0
     fn ceil(&self) -> Self::Output;
 
+    /// Computes x raised to the power y for each element pair.
+    ///
+    /// Returns x^y for corresponding elements.
+    /// Handles special cases according to IEEE 754 standards.
+    ///
+    /// # Domain
+    ///
+    /// Complex rules apply for negative bases and fractional exponents.
+    /// Consult IEEE 754 for complete specification.
+    fn pow(&self, other: Self) -> Self::Output;
+
+    /// Computes the Euclidean distance (2D hypotenuse) for element pairs.
+    ///
+    /// Returns sqrt(x² + y²) for corresponding elements, computed in a way
+    /// that avoids overflow for large values and underflow for small values.
+    ///
+    /// # Algorithm
+    ///
+    /// Uses careful scaling to prevent intermediate overflow/underflow.
+    fn hypot(&self, other: Self) -> Self::Output;
+
     /// Computes the 3D Euclidean distance for element triplets.
     ///
     /// Returns sqrt(x² + y² + z²) for corresponding elements.
     /// Computed with care to avoid intermediate overflow/underflow.
-    fn hypot3(&self) -> Self::Output;
+    fn hypot3(&self, other1: Self, other2: Self) -> Self::Output;
 
     /// Computes the 4D Euclidean distance for element quadruplets.
     ///
     /// Returns sqrt(x² + y² + z² + w²) for corresponding elements.
     /// Computed with care to avoid intermediate overflow/underflow.
-    fn hypot4(&self) -> Self::Output;
+    fn hypot4(&self, other1: Self, other2: Self, other3: Self) -> Self::Output;
+
+    // ================================================================================================
+    // PARALLEL SIMD METHODS
+    // ================================================================================================
+
+    /// Computes the absolute value of each element using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing
+    /// for maximum performance on multi-core systems.
+    ///
+    /// # Platform Support
+    ///
+    /// - **x86_64**: Uses AVX2 instructions with 8-element vectors (256-bit)
+    /// - **aarch64**: Uses NEON instructions with 4-element vectors (128-bit)
+    /// - **Other platforms**: Falls back to scalar operations
+    fn par_abs(&self) -> Self::Output;
+
+    /// Computes the arccosine of each element using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_acos(&self) -> Self::Output;
+
+    /// Computes the arcsine of each element using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_asin(&self) -> Self::Output;
+
+    /// Computes the arctangent of each element using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_atan(&self) -> Self::Output;
+
+    /// Computes the two-argument arctangent using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_atan2(&self, other: Self) -> Self::Output;
+
+    /// Computes the cube root of each element using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_cbrt(&self) -> Self::Output;
+
+    /// Computes the ceiling of each element using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_ceil(&self) -> Self::Output;
+
+    /// Computes the cosine of each element using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing
+    /// for maximum performance on multi-core systems.
+    ///
+    /// # Platform Support & Performance
+    ///
+    /// ## AVX2 (x86_64)
+    /// - **Vector width**: 8 elements (256-bit)
+    /// - **Instructions**: Uses optimized AVX2 intrinsics
+    /// - **Performance**: Up to 13.3x faster than scalar for large arrays
+    /// - **Parallel chunks**: 8192 elements per thread
+    ///
+    /// ## NEON (aarch64)  
+    /// - **Vector width**: 4 elements (128-bit)
+    /// - **Instructions**: Uses optimized NEON intrinsics
+    /// - **Performance**: Significant speedup on ARM processors
+    /// - **Parallel chunks**: 4096 elements per thread
+    ///
+    /// ## Fallback
+    /// - **Other platforms**: Scalar implementation with compiler auto-vectorization
+    ///
+    /// # Threshold Selection
+    /// - Arrays ≤ `PARALLEL_SIMD_THRESHOLD`: Uses single-threaded SIMD
+    /// - Arrays > `PARALLEL_SIMD_THRESHOLD`: Uses multi-threaded parallel SIMD
+    fn par_cos(&self) -> Self::Output;
+
+    /// Computes the exponential function of each element using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_exp(&self) -> Self::Output;
+
+    /// Computes the floor of each element using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_floor(&self) -> Self::Output;
+
+    /// Computes the natural logarithm of each element using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_ln(&self) -> Self::Output;
+
+    /// Computes the sine of each element using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing
+    /// for maximum performance on multi-core systems.
+    fn par_sin(&self) -> Self::Output;
+
+    /// Computes the square root of each element using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_sqrt(&self) -> Self::Output;
+
+    /// Computes the tangent of each element using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_tan(&self) -> Self::Output;
+
+    /// Computes the Euclidean distance (2D hypotenuse) using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_hypot(&self, other: Self) -> Self::Output;
+
+    /// Computes the 3D Euclidean distance using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_hypot3(&self, other1: Self, other2: Self) -> Self::Output;
+
+    /// Computes the 4D Euclidean distance using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_hypot4(&self, other1: Self, other2: Self, other3: Self) -> Self::Output;
+
+    /// Computes x raised to the power y using parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_pow(&self, other: Self) -> Self::Output;
+}
+
+/// Trait for SIMD comparison operations.
+///
+/// This trait provides vectorized comparison functions that operate on SIMD vectors,
+/// comparing corresponding elements and producing comparison results. The operations
+/// are designed to work efficiently with different SIMD instruction sets.
+///
+/// # Type Parameters
+///
+/// * `Rhs` - The right-hand side type for comparison operations (defaults to `Self`)
+///
+/// # Performance Characteristics
+///
+/// - **Vectorized processing**: Compares multiple elements simultaneously using SIMD
+/// - **Efficient branching**: Produces comparison masks for conditional operations
+/// - **Cross-platform**: Works with AVX2, NEON, and other SIMD instruction sets
+///
+/// # Usage Patterns
+///
+/// Comparison results can be used for:
+/// - Conditional SIMD operations using masks
+/// - Finding elements that meet specific criteria
+/// - Implementing vectorized selection and filtering
+pub trait SimdCmp<Rhs = Self> {
+    /// The output type returned by comparison operations.
+    ///
+    /// Typically a SIMD vector containing comparison results, where each element
+    /// represents the result of comparing corresponding elements from the input vectors.
+    /// The exact representation depends on the underlying SIMD architecture.
+    type Output;
+
+    /// Compares corresponding elements for equality.
+    ///
+    /// Performs element-wise equality comparison between `self` and `rhs`, returning
+    /// a vector of comparison results. Each element in the output indicates whether
+    /// the corresponding elements in the input vectors are equal.
+    ///
+    /// # Arguments
+    ///
+    /// * `rhs` - The right-hand side vector to compare against
+    ///
+    /// # Returns
+    ///
+    /// A vector containing the results of element-wise equality comparisons.
+    ///
+    /// # Performance
+    ///
+    /// This operation is typically very fast as it uses optimized SIMD comparison
+    /// instructions that can process multiple elements per CPU cycle.
+    fn elementwise_eq(self, rhs: Rhs) -> Self::Output;
 }

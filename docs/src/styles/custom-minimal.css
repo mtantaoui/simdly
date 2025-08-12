@@ -1,0 +1,682 @@
+/* HAL 9000 Theme - 2001: A Space Odyssey inspired */
+
+:root {
+  /* HAL 9000 Color Palette */
+  --hal-red: #ff0000;
+  --hal-red-glow: #ff3333;
+  --hal-red-dim: #cc0000;
+  --hal-red-alpha: rgba(255, 0, 0, 0.8);
+  --hal-red-alpha-low: rgba(255, 0, 0, 0.1);
+  --hal-orange: #ff6600;
+  --hal-yellow: #ffff00;
+
+  /* Space Theme Colors */
+  --space-black: #000000;
+  --space-dark: #0a0a0a;
+  --space-gray: #1a1a1a;
+  --space-light-gray: #333333;
+  --space-blue: #001133;
+  --space-blue-dim: #000822;
+
+  /* Starlight Color Overrides */
+  --sl-color-accent-low: rgba(100, 116, 139, 0.1);
+  --sl-color-accent: #64748b;
+  --sl-color-accent-high: #94a3b8;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #f8fafc;
+  --sl-color-gray-2: #e2e8f0;
+  --sl-color-gray-3: #cbd5e1;
+  --sl-color-gray-4: #94a3b8;
+  --sl-color-gray-5: #64748b;
+  --sl-color-gray-6: #475569;
+  --sl-color-bg: var(--space-black);
+  --sl-color-bg-nav: var(--space-dark);
+  --sl-color-bg-sidebar: var(--space-gray);
+  --sl-color-bg-inline-code: var(--space-light-gray);
+  --sl-color-text: #e2e8f0;
+  --sl-color-text-accent: #94a3b8;
+
+  /* HAL-inspired Gradients */
+  --gradient-hal: linear-gradient(135deg,
+      var(--hal-red) 0%,
+      var(--hal-orange) 100%);
+  --gradient-space: linear-gradient(135deg,
+      var(--space-black) 0%,
+      var(--space-blue-dim) 100%);
+  --gradient-warning: linear-gradient(135deg,
+      var(--hal-orange) 0%,
+      var(--hal-yellow) 100%);
+}
+
+/* Dark theme overrides */
+[data-theme="dark"] {
+  --sl-color-bg: var(--space-black);
+  --sl-color-bg-nav: var(--space-dark);
+  --sl-color-bg-sidebar: var(--space-gray);
+  --sl-color-text: #e2e8f0;
+  --sl-color-text-accent: #94a3b8;
+}
+
+/* Space Starfield Animation */
+@keyframes starfield {
+  0% {
+    transform: translateY(0px);
+  }
+
+  100% {
+    transform: translateY(-2000px);
+  }
+}
+
+@keyframes starfield-slow {
+  0% {
+    transform: translateY(0px) translateX(0px);
+  }
+
+  100% {
+    transform: translateY(-3000px) translateX(-500px);
+  }
+}
+
+/* Parallax scrolling animations */
+@keyframes parallax-float {
+
+  0%,
+  100% {
+    transform: translateY(0px) scale(1);
+  }
+
+  50% {
+    transform: translateY(-20px) scale(1.02);
+  }
+}
+
+@keyframes twinkle {
+
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Parallax background containers - disabled, using body background instead */
+.parallax-bg-container {
+  display: none;
+}
+
+.parallax-bg-layer {
+  display: none;
+}
+
+/* Hero section - Space Odyssey style */
+.hero {
+  background: transparent;
+  position: relative;
+  overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+  margin-left: calc(-50vw + 50%);
+  margin-right: calc(-50vw + 50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* Smooth transitions for fade effect */
+  transition: opacity 0.1s ease-out;
+  will-change: opacity;
+}
+
+/* Content overlay for hero - pure parallax movement */
+.hero-content-wrapper {
+  position: relative;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  border-radius: 20px;
+  padding: 3rem;
+  margin: 2rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+
+  /* Smooth transform for parallax movement */
+  will-change: transform;
+}
+
+/* Enhance text readability over galaxy background */
+.hero-content-wrapper h2,
+.hero-content-wrapper p,
+.hero-content-wrapper li {
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+.hero-content-wrapper .card {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Space Typography with Parallax */
+.hero h1 {
+  background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  position: relative;
+  z-index: 10;
+  animation: parallax-float 6s ease-in-out infinite;
+}
+
+.hero .tagline {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 1.25rem;
+  font-weight: 500;
+  position: relative;
+  z-index: 10;
+}
+
+/* Space-themed Card enhancements */
+.card-grid .card {
+  background: linear-gradient(135deg,
+      var(--space-gray) 0%,
+      var(--space-light-gray) 100%);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 16px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.card-grid .card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+      transparent,
+      rgba(148, 163, 184, 0.4),
+      transparent);
+}
+
+.card-grid .card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
+  border-color: rgba(148, 163, 184, 0.4);
+  background: linear-gradient(135deg,
+      var(--space-light-gray) 0%,
+      var(--space-gray) 100%);
+}
+
+/* Space Navigation */
+/* .site-title {
+  font-weight: 700;
+  color: #94a3b8;
+} */
+
+/* Space-themed Code blocks */
+/* pre {
+  background: var(--space-light-gray) !important;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+} */
+
+/* Space-themed Sidebar - Non-intrusive styling */
+.sidebar {
+  background: linear-gradient(180deg,
+      rgba(26, 26, 26, 0.95) 0%,
+      rgba(10, 10, 10, 0.95) 100%);
+  border-right: 1px solid rgba(100, 116, 139, 0.2);
+  position: relative;
+  z-index: 10;
+}
+
+/* Sidebar text styling - preserve Starlight functionality */
+.sidebar .sidebar-content a {
+  color: #cbd5e1;
+  transition: color 0.2s ease;
+}
+
+.sidebar .sidebar-content a:hover {
+  color: #ffffff;
+}
+
+.sidebar .sidebar-content .group-label span {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+/* HAL-themed Content area - removed duplicate, using definition below */
+
+/* Global body background - unified background for landing page */
+body {
+  background-color: #000000 !important;
+  position: relative;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-image: linear-gradient(135deg,
+      rgba(0, 0, 0, 0.3) 0%,
+      rgba(10, 10, 26, 0.3) 25%,
+      rgba(0, 17, 34, 0.3) 50%,
+      rgba(0, 8, 21, 0.3) 75%,
+      rgba(0, 0, 0, 0.3) 100%),
+    url("https://images.pexels.com/photos/998641/pexels-photo-998641.jpeg");
+  background-repeat: repeat;
+  background-attachment: fixed;
+  background-size: cover;
+  background-position: center center;
+  filter: blur(5px);
+  z-index: -999;
+  pointer-events: none;
+}
+
+/* Ensure Starlight doesn't override our background */
+html {
+  background: transparent !important;
+}
+
+.page {
+  background: transparent !important;
+}
+
+/* Landing page fade effect */
+.page[data-has-hero] {
+  transition: opacity 0.1s ease-out, transform 0.1s ease-out;
+  will-change: opacity, transform;
+}
+
+/* Content sections background - transparent to show unified background */
+.main-frame {
+  background: transparent;
+  border-radius: 20px 20px 0 0;
+  margin-top: 0;
+  position: relative;
+  z-index: 5;
+  min-height: 100vh;
+  opacity: 1;
+}
+
+/* Page layout adjustments */
+.page[data-has-hero] .content-panel {
+  padding-top: 100vh;
+}
+
+/* Full width for splash pages */
+.page[data-has-hero] .content-panel,
+.page[data-has-hero] .main-frame,
+.page[data-has-hero] main {
+  width: 100%;
+  max-width: none;
+  padding: 0;
+}
+
+/* Hero content centering */
+.hero .sl-flex {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+
+/* HAL 9000 SVG positioning and styling - COMMENTED OUT */
+/*
+.hero img,
+.hero .hero-image img {
+  max-width: 300px;
+  height: auto;
+  filter: drop-shadow(0 0 30px var(--hal-red)) drop-shadow(0 0 60px var(--hal-red-alpha)) drop-shadow(0 0 90px var(--hal-red-alpha-low)) brightness(1.1) contrast(1.2);
+  animation: hal-glow-pulse 3s ease-in-out infinite alternate;
+}
+*/
+
+/* Hero image styling - REMOVED (no image in hero anymore) */
+/*
+.hero img,
+.hero .hero-image img {
+  max-width: 300px;
+  height: auto;
+}
+*/
+
+/* Enhanced glow animation for HAL's eye - COMMENTED OUT */
+/*
+@keyframes hal-glow-pulse {
+  0% {
+    filter: drop-shadow(0 0 20px var(--hal-red)) drop-shadow(0 0 40px var(--hal-red-alpha)) drop-shadow(0 0 60px var(--hal-red-alpha-low)) brightness(1) contrast(1.1);
+    transform: scale(1);
+  }
+
+  50% {
+    filter: drop-shadow(0 0 40px var(--hal-red)) drop-shadow(0 0 80px var(--hal-red-alpha)) drop-shadow(0 0 120px var(--hal-red-alpha-low)) brightness(1.3) contrast(1.4);
+    transform: scale(1.02);
+  }
+
+  100% {
+    filter: drop-shadow(0 0 30px var(--hal-red)) drop-shadow(0 0 60px var(--hal-red-alpha)) drop-shadow(0 0 90px var(--hal-red-alpha-low)) brightness(1.1) contrast(1.2);
+    transform: scale(1);
+  }
+}
+*/
+
+/* Hero image container - REMOVED (no image in hero anymore) */
+/*
+.hero .hero-image,
+.hero picture {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 2rem 0;
+}
+*/
+
+@media (max-width: 768px) {
+  /* Hero image mobile styling - REMOVED (no image in hero anymore) */
+  /*
+  .hero img,
+  .hero .hero-image img {
+    max-width: 200px;
+  }
+  */
+}
+
+/* Override Starlight's container width limits */
+.page[data-has-hero] .sl-container {
+  max-width: none;
+  width: 100%;
+}
+
+/* HAL 9000 Button enhancements */
+.hero .actions a,
+.hero .actions .action,
+.sl-flex a[data-variant],
+a[data-variant] {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.hero .actions a[data-variant="primary"],
+.sl-flex a[data-variant="primary"],
+a[data-variant="primary"] {
+  background: var(--gradient-hal);
+  border: 1px solid var(--hal-red);
+  box-shadow: 0 4px 15px var(--hal-red-alpha), 0 0 20px var(--hal-red-alpha-low);
+  color: white;
+  text-shadow: 0 0 10px var(--hal-red-alpha);
+}
+
+.hero .actions a[data-variant="primary"]:hover,
+.sl-flex a[data-variant="primary"]:hover,
+a[data-variant="primary"]:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px var(--hal-red-alpha), 0 0 30px var(--hal-red-alpha);
+  /* animation: hal-pulse 2s ease-in-out infinite; - COMMENTED OUT */
+}
+
+.hero .actions a[data-variant="minimal"],
+.sl-flex a[data-variant="minimal"],
+a[data-variant="minimal"] {
+  border: 1px solid var(--hal-red-alpha);
+  background: var(--hal-red-alpha-low);
+  color: var(--hal-red-glow);
+  text-shadow: 0 0 5px var(--hal-red-alpha-low);
+}
+
+.hero .actions a[data-variant="minimal"]:hover,
+.sl-flex a[data-variant="minimal"]:hover,
+a[data-variant="minimal"]:hover {
+  background: var(--hal-red-alpha-low);
+  border-color: var(--hal-red);
+  box-shadow: 0 0 20px var(--hal-red-alpha-low);
+}
+
+/* HAL 9000 Performance indicators */
+.performance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--gradient-hal);
+  border: 1px solid var(--hal-red-alpha);
+  border-radius: 9999px;
+  color: white;
+  font-weight: 600;
+  font-size: 0.875rem;
+  margin: 0.5rem 0;
+  text-shadow: 0 0 10px var(--hal-red-alpha);
+  box-shadow: 0 0 20px var(--hal-red-alpha-low);
+}
+
+.performance-badge::before {
+  content: "⚡";
+  font-size: 1rem;
+  text-shadow: 0 0 5px var(--hal-yellow);
+}
+
+/* Responsive enhancements */
+@media (max-width: 768px) {
+  .hero h1 {
+    font-size: 2.5rem;
+  }
+
+  .hero .tagline {
+    font-size: 1.1rem;
+  }
+
+  .card-grid .card {
+    margin-bottom: 1rem;
+  }
+}
+
+/* Animation utilities */
+/* @keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.8;
+  }
+} */
+
+/* .animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+} */
+
+/* === PARALLAX EFFECTS === */
+
+/* Scroll-based parallax container */
+.parallax-container {
+  position: relative;
+  overflow: hidden;
+}
+
+.parallax-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  will-change: transform;
+}
+
+/* Background parallax layers */
+/* .parallax-bg-slow {
+  transform-style: preserve-3d;
+  animation: parallax-bg-drift 60s linear infinite;
+}
+
+.parallax-bg-medium {
+  transform-style: preserve-3d;
+  animation: parallax-bg-drift 40s linear infinite reverse;
+}
+
+.parallax-bg-fast {
+  transform-style: preserve-3d;
+  animation: parallax-bg-drift 20s linear infinite;
+} */
+
+@keyframes parallax-bg-drift {
+  0% {
+    transform: translateX(0px) translateY(0px);
+  }
+
+  25% {
+    transform: translateX(-50px) translateY(-25px);
+  }
+
+  50% {
+    transform: translateX(0px) translateY(-50px);
+  }
+
+  75% {
+    transform: translateX(50px) translateY(-25px);
+  }
+
+  100% {
+    transform: translateX(0px) translateY(0px);
+  }
+}
+
+/* Card parallax effects */
+.card-grid {
+  perspective: 1000px;
+}
+
+.card-grid .card {
+  transform-style: preserve-3d;
+  transition: transform 0.3s ease;
+}
+
+.card-grid .card:nth-child(even) {
+  animation: card-float-alternate 8s ease-in-out infinite;
+}
+
+.card-grid .card:nth-child(odd) {
+  animation: card-float 8s ease-in-out infinite;
+}
+
+@keyframes card-float {
+
+  0%,
+  100% {
+    transform: translateY(0px) rotateX(0deg) rotateY(0deg);
+  }
+
+  33% {
+    transform: translateY(-10px) rotateX(2deg) rotateY(1deg);
+  }
+
+  66% {
+    transform: translateY(5px) rotateX(-1deg) rotateY(-1deg);
+  }
+}
+
+@keyframes card-float-alternate {
+
+  0%,
+  100% {
+    transform: translateY(0px) rotateX(0deg) rotateY(0deg);
+  }
+
+  33% {
+    transform: translateY(8px) rotateX(-2deg) rotateY(-1deg);
+  }
+
+  66% {
+    transform: translateY(-12px) rotateX(1deg) rotateY(1deg);
+  }
+}
+
+/* HAL 9000 image parallax enhancement - COMMENTED OUT */
+/*
+.hero img,
+.hero .hero-image img {
+  animation: hal-glow-pulse 3s ease-in-out infinite alternate, hal-parallax-orbit 12s ease-in-out infinite;
+}
+
+@keyframes hal-parallax-orbit {
+  0%, 100% {
+    transform: scale(1) rotate(0deg) translateY(0px);
+  }
+  25% {
+    transform: scale(1.01) rotate(0.5deg) translateY(-5px);
+  }
+  50% {
+    transform: scale(1.02) rotate(0deg) translateY(-10px);
+  }
+  75% {
+    transform: scale(1.01) rotate(-0.5deg) translateY(-5px);
+  }
+}
+*/
+
+/* Interactive parallax on scroll (CSS-based approximation) */
+@media (prefers-reduced-motion: no-preference) {
+  .hero {
+    background-attachment: fixed;
+  }
+
+  .hero .sl-flex {
+    animation: hero-content-float 10s ease-in-out infinite;
+  }
+
+  @keyframes hero-content-float {
+
+    0%,
+    100% {
+      transform: translateY(0px);
+    }
+
+    50% {
+      transform: translateY(-8px);
+    }
+  }
+}
+
+/* Reduced motion fallback */
+@media (prefers-reduced-motion: reduce) {
+
+  .hero h1,
+  .hero img,
+  .hero .hero-image img,
+  .card-grid .card {
+    animation: none !important;
+  }
+
+  .hero::before,
+  .hero::after {
+    animation: none !important;
+  }
+
+  /* Disable all parallax animations for accessibility */
+  .parallax-bg-layer {
+    transform: none !important;
+  }
+}

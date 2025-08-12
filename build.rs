@@ -1,3 +1,27 @@
+//! Build script for automatic CPU feature detection and optimization.
+//!
+//! This build script automatically detects available CPU features on the target system
+//! and enables appropriate SIMD optimizations during compilation. It supports multiple
+//! platforms and provides fallback implementations when advanced features are unavailable.
+//!
+//! # Supported Features
+//!
+//! - **AVX2**: Intel Advanced Vector Extensions 2 (256-bit vectors)
+//! - **NEON**: ARM Advanced SIMD (128-bit vectors)  
+//! - **SSE4.1**: Streaming SIMD Extensions 4.1 (128-bit vectors)
+//! - **AVX-512**: Intel Advanced Vector Extensions 512 (512-bit vectors, nightly only)
+//!
+//! # Platform Support
+//!
+//! - **Linux**: Reads `/proc/cpuinfo` for feature detection
+//! - **macOS**: Uses `sysctl` to query hardware capabilities
+//! - **Windows**: Uses PowerShell and WMI for CPU feature detection
+//!
+//! # Cross-Compilation
+//!
+//! When cross-compiling, the build script skips CPU detection and falls back to
+//! generic implementations to ensure compatibility with the target architecture.
+
 use std::cmp::Ordering;
 use std::env;
 use std::process::Command;
@@ -13,7 +37,11 @@ struct CpuFeature {
 }
 
 impl CpuFeature {
-    // Define priority order between CPU Features (Lowest number == Highest Priority)
+    /// Define priority order between CPU Features (Lowest number == Highest Priority)
+    ///
+    /// Returns the priority value for feature selection, where lower numbers indicate
+    /// higher priority. This ensures the most advanced compatible instruction set is used.
+    #[inline(always)]
     fn priority(&self) -> usize {
         match self.name {
             "avx512f" => 0,
@@ -23,8 +51,11 @@ impl CpuFeature {
         }
     }
 
-    // Groups all supported CPU features that use optimizations in this crate
-    // used in stable build only
+    /// Groups all supported CPU features that use optimizations in this crate.
+    ///
+    /// Used in stable build only. Returns a vector of CPU features that can be
+    /// safely used with the stable Rust compiler.
+    #[inline(always)]
     fn features() -> Vec<CpuFeature> {
         vec![
             CpuFeature {
@@ -51,8 +82,11 @@ impl CpuFeature {
         ]
     }
 
-    // Groups all supported CPU features that use optimizations in this crate
-    // used in nightly build only
+    /// Groups all supported CPU features that use optimizations in this crate.
+    ///
+    /// Used in nightly build only. Includes experimental features that require
+    /// nightly Rust compiler features.
+    #[inline(always)]
     fn nightly_features() -> Vec<CpuFeature> {
         vec![
             CpuFeature {
@@ -116,7 +150,9 @@ trait CpuFeatureDetector {
 
 // Linux CPU feature detector
 struct LinuxDetector;
+
 impl CpuFeatureDetector for LinuxDetector {
+    #[inline(always)]
     fn detect_features(&self, features: &mut [CpuFeature]) -> DetectionResult {
         match std::fs::read_to_string("/proc/cpuinfo") {
             Ok(cpuinfo) => {
@@ -130,10 +166,12 @@ impl CpuFeatureDetector for LinuxDetector {
         }
     }
 
+    #[inline(always)]
     fn is_applicable(&self) -> bool {
         cfg!(target_os = "linux")
     }
 
+    #[inline(always)]
     fn name(&self) -> &'static str {
         "Linux"
     }
@@ -141,7 +179,9 @@ impl CpuFeatureDetector for LinuxDetector {
 
 // macOS CPU feature detector
 struct MacOSDetector;
+
 impl CpuFeatureDetector for MacOSDetector {
+    #[inline(always)]
     fn detect_features(&self, features: &mut [CpuFeature]) -> DetectionResult {
         let output = Command::new("sysctl").args(["-a"]).output();
 
@@ -190,10 +230,12 @@ impl CpuFeatureDetector for MacOSDetector {
         }
     }
 
+    #[inline(always)]
     fn is_applicable(&self) -> bool {
         cfg!(target_os = "macos")
     }
 
+    #[inline(always)]
     fn name(&self) -> &'static str {
         "macOS"
     }
@@ -201,7 +243,9 @@ impl CpuFeatureDetector for MacOSDetector {
 
 // Windows CPU feature detector
 struct WindowsDetector;
+
 impl CpuFeatureDetector for WindowsDetector {
+    #[inline(always)]
     fn detect_features(&self, features: &mut [CpuFeature]) -> DetectionResult {
         // Try PowerShell method first (more reliable)
         if let Ok(result) = self.detect_with_powershell(features) {
@@ -212,16 +256,23 @@ impl CpuFeatureDetector for WindowsDetector {
         self.detect_with_wmic(features)
     }
 
+    #[inline(always)]
     fn is_applicable(&self) -> bool {
         cfg!(target_os = "windows")
     }
 
+    #[inline(always)]
     fn name(&self) -> &'static str {
         "Windows"
     }
 }
 
 impl WindowsDetector {
+    /// Attempts to detect CPU features using PowerShell and WMI.
+    ///
+    /// This method provides more reliable CPU feature detection on Windows
+    /// by querying detailed processor information through WMI.
+    #[inline(always)]
     fn detect_with_powershell(&self, features: &mut [CpuFeature]) -> Result<DetectionResult, ()> {
         let powershell_script = r#"
             try {
@@ -310,6 +361,11 @@ impl WindowsDetector {
         })
     }
 
+    /// Fallback method using wmic command for CPU feature detection.
+    ///
+    /// Uses basic heuristics based on processor name patterns to determine
+    /// supported instruction sets when PowerShell detection fails.
+    #[inline(always)]
     fn detect_with_wmic(&self, features: &mut [CpuFeature]) -> DetectionResult {
         let output = Command::new("wmic")
             .args(["cpu", "get", "name", "/format:list"])
@@ -389,6 +445,11 @@ impl WindowsDetector {
 // Factory that creates the appropriate detector for the current OS
 struct PlatformDetector;
 impl PlatformDetector {
+    /// Creates a vector of all available CPU feature detectors.
+    ///
+    /// Returns detectors for all supported platforms. The appropriate detector
+    /// will be selected based on the current operating system.
+    #[inline(always)]
     fn cpu_features_detectors() -> Vec<Box<dyn CpuFeatureDetector>> {
         vec![
             Box::new(LinuxDetector),
@@ -397,6 +458,11 @@ impl PlatformDetector {
         ]
     }
 
+    /// Detects the current Rust compiler channel (stable, beta, nightly).
+    ///
+    /// This information is used to determine which CPU features can be safely
+    /// enabled, as some features require nightly compiler support.
+    #[inline(always)]
     fn compiler_channel() -> Result<String, String> {
         let rustc = env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
 
@@ -421,6 +487,11 @@ impl PlatformDetector {
         })
     }
 
+    /// Performs CPU feature detection using the appropriate platform detector.
+    ///
+    /// Iterates through available detectors and uses the first applicable one
+    /// for the current platform to detect supported CPU features.
+    #[inline(always)]
     fn detect_cpu_features(features: &mut [CpuFeature]) -> DetectionResult {
         let detectors = Self::cpu_features_detectors();
         let mut last_error = String::new();
@@ -461,6 +532,11 @@ impl PlatformDetector {
         }
     }
 
+    /// Applies the detected CPU features to the build configuration.
+    ///
+    /// Sorts features by priority, selects the best available feature,
+    /// and configures the appropriate Rust compiler flags and cfg attributes.
+    #[inline(always)]
     fn apply(features: &mut [CpuFeature]) {
         // Sort features by priority (highest first)
         features.sort();
@@ -494,6 +570,14 @@ impl PlatformDetector {
     }
 }
 
+/// Main build script entry point.
+///
+/// Orchestrates the entire CPU feature detection and optimization process:
+/// 1. Detects the Rust compiler channel (stable/nightly)
+/// 2. Determines if we're cross-compiling
+/// 3. Runs CPU feature detection for native builds
+/// 4. Applies the appropriate compiler optimizations
+#[inline(always)]
 fn main() {
     // Detect rustc channel (stable, beta, nightly)
     let rustc_channel = match PlatformDetector::compiler_channel() {

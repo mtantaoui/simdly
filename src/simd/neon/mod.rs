@@ -14,7 +14,8 @@
 //!
 //! # Available Types
 //!
-//! - ARM NEON vector types for mathematical operations (work in progress)
+//! - **Mathematical Functions**: Complete set of NEON-optimized math functions
+//! - Vector types: Currently uses native ARM NEON intrinsics (float32x4_t, etc.)
 //!
 //! # Performance Characteristics
 //!
@@ -38,3 +39,7 @@
 
 #[allow(clippy::excessive_precision, clippy::empty_line_after_doc_comments)]
 pub mod math;
+
+pub mod f32x4;
+
+pub mod slice;

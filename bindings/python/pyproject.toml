@@ -1,0 +1,40 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "simdly"
+version = "0.1.0"
+description = "High-performance SIMD mathematical operations for Python"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "Mahdi Tantaoui", email = "mohamedalmahdi.tantaoui@gmail.com" }
+]
+keywords = ["math", "SIMD", "performance", "numerical", "vectorization"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/mtantaoui/simdly"
+Repository = "https://github.com/mtantaoui/simdly"
+Documentation = "https://docs.rs/simdly/"
+
+[tool.maturin]
+module-name = "simdly"
+manifest-path = "simdly/Cargo.toml"

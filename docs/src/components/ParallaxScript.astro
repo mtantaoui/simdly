@@ -1,0 +1,32 @@
+---
+// Simple parallax script - inspired by archive branch approach
+---
+
+<script>
+  // Simple parallax animation function based on archive branch
+  const runParallaxAnimation = () => {
+    const parallaxBackground = document.querySelector('.parallax-bg-container');
+    
+    // If the parallax background doesn't exist, do nothing
+    if (!parallaxBackground) {
+      return;
+    }
+
+    // Get the distance the user has scrolled down the page
+    const scrollPosition = window.scrollY;
+
+    // Calculate the vertical movement for the parallax effect
+    // The '0.5' controls the scroll speed - larger number = faster movement
+    const translateY = scrollPosition * 0.5;
+
+    // Apply the transform to create the parallax effect
+    parallaxBackground.style.transform = `translateY(${translateY}px)`;
+  };
+
+  // Attach the animation function to the window's scroll event
+  // This makes the animation run live as the user scrolls
+  window.addEventListener('scroll', runParallaxAnimation, { passive: true });
+
+  // Run once on page load
+  runParallaxAnimation();
+</script>
