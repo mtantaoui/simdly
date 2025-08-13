@@ -495,6 +495,7 @@ open target/criterion/report/index.html
 ```
 
 **Key Findings from Benchmarks:**
+
 - Mathematical operations (`cos`, `sin`, `exp`, etc.) show significant SIMD acceleration
 - Parallel methods automatically optimize based on array size using `PARALLEL_SIMD_THRESHOLD`
 - Performance varies by CPU architecture - benchmarks show actual improvements on your hardware
