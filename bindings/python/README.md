@@ -1,5 +1,7 @@
 # simdly
 
+> ⚠️ **Development Status**: This project is currently under active development. Not yet published on PyPI.
+
 High-performance SIMD mathematical operations for Python, powered by Rust.
 
 ## Overview
@@ -13,35 +15,11 @@ High-performance SIMD mathematical operations for Python, powered by Rust.
 
 ## Installation
 
-```bash
-pip install simdly
-```
-
-Or build from source:
-
-```bash
-git clone https://github.com/mtantaoui/simdly.git
-cd simdly/python
-pip install maturin
-maturin develop
-```
+Build from source using maturin (not yet published on PyPI).
 
 ## Quick Start
 
-```python
-import simdly
-import math
-
-# Element-wise addition (automatic SIMD optimization)
-a = [1.0, 2.0, 3.0, 4.0] * 1000  # Large arrays benefit most from SIMD
-b = [5.0, 6.0, 7.0, 8.0] * 1000
-result = simdly.add(a, b)
-
-# High-performance cosine computation
-angles = [0.0, math.pi/4, math.pi/2, math.pi]
-cosines = simdly.cos(angles)
-print(cosines)  # [1.0, 0.7071067690849304, 6.123234262925839e-17, -1.0]
-```
+The library provides element-wise operations with automatic SIMD optimization, including mathematical functions like cosine computation that leverage SIMD instructions for high performance on large arrays.
 
 ## Performance
 

@@ -28,13 +28,11 @@ src/content/docs/
 │   ├── installation.md
 │   └── quick-start.md
 ├── guides/
-│   ├── simd-operations.md
+│   ├── example.md
 │   ├── performance.md
-│   └── example.md
-├── reference/
-│   ├── f32x8.md
-│   └── simd-load.md
-└── index.mdx
+│   └── simd-operations.md
+├── index.mdx
+└── introduction.md
 ```
 
 The documentation covers installation, usage examples, performance benchmarks, and complete API reference for the Simdly crate.
