@@ -370,7 +370,7 @@ pub unsafe fn _mm256_abs_ps(f: __m256) -> __m256 {
     let sign_bit = _mm256_set1_ps(-0.0); // -0.0 has only sign bit set
 
     // ANDNOT clears the sign bit: ~sign_bit & inp
-    return _mm256_andnot_ps(sign_bit, f);
+    _mm256_andnot_ps(sign_bit, f)
 }
 
 //  Optimized polynomial coefficients for arcsine approximation.

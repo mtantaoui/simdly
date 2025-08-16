@@ -35,11 +35,11 @@ use simdly::simd::SimdMath;
 
 /// Vector sizes designed to test performance across CPU cache hierarchies.
 const VECTOR_SIZES: &[usize] = &[
-    1_024,      // 4 KiB - L1 cache
-    16_384,     // 64 KiB - L1→L2 transition
-    262_144,    // 1 MiB - L2 cache, parallel SIMD threshold
-    1_048_576,  // 4 MiB - L3 cache
-    4_194_304,  // 16 MiB - L3→RAM transition
+    1_024,     // 4 KiB - L1 cache
+    16_384,    // 64 KiB - L1→L2 transition
+    262_144,   // 1 MiB - L2 cache, parallel SIMD threshold
+    1_048_576, // 4 MiB - L3 cache
+    4_194_304, // 16 MiB - L3→RAM transition
 ];
 
 // ================================================================================================
