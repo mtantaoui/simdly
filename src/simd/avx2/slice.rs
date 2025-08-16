@@ -34,12 +34,6 @@
 //!
 //! # Available Operations
 //!
-//! ## Arithmetic Operations
-//! - [`SimdAdd`]: Element-wise addition with scalar, SIMD, and parallel variants
-//!   - [`SimdAdd::simd_add`]: Single-threaded AVX2 vectorized addition
-//!   - [`SimdAdd::par_simd_add`]: Multi-threaded AVX2 vectorized addition
-//!   - [`SimdAdd::scalar_add`]: Sequential scalar addition fallback
-//!
 //! ## Mathematical Functions
 //! - [`SimdMath`]: Mathematical operations with SIMD acceleration
 //!   - [`SimdMath::cos`]: Cosine computation (fully implemented with 4x-13x speedup)
