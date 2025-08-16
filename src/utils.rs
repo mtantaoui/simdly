@@ -240,22 +240,6 @@ impl<T: Clone> From<AlignedVec<T>> for Vec<T> {
 /// - **Zero copy**: Direct ownership transfer, no copying overhead
 /// - **Fast allocation**: Uses system allocator directly for optimal speed
 /// - **Memory**: Single allocation, no temporary double memory usage
-///
-/// # Example
-///
-/// ```rust,ignore
-/// // Note: alloc_uninit_vec is internal and not available in public API
-/// // Use std::alloc or aligned_vec crate for custom aligned allocation
-/// #[cfg(not(target_os = "windows"))]
-/// {
-///     // Internal function - not available publicly
-///     // let mut aligned: Vec<f32> = alloc_uninit_vec(1024, 32);
-///     
-///     // Alternative: Use standard allocation
-///     let mut data: Vec<f32> = Vec::with_capacity(1024);
-///     data.resize(1024, 0.0);
-/// }
-/// ```
 #[cfg(not(target_os = "windows"))]
 pub(crate) fn alloc_uninit_vec<T>(len: usize, align: usize) -> Vec<T> {
     if len == 0 {

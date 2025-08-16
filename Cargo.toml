@@ -30,15 +30,7 @@ rayon = "1.10.0"
 
 
 [[bench]]
-name = "addition"
-harness = false
-
-[[bench]]
 name = "cos"
-harness = false
-
-[[bench]]
-name = "eq"
 harness = false
 
 # SIMD Math Function Benchmarks

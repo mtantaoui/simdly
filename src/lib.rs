@@ -29,7 +29,7 @@
 //!
 //! ### High-Level SIMD Usage
 //!
-//! ```rust,no_run
+//! ```rust
 //! use simdly::simd::SimdMath;
 //!
 //! // Vectorized mathematical operations - works on both AVX2 and NEON
@@ -52,7 +52,7 @@
 //! For maximum performance on large datasets, use the parallel SIMD methods that automatically
 //! select between single-threaded and multi-threaded implementations based on array size:
 //!
-//! ```rust,no_run
+//! ```rust
 //! use simdly::simd::SimdMath;
 //!
 //! // Large dataset - automatically uses parallel SIMD
@@ -68,33 +68,6 @@
 //! let exp_results = large_data.par_exp();
 //! let abs_results = large_data.par_abs();
 //! ```
-//!
-//! ### Platform-Specific Vector Operations
-//!
-//! ```rust,no_run
-//! #[cfg(target_arch = "x86_64")]
-//! use simdly::simd::avx2::f32x8::F32x8;
-//! #[cfg(target_arch = "aarch64")]
-//! use simdly::simd::neon::f32x4::F32x4;
-//! use simdly::simd::SimdMath;
-//!
-//! #[cfg(target_arch = "x86_64")]
-//! {
-//!     // AVX2: Process 8 elements at once
-//!     let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-//!     let vec = F32x8::from(data.as_slice());
-//!     let result = vec.sin(); // 8 parallel sine calculations
-//! }
-//!
-//! #[cfg(target_arch = "aarch64")]
-//! {
-//!     // NEON: Process 4 elements at once
-//!     let data = [1.0, 2.0, 3.0, 4.0];
-//!     let vec = F32x4::from(data.as_slice());
-//!     let result = vec.sin(); // 4 parallel sine calculations
-//! }
-//! ```
-//!
 //!
 //! ## Performance Considerations
 //!

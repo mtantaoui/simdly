@@ -5,7 +5,14 @@
 
 use std::f32::consts::{PI, TAU};
 
-use simdly::simd::{slice::scalar_cos, SimdMath};
+use simdly::simd::SimdMath;
+
+/// Computes cosine of each element.
+fn scalar_cos(a: &[f32]) -> Vec<f32> {
+    debug_assert!(!a.is_empty(), "Size can't be empty (size zero)");
+
+    a.iter().map(|x| x.cos()).collect()
+}
 
 /// Test precision of SIMD cosine against scalar cosine for various input ranges.
 #[test]

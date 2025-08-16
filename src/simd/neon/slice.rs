@@ -134,7 +134,6 @@
 use crate::{
     simd::{
         neon::f32x4::{self, F32x4, NEON_ALIGNMENT},
-        slice::scalar_add,
         SimdCmp, SimdLoad, SimdMath, SimdStore,
     },
     utils::alloc_uninit_vec,

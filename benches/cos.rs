@@ -24,8 +24,6 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-use simdly::simd::slice::scalar_cos;
-
 // Import the cosine implementations
 use simdly::simd::SimdMath;
 
@@ -162,6 +160,14 @@ fn all_benchmarks(c: &mut Criterion) {
         "✅ Benchmark suite completed in {:.2} seconds",
         elapsed.as_secs_f64()
     );
+}
+
+/// Computes cosine of each element.
+#[inline(always)]
+pub fn scalar_cos(a: &[f32]) -> Vec<f32> {
+    debug_assert!(!a.is_empty(), "Size can't be empty (size zero)");
+
+    a.iter().map(|x| x.cos()).collect()
 }
 
 // ================================================================================================
