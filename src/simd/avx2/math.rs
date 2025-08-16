@@ -125,191 +125,6 @@ use std::f32::consts::{FRAC_1_PI, FRAC_1_SQRT_2, FRAC_PI_2, FRAC_PI_4, LN_2, LOG
 // SIMD Utility Functions
 // ============================================================================
 
-/// High-precision floating point cube root with piecewise initial guess
-#[inline(always)]
-unsafe fn cbrt_initial_guess_precise(x: __m256) -> __m256 {
-    // Ultra-high precision piecewise initial guess targeting 1e-7 precision
-    // Uses more refined ranges and better approximations
-
-    let one = _mm256_set1_ps(1.0);
-    let two = _mm256_set1_ps(2.0);
-    let four = _mm256_set1_ps(4.0);
-    let eight = _mm256_set1_ps(8.0);
-    let sixteen = _mm256_set1_ps(16.0);
-    let thirty_two = _mm256_set1_ps(32.0);
-    let sixty_four = _mm256_set1_ps(64.0);
-    let one_twenty_eight = _mm256_set1_ps(128.0);
-    let two_fifty_six = _mm256_set1_ps(256.0);
-    let five_twelve = _mm256_set1_ps(512.0);
-
-    // For x < 1: Use higher-order approximation
-    // cbrt(x) ≈ x^(1/3) for small x, but use better polynomial
-    let lt_one = _mm256_cmp_ps(x, one, _CMP_LT_OQ);
-    let x_to_third = _mm256_sqrt_ps(_mm256_sqrt_ps(_mm256_sqrt_ps(x))); // Approximate x^(1/8)
-    let guess_small = _mm256_mul_ps(
-        x_to_third,
-        _mm256_mul_ps(x_to_third, _mm256_sqrt_ps(x_to_third)),
-    ); // x^(3/8) ≈ x^(1/3)
-
-    // More granular ranges for better precision
-    // Range [1, 2): cbrt(1)=1, cbrt(2)≈1.26
-    let in_1_2 = _mm256_and_ps(
-        _mm256_cmp_ps(x, one, _CMP_GE_OQ),
-        _mm256_cmp_ps(x, two, _CMP_LT_OQ),
-    );
-    let guess_1_2 = _mm256_fmadd_ps(_mm256_sub_ps(x, one), _mm256_set1_ps(0.26), one);
-
-    // Range [2, 4): cbrt(2)≈1.26, cbrt(4)≈1.587
-    let in_2_4 = _mm256_and_ps(
-        _mm256_cmp_ps(x, two, _CMP_GE_OQ),
-        _mm256_cmp_ps(x, four, _CMP_LT_OQ),
-    );
-    let guess_2_4 = _mm256_fmadd_ps(
-        _mm256_sub_ps(x, two),
-        _mm256_set1_ps(0.1635),
-        _mm256_set1_ps(1.26),
-    );
-
-    // Range [4, 8): cbrt(4)≈1.587, cbrt(8)=2
-    let in_4_8 = _mm256_and_ps(
-        _mm256_cmp_ps(x, four, _CMP_GE_OQ),
-        _mm256_cmp_ps(x, eight, _CMP_LT_OQ),
-    );
-    let guess_4_8 = _mm256_fmadd_ps(
-        _mm256_sub_ps(x, four),
-        _mm256_set1_ps(0.10325),
-        _mm256_set1_ps(1.587),
-    );
-
-    // Range [8, 16): cbrt(8)=2, cbrt(16)≈2.52
-    let in_8_16 = _mm256_and_ps(
-        _mm256_cmp_ps(x, eight, _CMP_GE_OQ),
-        _mm256_cmp_ps(x, sixteen, _CMP_LT_OQ),
-    );
-    let guess_8_16 = _mm256_fmadd_ps(_mm256_sub_ps(x, eight), _mm256_set1_ps(0.065), two);
-
-    // Range [16, 32): cbrt(16)≈2.52, cbrt(32)≈3.17
-    let in_16_32 = _mm256_and_ps(
-        _mm256_cmp_ps(x, sixteen, _CMP_GE_OQ),
-        _mm256_cmp_ps(x, thirty_two, _CMP_LT_OQ),
-    );
-    let guess_16_32 = _mm256_fmadd_ps(
-        _mm256_sub_ps(x, sixteen),
-        _mm256_set1_ps(0.04063),
-        _mm256_set1_ps(2.52),
-    );
-
-    // Range [32, 64): cbrt(32)≈3.17, cbrt(64)=4
-    let in_32_64 = _mm256_and_ps(
-        _mm256_cmp_ps(x, thirty_two, _CMP_GE_OQ),
-        _mm256_cmp_ps(x, sixty_four, _CMP_LT_OQ),
-    );
-    let guess_32_64 = _mm256_fmadd_ps(
-        _mm256_sub_ps(x, thirty_two),
-        _mm256_set1_ps(0.02594),
-        _mm256_set1_ps(3.17),
-    );
-
-    // Range [64, 128): cbrt(64)=4, cbrt(128)≈5.04
-    let in_64_128 = _mm256_and_ps(
-        _mm256_cmp_ps(x, sixty_four, _CMP_GE_OQ),
-        _mm256_cmp_ps(x, one_twenty_eight, _CMP_LT_OQ),
-    );
-    let guess_64_128 = _mm256_fmadd_ps(_mm256_sub_ps(x, sixty_four), _mm256_set1_ps(0.01625), four);
-
-    // Range [128, 256): cbrt(128)≈5.04, cbrt(256)≈6.35
-    let in_128_256 = _mm256_and_ps(
-        _mm256_cmp_ps(x, one_twenty_eight, _CMP_GE_OQ),
-        _mm256_cmp_ps(x, two_fifty_six, _CMP_LT_OQ),
-    );
-    let guess_128_256 = _mm256_fmadd_ps(
-        _mm256_sub_ps(x, one_twenty_eight),
-        _mm256_set1_ps(0.01023),
-        _mm256_set1_ps(5.04),
-    );
-
-    // Range [256, 512): cbrt(256)≈6.35, cbrt(512)=8
-    let in_256_512 = _mm256_and_ps(
-        _mm256_cmp_ps(x, two_fifty_six, _CMP_GE_OQ),
-        _mm256_cmp_ps(x, five_twelve, _CMP_LT_OQ),
-    );
-    let guess_256_512 = _mm256_fmadd_ps(
-        _mm256_sub_ps(x, two_fifty_six),
-        _mm256_set1_ps(0.00645),
-        _mm256_set1_ps(6.35),
-    );
-
-    // For x >= 512: Use bit-shift based scaling for very large values
-    // This uses the mathematical property: cbrt(a * 10^(3k)) = cbrt(a) * 10^k
-
-    // For very large numbers, we need to scale down to avoid numerical issues
-    // and then scale the result back up appropriately
-
-    // Simple approach: use x^(1/3) ≈ x^(0.333) for large values
-    // For better precision, we'll use a hybrid approach
-
-    let large_threshold = _mm256_set1_ps(1e6);
-    let is_very_large = _mm256_cmp_ps(x, large_threshold, _CMP_GE_OQ);
-
-    // For very large values: use the fact that cbrt(x) grows slowly
-    // We'll use a power approximation: x^(1/3) ≈ x^(0.33333)
-    // This can be approximated as multiple sqrt operations
-
-    // For x >= 1e6, use better power approximation
-    // x^(1/3) ≈ x^(0.33333) needs a closer approximation than x^(5/16) = x^(0.3125)
-    // Use x^(1/3) ≈ x^(1/4) * x^(1/12) = x^(1/4) * (x^(1/4))^(1/3) ≈ x^(1/4) * x^(1/12)
-    // Better: x^(1/3) = x^(21/64) ≈ x^(0.328125) which is closer to 1/3
-
-    let sqrt_x_large = _mm256_sqrt_ps(x); // x^(1/2)
-    let sqrt_sqrt_x_large = _mm256_sqrt_ps(sqrt_x_large); // x^(1/4)
-    let x_eighth = _mm256_sqrt_ps(sqrt_sqrt_x_large); // x^(1/8)
-    let x_sixteenth = _mm256_sqrt_ps(x_eighth); // x^(1/16)
-
-    // Construct x^(21/64) = x^(16/64) * x^(4/64) * x^(1/64)
-    // = x^(1/4) * x^(1/16) * x^(1/64)
-    let x_sixtyfourth = _mm256_sqrt_ps(x_sixteenth); // x^(1/64)
-    let term1 = sqrt_sqrt_x_large; // x^(1/4) = x^(16/64)
-    let term2 = x_sixteenth; // x^(1/16) = x^(4/64)
-    let term3 = x_sixtyfourth; // x^(1/64)
-
-    let guess_very_large = _mm256_mul_ps(_mm256_mul_ps(term1, term2), term3); // x^(21/64) ≈ x^(1/3)
-
-    // For 512 <= x < 1e6: Use previous scaling method
-    let scaled_x = _mm256_div_ps(x, five_twelve);
-    let scaled_sqrt = _mm256_sqrt_ps(_mm256_sqrt_ps(scaled_x)); // (x/512)^(1/4)
-    let scaled_cbrt = _mm256_mul_ps(scaled_sqrt, _mm256_sqrt_ps(scaled_sqrt)); // (x/512)^(3/8) ≈ (x/512)^(1/3)
-    let guess_moderately_large = _mm256_mul_ps(scaled_cbrt, eight); // Scale back up
-
-    let guess_large = _mm256_blendv_ps(guess_moderately_large, guess_very_large, is_very_large);
-
-    // Chain the selection with precise blending
-    let result = _mm256_blendv_ps(guess_large, guess_256_512, in_256_512);
-    let result = _mm256_blendv_ps(result, guess_128_256, in_128_256);
-    let result = _mm256_blendv_ps(result, guess_64_128, in_64_128);
-    let result = _mm256_blendv_ps(result, guess_32_64, in_32_64);
-    let result = _mm256_blendv_ps(result, guess_16_32, in_16_32);
-    let result = _mm256_blendv_ps(result, guess_8_16, in_8_16);
-    let result = _mm256_blendv_ps(result, guess_4_8, in_4_8);
-    let result = _mm256_blendv_ps(result, guess_2_4, in_2_4);
-    let result = _mm256_blendv_ps(result, guess_1_2, in_1_2);
-    _mm256_blendv_ps(result, guess_small, lt_one)
-}
-
-/// Newton-Raphson method iteration for cube root (more reliable than Halley)
-#[inline(always)]
-unsafe fn cbrt_newton_iteration(y: __m256, x: __m256) -> __m256 {
-    // Newton-Raphson: y_new = (2*y + x/y²) / 3
-    // For f(y) = y³ - x, f'(y) = 3y²
-    // y_new = y - f(y)/f'(y) = y - (y³ - x)/(3y²) = (2*y + x/y²) / 3
-
-    let y2 = _mm256_mul_ps(y, y);
-    let x_over_y2 = _mm256_div_ps(x, y2);
-    let two_y = _mm256_add_ps(y, y);
-    let numerator = _mm256_add_ps(two_y, x_over_y2);
-    let one_third = _mm256_set1_ps(1.0 / 3.0);
-    _mm256_mul_ps(numerator, one_third)
-}
-
 /// Copy sign from one vector to another
 #[inline(always)]
 unsafe fn copy_sign_ps(magnitude: __m256, sign_source: __m256) -> __m256 {
@@ -870,15 +685,7 @@ pub unsafe fn _mm256_atan_ps(x: __m256) -> __m256 {
     _mm256_blendv_ps(transformed, _mm256_sub_ps(zero, transformed), negative_mask)
 }
 
-/// Computes the 2-argument arctangent of 8 packed single-precision floating-point values.
-///
-/// This function computes atan2(y, x) which returns the angle θ in radians such that:
-/// - x = r * cos(θ)  
-/// - y = r * sin(θ)
-///   where r = sqrt(x² + y²)
-///
-/// The function handles all quadrants and special cases correctly, returning values
-/// in the range [-π, π] with proper IEEE 754 compliance.
+/// Computes atan2(y, x) optimized for performance
 ///
 /// # Arguments
 ///
@@ -889,45 +696,6 @@ pub unsafe fn _mm256_atan_ps(x: __m256) -> __m256 {
 ///
 /// Vector containing the arctangent angles in radians [-π, π]
 ///
-/// # Algorithm
-///
-/// The implementation uses the following approach:
-/// 1. **Special Case Handling**: Check for x=0, y=0, and infinite values
-/// 2. **Quadrant Detection**: Determine which quadrant each point is in
-/// 3. **Base Calculation**: Compute atan(y/x) for the base angle
-/// 4. **Quadrant Adjustment**: Add appropriate offsets based on quadrant
-///
-/// # Mathematical Foundation
-///
-/// | Quadrant | Condition | Result |
-/// |----------|-----------|--------|
-/// | I        | x > 0     | atan(y/x) |
-/// | II       | x < 0, y ≥ 0 | atan(y/x) + π |
-/// | III      | x < 0, y < 0 | atan(y/x) - π |
-/// | IV       | x > 0, y < 0 | atan(y/x) |
-/// | Special  | x = 0, y > 0 | +π/2 |
-/// | Special  | x = 0, y < 0 | -π/2 |
-/// | Special  | x = 0, y = 0 | 0 |
-///
-/// # Performance
-///
-/// - **Latency**: ~25-35 cycles on modern CPUs
-/// - **Throughput**: 8× improvement over scalar implementation
-/// - **Instructions**: ~40 AVX2 instructions
-/// - **Accuracy**: < 2 ULP for most inputs
-///
-/// # Special Values
-///
-/// | Input (y, x) | Output | Notes |
-/// |--------------|--------|-------|
-/// | (0, 0)       | 0      | IEEE 754 standard |
-/// | (±∞, +∞)     | ±π/4   | 45° angles |
-/// | (±∞, -∞)     | ±3π/4  | 135° angles |
-/// | (±y, 0)      | ±π/2   | Vertical lines |
-/// | (0, ±x)      | 0/π    | Horizontal lines |
-/// | (NaN, x)     | NaN    | NaN propagation |
-/// | (y, NaN)     | NaN    | NaN propagation |
-///
 /// # Safety
 ///
 /// This function is marked unsafe because it uses AVX2 intrinsics. The caller must
@@ -937,139 +705,109 @@ pub unsafe fn _mm256_atan2_ps(y: __m256, x: __m256) -> __m256 {
     let zero = _mm256_setzero_ps();
     let pi = _mm256_set1_ps(PI);
     let pi_2 = _mm256_set1_ps(FRAC_PI_2);
-    let nan = _mm256_set1_ps(f32::NAN);
 
-    // Check for NaN inputs
-    let x_is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
-    let y_is_nan = _mm256_cmp_ps(y, y, _CMP_NEQ_UQ);
-    let any_nan = _mm256_or_ps(x_is_nan, y_is_nan);
-
-    // Check for infinite values
-    let pos_inf = _mm256_set1_ps(f32::INFINITY);
-    let neg_inf = _mm256_set1_ps(f32::NEG_INFINITY);
-    let x_is_pos_inf = _mm256_cmp_ps(x, pos_inf, _CMP_EQ_OQ);
-    let x_is_neg_inf = _mm256_cmp_ps(x, neg_inf, _CMP_EQ_OQ);
-    let y_is_pos_inf = _mm256_cmp_ps(y, pos_inf, _CMP_EQ_OQ);
-    let y_is_neg_inf = _mm256_cmp_ps(y, neg_inf, _CMP_EQ_OQ);
-    let x_is_inf = _mm256_or_ps(x_is_pos_inf, x_is_neg_inf);
-    let y_is_inf = _mm256_or_ps(y_is_pos_inf, y_is_neg_inf);
-
-    // Check for zero values
+    // Handle special cases
     let x_is_zero = _mm256_cmp_ps(x, zero, _CMP_EQ_OQ);
     let y_is_zero = _mm256_cmp_ps(y, zero, _CMP_EQ_OQ);
     let both_zero = _mm256_and_ps(x_is_zero, y_is_zero);
+    let y_is_positive = _mm256_cmp_ps(y, zero, _CMP_GT_OQ);
+    let y_is_negative = _mm256_cmp_ps(y, zero, _CMP_LT_OQ);
 
-    // Check signs
-    let x_is_negative = _mm256_cmp_ps(x, zero, _CMP_LT_OS);
-    let y_is_negative = _mm256_cmp_ps(y, zero, _CMP_LT_OS);
-    let y_is_positive = _mm256_cmp_ps(y, zero, _CMP_GT_OS);
+    // Handle infinity cases
+    let x_abs = _mm256_abs_ps(x);
+    let y_abs = _mm256_abs_ps(y);
+    let inf = _mm256_set1_ps(f32::INFINITY);
+    let x_is_inf = _mm256_cmp_ps(x_abs, inf, _CMP_EQ_OQ);
+    let y_is_inf = _mm256_cmp_ps(y_abs, inf, _CMP_EQ_OQ);
 
-    // Compute atan(y/x) as base value
-    // Handle division by zero by setting x to 1.0 when x is zero
+    // Compute atan(y/x) as base value (handle x=0 case)
     let x_safe = _mm256_blendv_ps(x, _mm256_set1_ps(1.0), x_is_zero);
     let ratio = _mm256_div_ps(y, x_safe);
     let base_atan = _mm256_atan_ps(ratio);
 
-    // Start with base computation for Quadrant I and IV (x > 0)
+    // Check signs for quadrant detection
+    let x_is_negative = _mm256_cmp_ps(x, zero, _CMP_LT_OQ);
+
+    // Quadrant adjustments
     let mut result = base_atan;
 
-    // Quadrant II: x < 0, y >= 0 -> add π
-    let q2_mask = _mm256_and_ps(x_is_negative, _mm256_cmp_ps(y, zero, _CMP_GE_OS));
-    result = _mm256_blendv_ps(result, _mm256_add_ps(base_atan, pi), q2_mask);
+    // Quadrants II and III: x < 0 -> add/subtract π
+    let q23_adjustment = _mm256_blendv_ps(pi, _mm256_sub_ps(zero, pi), y_is_negative);
+    result = _mm256_blendv_ps(
+        result,
+        _mm256_add_ps(base_atan, q23_adjustment),
+        x_is_negative,
+    );
 
-    // Quadrant III: x < 0, y < 0 -> subtract π
-    let q3_mask = _mm256_and_ps(x_is_negative, y_is_negative);
-    result = _mm256_blendv_ps(result, _mm256_sub_ps(base_atan, pi), q3_mask);
-
-    // Special case: x = 0, y > 0 -> π/2
+    // Special cases
+    // x = 0, y > 0 -> π/2
     let pos_y_axis = _mm256_and_ps(x_is_zero, y_is_positive);
     result = _mm256_blendv_ps(result, pi_2, pos_y_axis);
 
-    // Special case: x = 0, y < 0 -> -π/2
+    // x = 0, y < 0 -> -π/2
     let neg_y_axis = _mm256_and_ps(x_is_zero, y_is_negative);
     result = _mm256_blendv_ps(result, _mm256_sub_ps(zero, pi_2), neg_y_axis);
 
-    // Special case: x = 0, y = 0 -> 0
+    // x = 0, y = 0 -> 0
     result = _mm256_blendv_ps(result, zero, both_zero);
 
-    // Handle infinite cases
+    // Handle infinity cases with proper IEEE 754 behavior
     let pi_4 = _mm256_set1_ps(FRAC_PI_4);
     let three_pi_4 = _mm256_set1_ps(3.0 * FRAC_PI_4);
 
     // Both infinite: atan2(±∞, ±∞)
     let both_inf = _mm256_and_ps(x_is_inf, y_is_inf);
+    let y_pos_inf = _mm256_cmp_ps(y, inf, _CMP_EQ_OQ);
+    let y_neg_inf = _mm256_cmp_ps(y, _mm256_set1_ps(f32::NEG_INFINITY), _CMP_EQ_OQ);
+    let x_pos_inf = _mm256_cmp_ps(x, inf, _CMP_EQ_OQ);
+    let x_neg_inf = _mm256_cmp_ps(x, _mm256_set1_ps(f32::NEG_INFINITY), _CMP_EQ_OQ);
 
     // atan2(+∞, +∞) = π/4
-    let pos_inf_pos_inf = _mm256_and_ps(both_inf, _mm256_and_ps(y_is_pos_inf, x_is_pos_inf));
+    let pos_inf_pos_inf = _mm256_and_ps(both_inf, _mm256_and_ps(y_pos_inf, x_pos_inf));
     result = _mm256_blendv_ps(result, pi_4, pos_inf_pos_inf);
 
     // atan2(+∞, -∞) = 3π/4
-    let pos_inf_neg_inf = _mm256_and_ps(both_inf, _mm256_and_ps(y_is_pos_inf, x_is_neg_inf));
+    let pos_inf_neg_inf = _mm256_and_ps(both_inf, _mm256_and_ps(y_pos_inf, x_neg_inf));
     result = _mm256_blendv_ps(result, three_pi_4, pos_inf_neg_inf);
 
     // atan2(-∞, +∞) = -π/4
-    let neg_inf_pos_inf = _mm256_and_ps(both_inf, _mm256_and_ps(y_is_neg_inf, x_is_pos_inf));
+    let neg_inf_pos_inf = _mm256_and_ps(both_inf, _mm256_and_ps(y_neg_inf, x_pos_inf));
     result = _mm256_blendv_ps(result, _mm256_sub_ps(zero, pi_4), neg_inf_pos_inf);
 
     // atan2(-∞, -∞) = -3π/4
-    let neg_inf_neg_inf = _mm256_and_ps(both_inf, _mm256_and_ps(y_is_neg_inf, x_is_neg_inf));
+    let neg_inf_neg_inf = _mm256_and_ps(both_inf, _mm256_and_ps(y_neg_inf, x_neg_inf));
     result = _mm256_blendv_ps(result, _mm256_sub_ps(zero, three_pi_4), neg_inf_neg_inf);
 
-    // y infinite, x finite: atan2(±∞, finite)
-    let y_inf_x_finite = _mm256_and_ps(y_is_inf, _mm256_cmp_ps(x, x, _CMP_ORD_Q)); // x is not NaN/Inf
-    let y_inf_x_finite = _mm256_andnot_ps(x_is_inf, y_inf_x_finite); // x is not infinite
-
-    // atan2(+∞, finite) = π/2
-    let pos_inf_finite = _mm256_and_ps(y_inf_x_finite, y_is_pos_inf);
+    // y infinite, x finite: atan2(±∞, finite) = ±π/2
+    let y_inf_x_finite = _mm256_andnot_ps(x_is_inf, y_is_inf);
+    let pos_inf_finite = _mm256_and_ps(y_inf_x_finite, y_pos_inf);
+    let neg_inf_finite = _mm256_and_ps(y_inf_x_finite, y_neg_inf);
     result = _mm256_blendv_ps(result, pi_2, pos_inf_finite);
-
-    // atan2(-∞, finite) = -π/2
-    let neg_inf_finite = _mm256_and_ps(y_inf_x_finite, y_is_neg_inf);
     result = _mm256_blendv_ps(result, _mm256_sub_ps(zero, pi_2), neg_inf_finite);
 
     // y finite, x infinite: atan2(finite, ±∞)
-    let y_finite_x_inf = _mm256_and_ps(x_is_inf, _mm256_cmp_ps(y, y, _CMP_ORD_Q)); // y is not NaN/Inf
-    let y_finite_x_inf = _mm256_andnot_ps(y_is_inf, y_finite_x_inf); // y is not infinite
+    let y_finite_x_inf = _mm256_andnot_ps(y_is_inf, x_is_inf);
+    let finite_pos_inf = _mm256_and_ps(y_finite_x_inf, x_pos_inf);
+    let finite_neg_inf = _mm256_and_ps(y_finite_x_inf, x_neg_inf);
 
     // atan2(finite, +∞) = 0 (but preserve sign of y)
-    let finite_pos_inf = _mm256_and_ps(y_finite_x_inf, x_is_pos_inf);
-    let signed_zero = _mm256_and_ps(y, _mm256_set1_ps(-0.0)); // Extract sign from y, apply to 0
+    let signed_zero = _mm256_and_ps(y, _mm256_set1_ps(-0.0));
     result = _mm256_blendv_ps(result, signed_zero, finite_pos_inf);
 
     // atan2(positive, -∞) = π, atan2(negative, -∞) = -π
-    let finite_neg_inf = _mm256_and_ps(y_finite_x_inf, x_is_neg_inf);
-    let y_positive_neg_inf = _mm256_and_ps(finite_neg_inf, y_is_positive);
-    let y_negative_neg_inf = _mm256_and_ps(finite_neg_inf, y_is_negative);
-    result = _mm256_blendv_ps(result, pi, y_positive_neg_inf);
-    result = _mm256_blendv_ps(result, _mm256_sub_ps(zero, pi), y_negative_neg_inf);
+    let y_pos_neg_inf = _mm256_and_ps(finite_neg_inf, y_is_positive);
+    let y_neg_neg_inf = _mm256_and_ps(finite_neg_inf, y_is_negative);
+    result = _mm256_blendv_ps(result, pi, y_pos_neg_inf);
+    result = _mm256_blendv_ps(result, _mm256_sub_ps(zero, pi), y_neg_neg_inf);
 
-    // Handle NaN inputs -> return NaN
-    _mm256_blendv_ps(result, nan, any_nan)
+    result
 }
 
 // ============================================================================
 // High-Performance Cube Root Implementation
 // ============================================================================
 
-/// Computes the cube root of 8 packed single-precision floating-point values.
-///
-/// This function implements an ultra-high precision cube root using refined piecewise
-/// initial approximation and 6 Newton-Raphson iterations to achieve 1e-7 precision.
-///
-/// # Algorithm
-///
-/// 1. **Ultra-precise piecewise initial guess**: Fine-grained linear interpolation across 10 ranges
-/// 2. **Extended Newton-Raphson iteration**: 6 iterations for 1e-7 precision target
-/// 3. **Special case handling**: IEEE 754 compliant for ±∞, NaN, ±0
-/// 4. **Sign preservation**: Correctly handles negative inputs
-///
-/// # Precision
-///
-/// - **1e-7 relative precision** for normal range values  
-/// - **< 1 ULP accuracy** for most inputs
-/// - **Exact results** for perfect cube integers
-/// - **IEEE 754 compliant** for special values
-/// - **High precision** maintained across wide input range
+/// Computes the cube root optimized for performance
 ///
 /// # Arguments
 ///
@@ -1084,54 +822,14 @@ pub unsafe fn _mm256_atan2_ps(y: __m256, x: __m256) -> __m256 {
 /// This function uses AVX2 intrinsics and requires AVX2 support.
 #[inline(always)]
 pub unsafe fn _mm256_cbrt_ps(x: __m256) -> __m256 {
-    // Handle special cases first
-    let zero = _mm256_setzero_ps();
-    let inf = _mm256_set1_ps(f32::INFINITY);
-    let abs_x = _mm256_and_ps(x, _mm256_castsi256_ps(_mm256_set1_epi32(0x7FFFFFFF)));
-
-    let is_zero = _mm256_cmp_ps(x, zero, _CMP_EQ_OQ);
-    let is_inf = _mm256_cmp_ps(abs_x, inf, _CMP_EQ_OQ);
-    let is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
-
-    // Extract sign for negative number handling
-    let sign_mask = _mm256_set1_ps(-0.0);
-    let abs_x = _mm256_andnot_ps(sign_mask, x);
-
-    // High-precision initial guess using bit manipulation
-    let mut y = cbrt_initial_guess_precise(abs_x);
-
-    // Handle denormal and very small numbers with a safe fallback
-    let is_tiny = _mm256_cmp_ps(abs_x, _mm256_set1_ps(1e-30), _CMP_LT_OQ);
-    // For very small numbers, use scalar fallback to avoid numerical instability
-    let tiny_cbrt = _mm256_mul_ps(_mm256_sqrt_ps(_mm256_sqrt_ps(abs_x)), _mm256_set1_ps(1.8)); // x^(1/4) * 1.8 ≈ x^(1/3)
-    y = _mm256_blendv_ps(y, tiny_cbrt, is_tiny);
-
-    // Apply multiple Newton-Raphson iterations for 1e-7 precision
-    // Newton-Raphson has quadratic convergence, use 6 iterations for 1e-7 precision
-    y = cbrt_newton_iteration(y, abs_x);
-    y = cbrt_newton_iteration(y, abs_x);
-    y = cbrt_newton_iteration(y, abs_x);
-    y = cbrt_newton_iteration(y, abs_x);
-    y = cbrt_newton_iteration(y, abs_x);
-    y = cbrt_newton_iteration(y, abs_x);
+    // Fast path: cbrt(x) = x^(1/3) = exp(ln(x)/3) for positive x
+    let abs_x = _mm256_abs_ps(x);
+    let ln_x = _mm256_ln_ps(abs_x);
+    let ln_x_div_3 = _mm256_mul_ps(ln_x, _mm256_set1_ps(1.0 / 3.0));
+    let result = _mm256_exp_ps(ln_x_div_3);
 
     // Restore sign for negative inputs
-    let result = copy_sign_ps(y, x);
-
-    // Handle special cases with proper IEEE 754 behavior
-    let mut final_result = result;
-
-    // Zeros preserve their sign: cbrt(±0) = ±0
-    final_result = _mm256_blendv_ps(final_result, x, is_zero);
-
-    // Infinities preserve their sign: cbrt(±∞) = ±∞
-    let inf_signed = copy_sign_ps(inf, x);
-    final_result = _mm256_blendv_ps(final_result, inf_signed, is_inf);
-
-    // NaN inputs produce NaN outputs: cbrt(NaN) = NaN
-    final_result = _mm256_blendv_ps(final_result, x, is_nan);
-
-    final_result
+    copy_sign_ps(result, x)
 }
 
 // ============================================================================
@@ -1375,7 +1073,7 @@ pub unsafe fn _mm256_ln_ps(x: __m256) -> __m256 {
     result
 }
 
-/// Computes 2D Euclidean distance with high precision and proper edge case handling
+/// Computes 2D Euclidean distance optimized for performance
 ///
 /// # Safety
 ///
@@ -1385,191 +1083,102 @@ pub unsafe fn _mm256_hypot_ps(x: __m256, y: __m256) -> __m256 {
     let x_abs = _mm256_abs_ps(x);
     let y_abs = _mm256_abs_ps(y);
 
-    // Handle special cases using direct intrinsics
-    let x_is_inf = _mm256_cmp_ps(x_abs, _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
-    let y_is_inf = _mm256_cmp_ps(y_abs, _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
+    // Check for infinity
+    let inf = _mm256_set1_ps(f32::INFINITY);
+    let x_is_inf = _mm256_cmp_ps(x_abs, inf, _CMP_EQ_OQ);
+    let y_is_inf = _mm256_cmp_ps(y_abs, inf, _CMP_EQ_OQ);
     let any_inf = _mm256_or_ps(x_is_inf, y_is_inf);
 
-    let x_is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
-    let y_is_nan = _mm256_cmp_ps(y, y, _CMP_NEQ_UQ);
-    let any_nan = _mm256_or_ps(x_is_nan, y_is_nan);
-
-    // Scale to prevent overflow/underflow - use max for scaling
+    // Check for very large values that might overflow (>1e15)
+    let large_threshold = _mm256_set1_ps(1e15);
     let max_val = _mm256_max_ps(x_abs, y_abs);
-    let min_val = _mm256_min_ps(x_abs, y_abs);
+    let is_large = _mm256_cmp_ps(max_val, large_threshold, _CMP_GT_OQ);
 
-    // Check for zero case
-    let zero = _mm256_setzero_ps();
-    let max_is_zero = _mm256_cmp_ps(max_val, zero, _CMP_EQ_OQ);
+    // Fast path: direct sqrt(x² + y²) for normal values
+    let fast_result = _mm256_sqrt_ps(_mm256_fmadd_ps(x, x, _mm256_mul_ps(y, y)));
 
-    // Avoid division by zero by blending with 1.0
-    let safe_max = _mm256_blendv_ps(max_val, _mm256_set1_ps(1.0f32), max_is_zero);
-    let ratio = _mm256_div_ps(min_val, safe_max);
+    // Overflow-safe path: scale by max, compute, scale back
+    let scale = _mm256_div_ps(x_abs, max_val);
+    let scale2 = _mm256_div_ps(y_abs, max_val);
+    let scaled_result =
+        _mm256_sqrt_ps(_mm256_fmadd_ps(scale, scale, _mm256_mul_ps(scale2, scale2)));
+    let safe_result = _mm256_mul_ps(scaled_result, max_val);
 
-    // Compute sqrt(1 + ratio^2) * max using FMA for precision
-    let one_plus_ratio_sq = _mm256_fmadd_ps(ratio, ratio, _mm256_set1_ps(1.0f32));
-    let sqrt_term = _mm256_sqrt_ps(one_plus_ratio_sq);
-    let result = _mm256_mul_ps(sqrt_term, max_val);
+    // Use safe path for large values, fast path otherwise
+    let mut result = _mm256_blendv_ps(fast_result, safe_result, is_large);
 
-    // Apply special case handling with direct blending
-    let result = _mm256_blendv_ps(result, zero, max_is_zero);
-    let result = _mm256_blendv_ps(result, _mm256_set1_ps(f32::INFINITY), any_inf);
-    _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_nan)
+    // Handle infinity: hypot(±∞, y) = +∞
+    result = _mm256_blendv_ps(result, inf, any_inf);
+
+    result
 }
 
-/// Computes 3D Euclidean distance with high precision and proper edge case handling
+/// Computes 3D Euclidean distance optimized for performance
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
 #[inline(always)]
 pub unsafe fn _mm256_hypot3_ps(x: __m256, y: __m256, z: __m256) -> __m256 {
-    let x_abs = _mm256_abs_ps(x);
-    let y_abs = _mm256_abs_ps(y);
-    let z_abs = _mm256_abs_ps(z);
-
-    // Handle special cases using direct intrinsics
-    let x_is_inf = _mm256_cmp_ps(x_abs, _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
-    let y_is_inf = _mm256_cmp_ps(y_abs, _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
-    let z_is_inf = _mm256_cmp_ps(z_abs, _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
-    let any_inf = _mm256_or_ps(_mm256_or_ps(x_is_inf, y_is_inf), z_is_inf);
-
-    let x_is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
-    let y_is_nan = _mm256_cmp_ps(y, y, _CMP_NEQ_UQ);
-    let z_is_nan = _mm256_cmp_ps(z, z, _CMP_NEQ_UQ);
-    let any_nan = _mm256_or_ps(_mm256_or_ps(x_is_nan, y_is_nan), z_is_nan);
-
-    // Scale to prevent overflow/underflow - use max for scaling
-    let max_val = _mm256_max_ps(_mm256_max_ps(x_abs, y_abs), z_abs);
-
-    // Check for zero case
-    let zero = _mm256_setzero_ps();
-    let max_is_zero = _mm256_cmp_ps(max_val, zero, _CMP_EQ_OQ);
-
-    // Avoid division by zero by blending with 1.0
-    let safe_max = _mm256_blendv_ps(max_val, _mm256_set1_ps(1.0f32), max_is_zero);
-    let x_ratio = _mm256_div_ps(x_abs, safe_max);
-    let y_ratio = _mm256_div_ps(y_abs, safe_max);
-    let z_ratio = _mm256_div_ps(z_abs, safe_max);
-
-    // Compute sqrt(x_ratio^2 + y_ratio^2 + z_ratio^2) * max using FMA for precision
-    let x_sq = _mm256_mul_ps(x_ratio, x_ratio);
-    let sum_sq = _mm256_fmadd_ps(y_ratio, y_ratio, x_sq);
-    let sum_sq = _mm256_fmadd_ps(z_ratio, z_ratio, sum_sq);
-    let sqrt_term = _mm256_sqrt_ps(sum_sq);
-    let result = _mm256_mul_ps(sqrt_term, max_val);
-
-    // Apply special case handling with direct blending
-    let result = _mm256_blendv_ps(result, zero, max_is_zero);
-    let result = _mm256_blendv_ps(result, _mm256_set1_ps(f32::INFINITY), any_inf);
-    _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_nan)
+    // Fast path: direct sqrt(x² + y² + z²) using FMA for precision and efficiency
+    let x_sq = _mm256_mul_ps(x, x);
+    let sum_sq = _mm256_fmadd_ps(y, y, x_sq);
+    let sum_sq = _mm256_fmadd_ps(z, z, sum_sq);
+    _mm256_sqrt_ps(sum_sq)
 }
 
-/// Computes 4D Euclidean distance with high precision and proper edge case handling
+/// Computes 4D Euclidean distance optimized for performance
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
 #[inline(always)]
 pub unsafe fn _mm256_hypot4_ps(x: __m256, y: __m256, z: __m256, w: __m256) -> __m256 {
-    let x_abs = _mm256_abs_ps(x);
-    let y_abs = _mm256_abs_ps(y);
-    let z_abs = _mm256_abs_ps(z);
-    let w_abs = _mm256_abs_ps(w);
-
-    // Handle special cases using direct intrinsics
-    let x_is_inf = _mm256_cmp_ps(x_abs, _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
-    let y_is_inf = _mm256_cmp_ps(y_abs, _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
-    let z_is_inf = _mm256_cmp_ps(z_abs, _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
-    let w_is_inf = _mm256_cmp_ps(w_abs, _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
-    let any_inf = _mm256_or_ps(
-        _mm256_or_ps(x_is_inf, y_is_inf),
-        _mm256_or_ps(z_is_inf, w_is_inf),
-    );
-
-    let x_is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
-    let y_is_nan = _mm256_cmp_ps(y, y, _CMP_NEQ_UQ);
-    let z_is_nan = _mm256_cmp_ps(z, z, _CMP_NEQ_UQ);
-    let w_is_nan = _mm256_cmp_ps(w, w, _CMP_NEQ_UQ);
-    let any_nan = _mm256_or_ps(
-        _mm256_or_ps(x_is_nan, y_is_nan),
-        _mm256_or_ps(z_is_nan, w_is_nan),
-    );
-
-    // Scale to prevent overflow/underflow - use max for scaling
-    let max_val = _mm256_max_ps(_mm256_max_ps(x_abs, y_abs), _mm256_max_ps(z_abs, w_abs));
-
-    // Check for zero case
-    let zero = _mm256_setzero_ps();
-    let max_is_zero = _mm256_cmp_ps(max_val, zero, _CMP_EQ_OQ);
-
-    // Avoid division by zero by blending with 1.0
-    let safe_max = _mm256_blendv_ps(max_val, _mm256_set1_ps(1.0f32), max_is_zero);
-    let x_ratio = _mm256_div_ps(x_abs, safe_max);
-    let y_ratio = _mm256_div_ps(y_abs, safe_max);
-    let z_ratio = _mm256_div_ps(z_abs, safe_max);
-    let w_ratio = _mm256_div_ps(w_abs, safe_max);
-
-    // Compute sqrt(x_ratio^2 + y_ratio^2 + z_ratio^2 + w_ratio^2) * max using FMA for precision
-    let x_sq = _mm256_mul_ps(x_ratio, x_ratio);
-    let y_sq = _mm256_mul_ps(y_ratio, y_ratio);
+    // Fast path: direct sqrt(x² + y² + z² + w²) using FMA for precision and efficiency
+    let x_sq = _mm256_mul_ps(x, x);
+    let y_sq = _mm256_mul_ps(y, y);
     let sum_sq = _mm256_add_ps(x_sq, y_sq);
-    let sum_sq = _mm256_fmadd_ps(z_ratio, z_ratio, sum_sq);
-    let sum_sq = _mm256_fmadd_ps(w_ratio, w_ratio, sum_sq);
-    let sqrt_term = _mm256_sqrt_ps(sum_sq);
-    let result = _mm256_mul_ps(sqrt_term, max_val);
-
-    // Apply special case handling with direct blending
-    let result = _mm256_blendv_ps(result, zero, max_is_zero);
-    let result = _mm256_blendv_ps(result, _mm256_set1_ps(f32::INFINITY), any_inf);
-    _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), any_nan)
+    let sum_sq = _mm256_fmadd_ps(z, z, sum_sq);
+    let sum_sq = _mm256_fmadd_ps(w, w, sum_sq);
+    _mm256_sqrt_ps(sum_sq)
 }
 
-/// Computes x^y (power function) with high precision and proper edge case handling
+/// Computes x^y (power function) optimized for performance
 ///
 /// # Safety
 ///
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
 #[inline(always)]
 pub unsafe fn _mm256_pow_ps(x: __m256, y: __m256) -> __m256 {
-    // Handle special cases first
-    let x_is_nan = _mm256_cmp_ps(x, x, _CMP_NEQ_UQ);
-    let y_is_nan = _mm256_cmp_ps(y, y, _CMP_NEQ_UQ);
-    let any_nan = _mm256_or_ps(x_is_nan, y_is_nan);
-
-    let x_is_inf = _mm256_cmp_ps(_mm256_abs_ps(x), _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
-    let y_is_inf = _mm256_cmp_ps(_mm256_abs_ps(y), _mm256_set1_ps(f32::INFINITY), _CMP_EQ_OQ);
-    let any_inf = _mm256_or_ps(x_is_inf, y_is_inf);
-
     let zero = _mm256_setzero_ps();
     let one = _mm256_set1_ps(1.0);
+    let inf = _mm256_set1_ps(f32::INFINITY);
+    let neg_inf = _mm256_set1_ps(f32::NEG_INFINITY);
 
-    // Special case: x^0 = 1 (even if x is NaN or infinity)
+    // Handle essential special cases
     let y_is_zero = _mm256_cmp_ps(y, zero, _CMP_EQ_OQ);
-
-    // Special case: 1^y = 1 (even if y is NaN or infinity)
     let x_is_one = _mm256_cmp_ps(x, one, _CMP_EQ_OQ);
-
-    // Special case: 0^y
     let x_is_zero = _mm256_cmp_ps(x, zero, _CMP_EQ_OQ);
+    let x_is_negative = _mm256_cmp_ps(x, zero, _CMP_LT_OQ);
+
+    // Check for infinity
+    let x_abs = _mm256_abs_ps(x);
+    let y_abs = _mm256_abs_ps(y);
+    let x_is_inf = _mm256_cmp_ps(x_abs, inf, _CMP_EQ_OQ);
+    let y_is_inf = _mm256_cmp_ps(y_abs, inf, _CMP_EQ_OQ);
     let y_is_positive = _mm256_cmp_ps(y, zero, _CMP_GT_OQ);
     let y_is_negative = _mm256_cmp_ps(y, zero, _CMP_LT_OQ);
 
-    // Check for negative base with non-integer exponent (results in NaN)
-    let x_is_negative = _mm256_cmp_ps(x, zero, _CMP_LT_OQ);
-    // Simple integer check: y == trunc(y)
+    // Check if y is an integer (for negative base handling)
     let y_trunc = _mm256_round_ps(y, _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC);
     let y_is_integer = _mm256_cmp_ps(y, y_trunc, _CMP_EQ_OQ);
-    let neg_base_non_int_exp = _mm256_andnot_ps(y_is_integer, x_is_negative);
 
-    // For normal computation: x^y = exp(y * ln(|x|)) with sign handling
-    let x_abs = _mm256_abs_ps(x);
+    // Fast path: x^y = exp(y * ln(|x|))
     let ln_x = _mm256_ln_ps(x_abs);
     let y_ln_x = _mm256_mul_ps(y, ln_x);
     let mut result = _mm256_exp_ps(y_ln_x);
 
-    // Handle sign for negative bases with integer exponents
-    // If x < 0 and y is odd integer, result should be negative
+    // For negative bases with integer exponents, handle sign
     let y_is_odd = {
         let y_half = _mm256_mul_ps(y, _mm256_set1_ps(0.5));
         let y_half_trunc = _mm256_round_ps(y_half, _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC);
@@ -1579,29 +1188,71 @@ pub unsafe fn _mm256_pow_ps(x: __m256, y: __m256) -> __m256 {
     let should_negate = _mm256_and_ps(x_is_negative, y_is_odd);
     result = _mm256_blendv_ps(result, _mm256_sub_ps(zero, result), should_negate);
 
-    // Apply special case handling in order of precedence
+    // Handle negative bases with non-integer exponents: return NaN
+    let neg_base_non_int = _mm256_andnot_ps(y_is_integer, x_is_negative);
+    result = _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), neg_base_non_int);
 
-    // Negative base with non-integer exponent = NaN
-    result = _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), neg_base_non_int_exp);
+    // Handle infinity cases
+    // inf^positive = inf, inf^negative = 0, (-inf)^integer = ±inf based on parity
+    let x_is_pos_inf = _mm256_cmp_ps(x, inf, _CMP_EQ_OQ);
+    let x_is_neg_inf = _mm256_cmp_ps(x, neg_inf, _CMP_EQ_OQ);
 
-    // 0^positive = 0, 0^negative = infinity (but not 0^0)
-    let zero_pow_pos = _mm256_andnot_ps(y_is_zero, _mm256_and_ps(x_is_zero, y_is_positive));
-    let zero_pow_neg = _mm256_andnot_ps(y_is_zero, _mm256_and_ps(x_is_zero, y_is_negative));
-    result = _mm256_blendv_ps(result, zero, zero_pow_pos);
-    result = _mm256_blendv_ps(result, _mm256_set1_ps(f32::INFINITY), zero_pow_neg);
+    let pos_inf_pos = _mm256_and_ps(x_is_pos_inf, y_is_positive);
+    let pos_inf_neg = _mm256_and_ps(x_is_pos_inf, y_is_negative);
+    let neg_inf_pos = _mm256_and_ps(x_is_neg_inf, y_is_positive);
+    let neg_inf_neg = _mm256_and_ps(x_is_neg_inf, y_is_negative);
 
-    // Handle infinity cases (but not inf^0 or 1^inf)
-    let inf_except_special = _mm256_andnot_ps(_mm256_or_ps(y_is_zero, x_is_one), any_inf);
-    result = _mm256_blendv_ps(result, _mm256_set1_ps(f32::INFINITY), inf_except_special);
+    result = _mm256_blendv_ps(result, inf, pos_inf_pos);
+    result = _mm256_blendv_ps(result, zero, pos_inf_neg);
 
-    // Any NaN input = NaN (except x^0 = 1 and 1^y = 1)
-    let nan_except_special = _mm256_andnot_ps(_mm256_or_ps(y_is_zero, x_is_one), any_nan);
-    result = _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), nan_except_special);
+    // For (-inf)^y: if y is odd integer -> -inf, if y is even integer -> +inf, else NaN
+    let neg_inf_odd = _mm256_and_ps(_mm256_and_ps(neg_inf_pos, y_is_integer), y_is_odd);
+    let neg_inf_even = _mm256_and_ps(
+        _mm256_and_ps(neg_inf_pos, y_is_integer),
+        _mm256_andnot_ps(y_is_odd, _mm256_set1_ps(-1.0)),
+    );
+    result = _mm256_blendv_ps(result, neg_inf, neg_inf_odd);
+    result = _mm256_blendv_ps(result, inf, neg_inf_even);
 
-    // x^0 = 1 (highest precedence - overrides everything)
+    // (-inf)^(-y) with integer y: similar but reciprocal
+    let neg_inf_neg_odd = _mm256_and_ps(_mm256_and_ps(neg_inf_neg, y_is_integer), y_is_odd);
+    let neg_inf_neg_even = _mm256_and_ps(
+        _mm256_and_ps(neg_inf_neg, y_is_integer),
+        _mm256_andnot_ps(y_is_odd, _mm256_set1_ps(-1.0)),
+    );
+    result = _mm256_blendv_ps(result, zero, neg_inf_neg_odd); // -1/inf = -0 -> 0
+    result = _mm256_blendv_ps(result, zero, neg_inf_neg_even); // 1/inf = 0
+
+    // x^inf cases: |x| > 1 -> inf, |x| < 1 -> 0, |x| = 1 -> NaN (indeterminate)
+    let x_gt_one = _mm256_cmp_ps(x_abs, one, _CMP_GT_OQ);
+    let x_lt_one = _mm256_cmp_ps(x_abs, one, _CMP_LT_OQ);
+    let y_pos_inf = _mm256_cmp_ps(y, inf, _CMP_EQ_OQ);
+    let y_neg_inf = _mm256_cmp_ps(y, neg_inf, _CMP_EQ_OQ);
+
+    let big_to_pos_inf = _mm256_and_ps(y_pos_inf, x_gt_one);
+    let small_to_pos_inf = _mm256_and_ps(y_pos_inf, x_lt_one);
+    let big_to_neg_inf = _mm256_and_ps(y_neg_inf, x_gt_one);
+    let small_to_neg_inf = _mm256_and_ps(y_neg_inf, x_lt_one);
+
+    // Note: Mathematically 1^±inf is indeterminate, but by convention we return 1
+    // This matches most implementations including standard library
+
+    result = _mm256_blendv_ps(result, inf, big_to_pos_inf);
+    result = _mm256_blendv_ps(result, zero, small_to_pos_inf);
+    result = _mm256_blendv_ps(result, zero, big_to_neg_inf);
+    result = _mm256_blendv_ps(result, inf, small_to_neg_inf);
+
+    // x^0 = 1 for ALL x (including NaN, infinity, and 0)
+    // This takes precedence over other special cases
     result = _mm256_blendv_ps(result, one, y_is_zero);
 
-    // 1^y = 1 (high precedence - overrides most things)
+    // 0^positive = 0, 0^negative = inf (but 0^0 already handled above)
+    let zero_pos = _mm256_and_ps(x_is_zero, y_is_positive);
+    let zero_neg = _mm256_and_ps(x_is_zero, y_is_negative);
+    result = _mm256_blendv_ps(result, zero, zero_pos);
+    result = _mm256_blendv_ps(result, inf, zero_neg);
+
+    // 1^y = 1 for all y (including ±inf)
     result = _mm256_blendv_ps(result, one, x_is_one);
 
     result
@@ -4750,6 +4401,8 @@ mod tests {
 
     mod pow_tests {
 
+        use std::f32::NAN;
+
         use super::*;
 
         #[test]
@@ -4877,33 +4530,35 @@ mod tests {
                 f32::INFINITY,
                 2.0,
                 f32::NEG_INFINITY,
-                f32::INFINITY,
                 0.5,
                 f32::NEG_INFINITY,
                 f32::INFINITY,
-                f32::NEG_INFINITY,
+                0.0,
+                1.0,
             ];
             let y_input = [
                 2.0,
                 f32::INFINITY,
                 3.0,
-                f32::NEG_INFINITY,
                 f32::INFINITY,
                 2.0,
+                f32::NEG_INFINITY,
                 0.0,
-                0.0,
+                f32::INFINITY,
             ];
 
             let result = unsafe { _mm256_pow_ps(create_f32x8(x_input), create_f32x8(y_input)) };
             let result_vals = extract_f32x8(result);
 
-            // Most infinity cases result in infinity (simplified in our implementation)
-            for e in result_vals.iter().take(6) {
-                assert!(e.is_infinite());
-            }
-            // inf^0 = 1, (-inf)^0 = 1 (special cases)
-            assert_eq!(result_vals[6], 1.0);
-            assert_eq!(result_vals[7], 1.0);
+            // Check each case individually since NaN != NaN
+            assert_eq!(result_vals[0], f32::INFINITY); // inf^2 = inf
+            assert_eq!(result_vals[1], f32::INFINITY); // 2^inf = inf
+            assert_eq!(result_vals[2], f32::NEG_INFINITY); // (-inf)^3 = -inf
+            assert_eq!(result_vals[3], 0.0); // 0.5^inf = 0
+            assert_eq!(result_vals[4], f32::INFINITY); // (-inf)^2 = inf
+            assert_eq!(result_vals[5], 0.0); // inf^(-inf) = 0
+            assert_eq!(result_vals[6], 1.0); // 0^0 = 1 (by convention)
+            assert_eq!(result_vals[7], 1.0); // 1^inf = 1 (by convention)
         }
 
         #[test]

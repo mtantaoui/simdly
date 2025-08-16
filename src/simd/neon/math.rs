@@ -1064,11 +1064,7 @@ pub unsafe fn vlnq_f32(x: float32x4_t) -> float32x4_t {
     vbslq_f32(x_nan, nan, final_result)
 }
 
-/// Computes 2D Euclidean distance (sqrt(x² + y²)) with high precision.
-///
-/// Avoids overflow and underflow issues through careful scaling and provides
-/// proper edge case handling for infinities and NaN values. More numerically
-/// stable than naive sqrt(x² + y²) computation.
+/// Computes 2D Euclidean distance optimized for performance
 ///
 /// # Arguments
 /// * `x` - First component vector
@@ -1077,78 +1073,18 @@ pub unsafe fn vlnq_f32(x: float32x4_t) -> float32x4_t {
 /// # Returns
 /// Vector containing the 2D Euclidean distances
 ///
-/// # Algorithm Overview
-/// 1. Find maximum of |x| and |y| for scaling
-/// 2. Scale both inputs by maximum to prevent overflow/underflow
-/// 3. Compute sqrt(x_scaled² + y_scaled²)
-/// 4. Scale result back by maximum
-/// 5. Handle special cases: zeros, infinities, NaN
-///
-/// # Mathematical Foundation
-/// Based on the identity hypot(x,y) = max(|x|,|y|) × sqrt((x/max)² + (y/max)²)
-/// where max = max(|x|,|y|). This prevents intermediate overflow/underflow.
-///
-/// # Performance
-/// - **Latency**: 25-30 cycles
-/// - **Throughput**: 1 operation per cycle
-/// - **Instructions**: ~40 instructions
-/// - **Accuracy**: < 1 ULP with overflow protection
-///
-/// # Special Values
-/// | x | y | Output | Notes |
-/// |---|---|--------|-------|
-/// | 3 | 4 | 5 | Classic 3-4-5 triangle |
-/// | ±∞ | any | +∞ | Infinity dominates |
-/// | any | ±∞ | +∞ | Infinity dominates |
-/// | NaN | any | NaN | NaN propagation |
-/// | 0 | 0 | 0 | Exact |
-///
 /// # Safety
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
 #[inline(always)]
 pub unsafe fn vhypotq_f32(x: float32x4_t, y: float32x4_t) -> float32x4_t {
-    let abs_x = vabsq_f32(x);
-    let abs_y = vabsq_f32(y);
-
-    // Handle special cases first
-    let x_inf = vceqq_f32(abs_x, vdupq_n_f32(f32::INFINITY));
-    let y_inf = vceqq_f32(abs_y, vdupq_n_f32(f32::INFINITY));
-    let any_inf = vorrq_u32(x_inf, y_inf);
-
-    let x_nan = is_nan_f32x4(x);
-    let y_nan = is_nan_f32x4(y);
-    let any_nan = vorrq_u32(x_nan, y_nan);
-
-    // Scale to avoid overflow/underflow
-    let max_val = vmaxq_f32(abs_x, abs_y);
-    let zero = vdupq_n_f32(0.0);
-    let max_is_zero = vceqq_f32(max_val, zero);
-
-    let scale = vbslq_f32(max_is_zero, vdupq_n_f32(1.0), max_val);
-    let x_scaled = vdivq_f32(abs_x, scale);
-    let y_scaled = vdivq_f32(abs_y, scale);
-
-    // Compute sqrt(x² + y²)
-    let x2 = vmulq_f32(x_scaled, x_scaled);
-    let y2 = vmulq_f32(y_scaled, y_scaled);
-    let sum = vaddq_f32(x2, y2);
-    let sqrt_sum = vsqrtq_f32(sum);
-    let result = vmulq_f32(sqrt_sum, scale);
-
-    // Handle special cases with proper precedence
-    let inf = vdupq_n_f32(f32::INFINITY);
-    let nan = vdupq_n_f32(f32::NAN);
-
-    let final_result = vbslq_f32(max_is_zero, zero, result);
-    let final_result = vbslq_f32(any_inf, inf, final_result);
-    vbslq_f32(any_nan, nan, final_result)
+    // Fast path: direct sqrt(x² + y²) using FMA for precision
+    let x_sq = vmulq_f32(x, x);
+    let sum_sq = vfmaq_f32(x_sq, y, y);
+    vsqrtq_f32(sum_sq)
 }
 
-/// Computes 3D Euclidean distance (sqrt(x² + y² + z²)) with high precision.
-///
-/// Extends 2D hypot algorithm to three dimensions with the same overflow
-/// protection and special value handling.
+/// Computes 3D Euclidean distance optimized for performance
 ///
 /// # Arguments
 /// * `x` - First component vector
@@ -1158,71 +1094,19 @@ pub unsafe fn vhypotq_f32(x: float32x4_t, y: float32x4_t) -> float32x4_t {
 /// # Returns
 /// Vector containing the 3D Euclidean distances
 ///
-/// # Algorithm Overview
-/// 1. Find maximum of |x|, |y|, and |z| for scaling
-/// 2. Scale all inputs by maximum to prevent overflow/underflow
-/// 3. Compute sqrt(x_scaled² + y_scaled² + z_scaled²)
-/// 4. Scale result back by maximum
-/// 5. Handle special cases: zeros, infinities, NaN
-///
-/// # Performance
-/// - **Latency**: 30-35 cycles
-/// - **Throughput**: 1 operation per cycle
-/// - **Instructions**: ~50 instructions
-/// - **Accuracy**: < 1 ULP with overflow protection
-///
 /// # Safety
 /// This function is unsafe because it uses NEON intrinsics that require
 /// aarch64 architecture support.
 #[inline(always)]
 pub unsafe fn vhypot3q_f32(x: float32x4_t, y: float32x4_t, z: float32x4_t) -> float32x4_t {
-    let abs_x = vabsq_f32(x);
-    let abs_y = vabsq_f32(y);
-    let abs_z = vabsq_f32(z);
-
-    // Handle special cases
-    let x_inf = vceqq_f32(abs_x, vdupq_n_f32(f32::INFINITY));
-    let y_inf = vceqq_f32(abs_y, vdupq_n_f32(f32::INFINITY));
-    let z_inf = vceqq_f32(abs_z, vdupq_n_f32(f32::INFINITY));
-    let any_inf = vorrq_u32(vorrq_u32(x_inf, y_inf), z_inf);
-
-    let x_nan = is_nan_f32x4(x);
-    let y_nan = is_nan_f32x4(y);
-    let z_nan = is_nan_f32x4(z);
-    let any_nan = vorrq_u32(vorrq_u32(x_nan, y_nan), z_nan);
-
-    // Scale to avoid overflow/underflow
-    let max_xy = vmaxq_f32(abs_x, abs_y);
-    let max_val = vmaxq_f32(max_xy, abs_z);
-    let zero = vdupq_n_f32(0.0);
-    let max_is_zero = vceqq_f32(max_val, zero);
-
-    let scale = vbslq_f32(max_is_zero, vdupq_n_f32(1.0), max_val);
-    let x_scaled = vdivq_f32(abs_x, scale);
-    let y_scaled = vdivq_f32(abs_y, scale);
-    let z_scaled = vdivq_f32(abs_z, scale);
-
-    // Compute sqrt(x² + y² + z²)
-    let x2 = vmulq_f32(x_scaled, x_scaled);
-    let y2 = vmulq_f32(y_scaled, y_scaled);
-    let z2 = vmulq_f32(z_scaled, z_scaled);
-    let sum = vaddq_f32(vaddq_f32(x2, y2), z2);
-    let sqrt_sum = vsqrtq_f32(sum);
-    let result = vmulq_f32(sqrt_sum, scale);
-
-    // Handle special cases with proper precedence
-    let inf = vdupq_n_f32(f32::INFINITY);
-    let nan = vdupq_n_f32(f32::NAN);
-
-    let final_result = vbslq_f32(max_is_zero, zero, result);
-    let final_result = vbslq_f32(any_inf, inf, final_result);
-    vbslq_f32(any_nan, nan, final_result)
+    // Fast path: direct sqrt(x² + y² + z²) using FMA for precision and efficiency
+    let x_sq = vmulq_f32(x, x);
+    let sum_sq = vfmaq_f32(x_sq, y, y);
+    let sum_sq = vfmaq_f32(sum_sq, z, z);
+    vsqrtq_f32(sum_sq)
 }
 
-/// Computes 4D Euclidean distance (sqrt(x² + y² + z² + w²)) with high precision.
-///
-/// Extends 3D hypot algorithm to four dimensions with the same overflow
-/// protection and special value handling.
+/// Computes 4D Euclidean distance optimized for performance
 ///
 /// # Arguments
 /// * `x` - First component vector
@@ -1232,19 +1116,6 @@ pub unsafe fn vhypot3q_f32(x: float32x4_t, y: float32x4_t, z: float32x4_t) -> fl
 ///
 /// # Returns
 /// Vector containing the 4D Euclidean distances
-///
-/// # Algorithm Overview
-/// 1. Find maximum of |x|, |y|, |z|, and |w| for scaling
-/// 2. Scale all inputs by maximum to prevent overflow/underflow
-/// 3. Compute sqrt(x_scaled² + y_scaled² + z_scaled² + w_scaled²)
-/// 4. Scale result back by maximum
-/// 5. Handle special cases: zeros, infinities, NaN
-///
-/// # Performance
-/// - **Latency**: 35-40 cycles
-/// - **Throughput**: 1 operation per cycle
-/// - **Instructions**: ~60 instructions
-/// - **Accuracy**: < 1 ULP with overflow protection
 ///
 /// # Safety
 /// This function is unsafe because it uses NEON intrinsics that require
@@ -1256,53 +1127,13 @@ pub unsafe fn vhypot4q_f32(
     z: float32x4_t,
     w: float32x4_t,
 ) -> float32x4_t {
-    let abs_x = vabsq_f32(x);
-    let abs_y = vabsq_f32(y);
-    let abs_z = vabsq_f32(z);
-    let abs_w = vabsq_f32(w);
-
-    // Handle special cases
-    let x_inf = vceqq_f32(abs_x, vdupq_n_f32(f32::INFINITY));
-    let y_inf = vceqq_f32(abs_y, vdupq_n_f32(f32::INFINITY));
-    let z_inf = vceqq_f32(abs_z, vdupq_n_f32(f32::INFINITY));
-    let w_inf = vceqq_f32(abs_w, vdupq_n_f32(f32::INFINITY));
-    let any_inf = vorrq_u32(vorrq_u32(vorrq_u32(x_inf, y_inf), z_inf), w_inf);
-
-    let x_nan = is_nan_f32x4(x);
-    let y_nan = is_nan_f32x4(y);
-    let z_nan = is_nan_f32x4(z);
-    let w_nan = is_nan_f32x4(w);
-    let any_nan = vorrq_u32(vorrq_u32(vorrq_u32(x_nan, y_nan), z_nan), w_nan);
-
-    // Scale to avoid overflow/underflow
-    let max_xy = vmaxq_f32(abs_x, abs_y);
-    let max_zw = vmaxq_f32(abs_z, abs_w);
-    let max_val = vmaxq_f32(max_xy, max_zw);
-    let zero = vdupq_n_f32(0.0);
-    let max_is_zero = vceqq_f32(max_val, zero);
-
-    let scale = vbslq_f32(max_is_zero, vdupq_n_f32(1.0), max_val);
-    let x_scaled = vdivq_f32(abs_x, scale);
-    let y_scaled = vdivq_f32(abs_y, scale);
-    let z_scaled = vdivq_f32(abs_z, scale);
-    let w_scaled = vdivq_f32(abs_w, scale);
-
-    // Compute sqrt(x² + y² + z² + w²)
-    let x2 = vmulq_f32(x_scaled, x_scaled);
-    let y2 = vmulq_f32(y_scaled, y_scaled);
-    let z2 = vmulq_f32(z_scaled, z_scaled);
-    let w2 = vmulq_f32(w_scaled, w_scaled);
-    let sum = vaddq_f32(vaddq_f32(vaddq_f32(x2, y2), z2), w2);
-    let sqrt_sum = vsqrtq_f32(sum);
-    let result = vmulq_f32(sqrt_sum, scale);
-
-    // Handle special cases with proper precedence
-    let inf = vdupq_n_f32(f32::INFINITY);
-    let nan = vdupq_n_f32(f32::NAN);
-
-    let final_result = vbslq_f32(max_is_zero, zero, result);
-    let final_result = vbslq_f32(any_inf, inf, final_result);
-    vbslq_f32(any_nan, nan, final_result)
+    // Fast path: direct sqrt(x² + y² + z² + w²) using FMA for precision and efficiency
+    let x_sq = vmulq_f32(x, x);
+    let y_sq = vmulq_f32(y, y);
+    let sum_sq = vaddq_f32(x_sq, y_sq);
+    let sum_sq = vfmaq_f32(sum_sq, z, z);
+    let sum_sq = vfmaq_f32(sum_sq, w, w);
+    vsqrtq_f32(sum_sq)
 }
 
 /// Computes x^y (power function) with high precision and proper edge case handling.
