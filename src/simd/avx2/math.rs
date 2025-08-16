@@ -366,16 +366,11 @@ unsafe fn copy_sign_ps(magnitude: __m256, sign_source: __m256) -> __m256 {
 /// ensure that the target CPU supports AVX2 instructions.
 #[inline(always)]
 pub unsafe fn _mm256_abs_ps(f: __m256) -> __m256 {
-    // Create sign bit mask: 0x80000000 for each lane
-    // -0.0f32 has bit pattern 0x80000000 (sign bit set, all others clear)
-    let sign_mask = _mm256_set1_ps(-0.0f32);
+    // Broadcast sign bit mask: 0x80000000 in each float element
+    let sign_bit = _mm256_set1_ps(-0.0); // -0.0 has only sign bit set
 
-    // Clear sign bit using AND-NOT: result = f & (~sign_mask)
-    // This preserves all bits except the sign bit, effectively computing |f|
-    _mm256_castsi256_ps(_mm256_andnot_si256(
-        _mm256_castps_si256(sign_mask),
-        _mm256_castps_si256(f),
-    ))
+    // ANDNOT clears the sign bit: ~sign_bit & inp
+    return _mm256_andnot_ps(sign_bit, f);
 }
 
 //  Optimized polynomial coefficients for arcsine approximation.
