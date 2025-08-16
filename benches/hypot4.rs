@@ -93,7 +93,7 @@ fn scalar_hypot4(x: &[f32], y: &[f32], z: &[f32], w: &[f32]) -> Vec<f32> {
         .zip(y.iter())
         .zip(z.iter())
         .zip(w.iter())
-        .map(|(((x, y), z), w)| (x * x + y * y + z * z + w * w).sqrt())
+        .map(|(((x, y), z), w)| (x.powi(2) + y.powi(2) + z.powi(2) + w.powi(2)).sqrt())
         .collect()
 }
 

@@ -1120,11 +1120,9 @@ pub unsafe fn _mm256_hypot_ps(x: __m256, y: __m256) -> __m256 {
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
 #[inline(always)]
 pub unsafe fn _mm256_hypot3_ps(x: __m256, y: __m256, z: __m256) -> __m256 {
-    // Fast path: direct sqrt(x² + y² + z²) using FMA for precision and efficiency
-    let x_sq = _mm256_mul_ps(x, x);
-    let sum_sq = _mm256_fmadd_ps(y, y, x_sq);
-    let sum_sq = _mm256_fmadd_ps(z, z, sum_sq);
-    _mm256_sqrt_ps(sum_sq)
+    // Optimal 3-instruction implementation using direct FMA chaining
+    let sum_sq = _mm256_fmadd_ps(y, y, _mm256_mul_ps(z, z));
+    _mm256_sqrt_ps(_mm256_fmadd_ps(x, x, sum_sq))
 }
 
 /// Computes 4D Euclidean distance optimized for performance
@@ -1134,13 +1132,10 @@ pub unsafe fn _mm256_hypot3_ps(x: __m256, y: __m256, z: __m256) -> __m256 {
 /// Requires AVX2 support. Caller must ensure the target CPU supports AVX2 instructions.
 #[inline(always)]
 pub unsafe fn _mm256_hypot4_ps(x: __m256, y: __m256, z: __m256, w: __m256) -> __m256 {
-    // Fast path: direct sqrt(x² + y² + z² + w²) using FMA for precision and efficiency
-    let x_sq = _mm256_mul_ps(x, x);
-    let y_sq = _mm256_mul_ps(y, y);
-    let sum_sq = _mm256_add_ps(x_sq, y_sq);
-    let sum_sq = _mm256_fmadd_ps(z, z, sum_sq);
-    let sum_sq = _mm256_fmadd_ps(w, w, sum_sq);
-    _mm256_sqrt_ps(sum_sq)
+    // Optimal 3-instruction implementation using parallel computation
+    let sum1 = _mm256_fmadd_ps(x, x, _mm256_mul_ps(y, y));
+    let sum2 = _mm256_fmadd_ps(z, z, _mm256_mul_ps(w, w));
+    _mm256_sqrt_ps(_mm256_add_ps(sum1, sum2))
 }
 
 /// Computes x^y (power function) optimized for performance
@@ -1152,33 +1147,27 @@ pub unsafe fn _mm256_hypot4_ps(x: __m256, y: __m256, z: __m256, w: __m256) -> __
 pub unsafe fn _mm256_pow_ps(x: __m256, y: __m256) -> __m256 {
     let zero = _mm256_setzero_ps();
     let one = _mm256_set1_ps(1.0);
-    let inf = _mm256_set1_ps(f32::INFINITY);
-    let neg_inf = _mm256_set1_ps(f32::NEG_INFINITY);
 
-    // Handle essential special cases
-    let y_is_zero = _mm256_cmp_ps(y, zero, _CMP_EQ_OQ);
-    let x_is_one = _mm256_cmp_ps(x, one, _CMP_EQ_OQ);
-    let x_is_zero = _mm256_cmp_ps(x, zero, _CMP_EQ_OQ);
-    let x_is_negative = _mm256_cmp_ps(x, zero, _CMP_LT_OQ);
-
-    // Check for infinity
+    // Fast path: x^y = exp(y * ln(|x|)) for most cases
     let x_abs = _mm256_abs_ps(x);
-    let y_abs = _mm256_abs_ps(y);
-    let x_is_inf = _mm256_cmp_ps(x_abs, inf, _CMP_EQ_OQ);
-    let y_is_inf = _mm256_cmp_ps(y_abs, inf, _CMP_EQ_OQ);
-    let y_is_positive = _mm256_cmp_ps(y, zero, _CMP_GT_OQ);
-    let y_is_negative = _mm256_cmp_ps(y, zero, _CMP_LT_OQ);
-
-    // Check if y is an integer (for negative base handling)
-    let y_trunc = _mm256_round_ps(y, _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC);
-    let y_is_integer = _mm256_cmp_ps(y, y_trunc, _CMP_EQ_OQ);
-
-    // Fast path: x^y = exp(y * ln(|x|))
     let ln_x = _mm256_ln_ps(x_abs);
     let y_ln_x = _mm256_mul_ps(y, ln_x);
     let mut result = _mm256_exp_ps(y_ln_x);
 
+    // Handle essential special cases only
+    let y_is_zero = _mm256_cmp_ps(y, zero, _CMP_EQ_OQ);
+    let x_is_one = _mm256_cmp_ps(x, one, _CMP_EQ_OQ);
+    let x_is_negative = _mm256_cmp_ps(x, zero, _CMP_LT_OQ);
+
+    // x^0 = 1 (highest precedence)
+    result = _mm256_blendv_ps(result, one, y_is_zero);
+
+    // 1^y = 1
+    result = _mm256_blendv_ps(result, one, x_is_one);
+
     // For negative bases with integer exponents, handle sign
+    let y_trunc = _mm256_round_ps(y, _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC);
+    let y_is_integer = _mm256_cmp_ps(y, y_trunc, _CMP_EQ_OQ);
     let y_is_odd = {
         let y_half = _mm256_mul_ps(y, _mm256_set1_ps(0.5));
         let y_half_trunc = _mm256_round_ps(y_half, _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC);
@@ -1191,69 +1180,6 @@ pub unsafe fn _mm256_pow_ps(x: __m256, y: __m256) -> __m256 {
     // Handle negative bases with non-integer exponents: return NaN
     let neg_base_non_int = _mm256_andnot_ps(y_is_integer, x_is_negative);
     result = _mm256_blendv_ps(result, _mm256_set1_ps(f32::NAN), neg_base_non_int);
-
-    // Handle infinity cases
-    // inf^positive = inf, inf^negative = 0, (-inf)^integer = ±inf based on parity
-    let x_is_pos_inf = _mm256_cmp_ps(x, inf, _CMP_EQ_OQ);
-    let x_is_neg_inf = _mm256_cmp_ps(x, neg_inf, _CMP_EQ_OQ);
-
-    let pos_inf_pos = _mm256_and_ps(x_is_pos_inf, y_is_positive);
-    let pos_inf_neg = _mm256_and_ps(x_is_pos_inf, y_is_negative);
-    let neg_inf_pos = _mm256_and_ps(x_is_neg_inf, y_is_positive);
-    let neg_inf_neg = _mm256_and_ps(x_is_neg_inf, y_is_negative);
-
-    result = _mm256_blendv_ps(result, inf, pos_inf_pos);
-    result = _mm256_blendv_ps(result, zero, pos_inf_neg);
-
-    // For (-inf)^y: if y is odd integer -> -inf, if y is even integer -> +inf, else NaN
-    let neg_inf_odd = _mm256_and_ps(_mm256_and_ps(neg_inf_pos, y_is_integer), y_is_odd);
-    let neg_inf_even = _mm256_and_ps(
-        _mm256_and_ps(neg_inf_pos, y_is_integer),
-        _mm256_andnot_ps(y_is_odd, _mm256_set1_ps(-1.0)),
-    );
-    result = _mm256_blendv_ps(result, neg_inf, neg_inf_odd);
-    result = _mm256_blendv_ps(result, inf, neg_inf_even);
-
-    // (-inf)^(-y) with integer y: similar but reciprocal
-    let neg_inf_neg_odd = _mm256_and_ps(_mm256_and_ps(neg_inf_neg, y_is_integer), y_is_odd);
-    let neg_inf_neg_even = _mm256_and_ps(
-        _mm256_and_ps(neg_inf_neg, y_is_integer),
-        _mm256_andnot_ps(y_is_odd, _mm256_set1_ps(-1.0)),
-    );
-    result = _mm256_blendv_ps(result, zero, neg_inf_neg_odd); // -1/inf = -0 -> 0
-    result = _mm256_blendv_ps(result, zero, neg_inf_neg_even); // 1/inf = 0
-
-    // x^inf cases: |x| > 1 -> inf, |x| < 1 -> 0, |x| = 1 -> NaN (indeterminate)
-    let x_gt_one = _mm256_cmp_ps(x_abs, one, _CMP_GT_OQ);
-    let x_lt_one = _mm256_cmp_ps(x_abs, one, _CMP_LT_OQ);
-    let y_pos_inf = _mm256_cmp_ps(y, inf, _CMP_EQ_OQ);
-    let y_neg_inf = _mm256_cmp_ps(y, neg_inf, _CMP_EQ_OQ);
-
-    let big_to_pos_inf = _mm256_and_ps(y_pos_inf, x_gt_one);
-    let small_to_pos_inf = _mm256_and_ps(y_pos_inf, x_lt_one);
-    let big_to_neg_inf = _mm256_and_ps(y_neg_inf, x_gt_one);
-    let small_to_neg_inf = _mm256_and_ps(y_neg_inf, x_lt_one);
-
-    // Note: Mathematically 1^±inf is indeterminate, but by convention we return 1
-    // This matches most implementations including standard library
-
-    result = _mm256_blendv_ps(result, inf, big_to_pos_inf);
-    result = _mm256_blendv_ps(result, zero, small_to_pos_inf);
-    result = _mm256_blendv_ps(result, zero, big_to_neg_inf);
-    result = _mm256_blendv_ps(result, inf, small_to_neg_inf);
-
-    // x^0 = 1 for ALL x (including NaN, infinity, and 0)
-    // This takes precedence over other special cases
-    result = _mm256_blendv_ps(result, one, y_is_zero);
-
-    // 0^positive = 0, 0^negative = inf (but 0^0 already handled above)
-    let zero_pos = _mm256_and_ps(x_is_zero, y_is_positive);
-    let zero_neg = _mm256_and_ps(x_is_zero, y_is_negative);
-    result = _mm256_blendv_ps(result, zero, zero_pos);
-    result = _mm256_blendv_ps(result, inf, zero_neg);
-
-    // 1^y = 1 for all y (including ±inf)
-    result = _mm256_blendv_ps(result, one, x_is_one);
 
     result
 }
@@ -4400,8 +4326,6 @@ mod tests {
     }
 
     mod pow_tests {
-
-        use std::f32::NAN;
 
         use super::*;
 

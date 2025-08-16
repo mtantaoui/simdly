@@ -552,8 +552,6 @@ impl SimdMath for F32x4 {
     /// Uses the `vpowq_f32` function for vectorized power computation.
     fn pow(&self, other: Self) -> Self::Output {
         unsafe {
-            let x_vec = self.elements;
-            let y_vec = other.elements;
             Self {
                 elements: vpowq_f32(x_vec, y_vec),
                 size: self.size,
@@ -566,10 +564,8 @@ impl SimdMath for F32x4 {
     /// Uses the `vhypotq_f32` function for numerically stable computation.
     fn hypot(&self, other: Self) -> Self::Output {
         unsafe {
-            let x_vec = self.elements;
-            let y_vec = other.elements;
             Self {
-                elements: vhypotq_f32(x_vec, y_vec),
+                elements: vhypotq_f32(self.elements, other.elements),
                 size: self.size,
             }
         }
@@ -580,11 +576,8 @@ impl SimdMath for F32x4 {
     /// Uses the `vhypot3q_f32` function for numerically stable computation.
     fn hypot3(&self, other1: Self, other2: Self) -> Self::Output {
         unsafe {
-            let x_vec = self.elements;
-            let y_vec = other1.elements;
-            let z_vec = other2.elements;
             Self {
-                elements: vhypot3q_f32(x_vec, y_vec, z_vec),
+                elements: vhypot3q_f32(self.elements, other1.elements, other2.elements),
                 size: self.size,
             }
         }
@@ -595,13 +588,13 @@ impl SimdMath for F32x4 {
     /// Uses the `vhypot4q_f32` function for numerically stable computation.
     fn hypot4(&self, other1: Self, other2: Self, other3: Self) -> Self::Output {
         unsafe {
-            let x_vec = self.elements;
-            let y_vec = other1.elements;
-            let z_vec = other2.elements;
-            let w_vec = other3.elements;
-
             Self {
-                elements: vhypot4q_f32(x_vec, y_vec, z_vec, w_vec),
+                elements: vhypot4q_f32(
+                    self.elements,
+                    other1.elements,
+                    other2.elements,
+                    other3.elements,
+                ),
                 size: self.size,
             }
         }

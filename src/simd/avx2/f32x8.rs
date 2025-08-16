@@ -422,10 +422,8 @@ impl SimdMath for F32x8 {
     #[inline(always)]
     fn hypot(&self, other: Self) -> Self::Output {
         unsafe {
-            let x_vec = self.elements;
-            let y_vec = other.elements;
             Self {
-                elements: _mm256_hypot_ps(x_vec, y_vec),
+                elements: _mm256_hypot_ps(self.elements, other.elements),
                 size: self.size,
             }
         }
@@ -510,11 +508,8 @@ impl SimdMath for F32x8 {
     #[inline(always)]
     fn hypot3(&self, other1: Self, other2: Self) -> Self::Output {
         unsafe {
-            let x_vec = self.elements;
-            let y_vec = other1.elements;
-            let z_vec = other2.elements;
             Self {
-                elements: _mm256_hypot3_ps(x_vec, y_vec, z_vec),
+                elements: _mm256_hypot3_ps(self.elements, other1.elements, other2.elements),
                 size: self.size,
             }
         }
@@ -526,13 +521,13 @@ impl SimdMath for F32x8 {
     #[inline(always)]
     fn hypot4(&self, other1: Self, other2: Self, other3: Self) -> Self::Output {
         unsafe {
-            let x_vec = self.elements;
-            let y_vec = other1.elements;
-            let z_vec = other2.elements;
-            let w_vec = other3.elements;
-
             Self {
-                elements: _mm256_hypot4_ps(x_vec, y_vec, z_vec, w_vec),
+                elements: _mm256_hypot4_ps(
+                    self.elements,
+                    other1.elements,
+                    other2.elements,
+                    other3.elements,
+                ),
                 size: self.size,
             }
         }

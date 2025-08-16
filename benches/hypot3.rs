@@ -90,7 +90,7 @@ fn scalar_hypot3(x: &[f32], y: &[f32], z: &[f32]) -> Vec<f32> {
     x.iter()
         .zip(y.iter())
         .zip(z.iter())
-        .map(|((x, y), z)| (x * x + y * y + z * z).sqrt())
+        .map(|((x, y), z)| (x.powi(2) + y.powi(2) + z.powi(2)).sqrt())
         .collect()
 }
 

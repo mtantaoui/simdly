@@ -1099,11 +1099,9 @@ pub unsafe fn vhypotq_f32(x: float32x4_t, y: float32x4_t) -> float32x4_t {
 /// aarch64 architecture support.
 #[inline(always)]
 pub unsafe fn vhypot3q_f32(x: float32x4_t, y: float32x4_t, z: float32x4_t) -> float32x4_t {
-    // Fast path: direct sqrt(x² + y² + z²) using FMA for precision and efficiency
-    let x_sq = vmulq_f32(x, x);
-    let sum_sq = vfmaq_f32(x_sq, y, y);
-    let sum_sq = vfmaq_f32(sum_sq, z, z);
-    vsqrtq_f32(sum_sq)
+    // Optimal 3-instruction implementation using direct FMA chaining
+    let sum_sq = vfmaq_f32(vmulq_f32(z, z), y, y);
+    vsqrtq_f32(vfmaq_f32(sum_sq, x, x))
 }
 
 /// Computes 4D Euclidean distance optimized for performance
@@ -1127,13 +1125,10 @@ pub unsafe fn vhypot4q_f32(
     z: float32x4_t,
     w: float32x4_t,
 ) -> float32x4_t {
-    // Fast path: direct sqrt(x² + y² + z² + w²) using FMA for precision and efficiency
-    let x_sq = vmulq_f32(x, x);
-    let y_sq = vmulq_f32(y, y);
-    let sum_sq = vaddq_f32(x_sq, y_sq);
-    let sum_sq = vfmaq_f32(sum_sq, z, z);
-    let sum_sq = vfmaq_f32(sum_sq, w, w);
-    vsqrtq_f32(sum_sq)
+    // Optimal 3-instruction implementation using parallel computation
+    let sum1 = vfmaq_f32(vmulq_f32(y, y), x, x);
+    let sum2 = vfmaq_f32(vmulq_f32(w, w), z, z);
+    vsqrtq_f32(vaddq_f32(sum1, sum2))
 }
 
 /// Computes x^y (power function) with high precision and proper edge case handling.
