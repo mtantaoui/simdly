@@ -25,7 +25,7 @@ fn scalar_eq(a: &[f32], b: &[f32]) -> Vec<bool> {
 
 /// Benchmark equality comparison operations across different vector sizes
 fn bench_eq_operations(c: &mut Criterion) {
-    let sizes = [64, 256, 1024, 4096, 16384];
+    let sizes = [1_024, 16_384, 262_144, 1_048_576, 4_194_304]; // Optimized cache-aware sizes
 
     for size in sizes {
         let (data_a, data_b) = generate_test_data(size);

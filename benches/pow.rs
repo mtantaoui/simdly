@@ -32,32 +32,12 @@ use simdly::simd::SimdMath;
 // ================================================================================================
 
 /// Vector sizes designed to test performance across CPU cache hierarchies.
-///
-/// Each size targets a specific level of the memory hierarchy:
-///
-/// - **4 KiB**: Fits in L1 data cache (32-64 KiB) - Tests raw computational throughput
-/// - **16 KiB**: Still fits in L1 but approaches limits - Tests L1 efficiency  
-/// - **64 KiB**: Exceeds most L1 caches, uses L2 (256 KiB-1 MiB) - Tests L1→L2 transition
-/// - **256 KiB**: Fits comfortably in L2 cache - Tests L2 cache efficiency
-/// - **1 MiB**: Approaches L2 limits, may use L3 (8-64 MiB) - Tests L2→L3 transition
-/// - **4 MiB**: Fits in L3 cache - Tests L3 cache efficiency
-/// - **16 MiB**: May exceed smaller L3 caches - Tests L3→RAM transition
-/// - **64 MiB**: Exceeds most L3 caches - Tests main memory bandwidth
-/// - **128 MiB**: Definitely memory-bound - Tests sustained memory throughput
-///
-/// Note: f32 = 4 bytes, so 1M elements = 4 MiB
 const VECTOR_SIZES: &[usize] = &[
     1_024,      // 4 KiB - L1 cache
-    4_096,      // 16 KiB - L1 cache
     16_384,     // 64 KiB - L1→L2 transition
-    65_536,     // 256 KiB - L2 cache
-    2 * 65_536, // 512 KiB - L2 cache
-    3 * 65_536, // 1024 KiB - L2 cache
-    262_144,    // 1 MiB - L2 cache
-    1_048_576,  // 4 MiB - L2→L3 transition
-    4_194_304,  // 16 MiB - L3 cache
-    16_777_216, // 64 MiB - L3→RAM transition
-    33_554_432, // 128 MiB - Main memory
+    262_144,    // 1 MiB - L2 cache, parallel SIMD threshold
+    1_048_576,  // 4 MiB - L3 cache
+    4_194_304,  // 16 MiB - L3→RAM transition
 ];
 
 // ================================================================================================

@@ -44,18 +44,11 @@ use simdly::SimdAdd;
 ///
 /// Note: f32 = 4 bytes, so 1M elements = 4 MiB
 const VECTOR_SIZES: &[usize] = &[
-    1_024,       // 4 KiB - L1 cache
-    4_096,       // 16 KiB - L1 cache
-    16_384,      // 64 KiB - L1→L2 transition
-    65_536,      // 256 KiB - L2 cache
-    2 * 65_536,  // 512 KiB - L2 cache
-    3 * 65_536,  // 1024 KiB - L2 cache
-    262_144,     // 1 MiB - L2 cache
-    2 * 262_144, // 2 MiB - L2 cache
-    1_048_576,   // 4 MiB - L2→L3 transition
-    4_194_304,   // 16 MiB - L3 cache
-    16_777_216,  // 64 MiB - L3→RAM transition
-    33_554_432,  // 128 MiB - Main memory
+    1_024,      // 4 KiB - L1 cache
+    16_384,     // 64 KiB - L1→L2 transition
+    262_144,    // 1 MiB - L2 cache, parallel SIMD threshold
+    1_048_576,  // 4 MiB - L3 cache
+    4_194_304,  // 16 MiB - L3→RAM transition
 ];
 
 // ================================================================================================
