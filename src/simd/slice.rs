@@ -226,92 +226,110 @@ impl SimdMath for Vec<f32> {
     type Output = Vec<f32>;
 
     /// Computes absolute value using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn abs(&self) -> Self::Output {
         simd_abs(self)
     }
 
     /// Computes arccosine using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn acos(&self) -> Self::Output {
         simd_acos(self)
     }
 
     /// Computes arcsine using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn asin(&self) -> Self::Output {
         simd_asin(self)
     }
 
     /// Computes arctangent using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn atan(&self) -> Self::Output {
         simd_atan(self)
     }
 
     /// Computes two-argument arctangent using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn atan2(&self, other: Self) -> Self::Output {
         simd_atan2(self, &other)
     }
 
     /// Computes cube root using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn cbrt(&self) -> Self::Output {
         simd_cbrt(self)
     }
 
     /// Computes floor using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn floor(&self) -> Self::Output {
         simd_floor(self)
     }
 
     /// Computes exponential using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn exp(&self) -> Self::Output {
         simd_exp(self)
     }
 
     /// Computes natural logarithm using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn ln(&self) -> Self::Output {
         simd_ln(self)
     }
 
     /// Computes sine using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn sin(&self) -> Self::Output {
         simd_sin(self)
     }
 
     /// Computes cosine using platform-optimized SIMD instructions.
     /// See `SimdMath<&[f32]> for &[f32]::cos()` for detailed documentation.
+    #[inline(always)]
     fn cos(&self) -> Self::Output {
         simd_cos(self)
     }
 
     /// Computes tangent using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn tan(&self) -> Self::Output {
         simd_tan(self)
     }
 
     /// Computes square root using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn sqrt(&self) -> Self::Output {
         simd_sqrt(self)
     }
 
     /// Computes ceiling using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn ceil(&self) -> Self::Output {
         simd_ceil(self)
     }
 
     /// Computes power function using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn pow(&self, other: Self) -> Self::Output {
         simd_pow(self, &other)
     }
 
     /// Computes 2D hypotenuse using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn hypot(&self, other: Self) -> Self::Output {
         simd_hypot(self, &other)
     }
 
     /// Computes 3D hypotenuse using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn hypot3(&self, other1: Self, other2: Self) -> Self::Output {
         simd_hypot3(self, &other1, &other2)
     }
 
     /// Computes 4D hypotenuse using platform-optimized SIMD instructions.
+    #[inline(always)]
     fn hypot4(&self, other1: Self, other2: Self, other3: Self) -> Self::Output {
         simd_hypot4(self, &other1, &other2, &other3)
     }
@@ -323,6 +341,7 @@ impl SimdMath for Vec<f32> {
     /// Computes absolute value using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_abs(&self) -> Self::Output {
         self.as_slice().par_abs()
     }
@@ -330,6 +349,7 @@ impl SimdMath for Vec<f32> {
     /// Computes arccosine using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_acos(&self) -> Self::Output {
         self.as_slice().par_acos()
     }
@@ -337,6 +357,7 @@ impl SimdMath for Vec<f32> {
     /// Computes arcsine using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_asin(&self) -> Self::Output {
         self.as_slice().par_asin()
     }
@@ -344,6 +365,7 @@ impl SimdMath for Vec<f32> {
     /// Computes arctangent using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_atan(&self) -> Self::Output {
         self.as_slice().par_atan()
     }
@@ -351,6 +373,7 @@ impl SimdMath for Vec<f32> {
     /// Computes two-argument arctangent using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_atan2(&self, other: Self) -> Self::Output {
         self.as_slice().par_atan2(other.as_slice())
     }
@@ -358,6 +381,7 @@ impl SimdMath for Vec<f32> {
     /// Computes cube root using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_cbrt(&self) -> Self::Output {
         self.as_slice().par_cbrt()
     }
@@ -365,6 +389,7 @@ impl SimdMath for Vec<f32> {
     /// Computes ceiling using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_ceil(&self) -> Self::Output {
         self.as_slice().par_ceil()
     }
@@ -372,6 +397,7 @@ impl SimdMath for Vec<f32> {
     /// Computes cosine using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_cos(&self) -> Self::Output {
         self.as_slice().par_cos()
     }
@@ -379,6 +405,7 @@ impl SimdMath for Vec<f32> {
     /// Computes exponential function using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_exp(&self) -> Self::Output {
         self.as_slice().par_exp()
     }
@@ -386,6 +413,7 @@ impl SimdMath for Vec<f32> {
     /// Computes floor using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_floor(&self) -> Self::Output {
         self.as_slice().par_floor()
     }
@@ -393,6 +421,7 @@ impl SimdMath for Vec<f32> {
     /// Computes natural logarithm using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_ln(&self) -> Self::Output {
         self.as_slice().par_ln()
     }
@@ -400,6 +429,7 @@ impl SimdMath for Vec<f32> {
     /// Computes sine using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_sin(&self) -> Self::Output {
         self.as_slice().par_sin()
     }
@@ -407,6 +437,7 @@ impl SimdMath for Vec<f32> {
     /// Computes square root using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_sqrt(&self) -> Self::Output {
         self.as_slice().par_sqrt()
     }
@@ -414,6 +445,7 @@ impl SimdMath for Vec<f32> {
     /// Computes tangent using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_tan(&self) -> Self::Output {
         self.as_slice().par_tan()
     }
@@ -421,6 +453,7 @@ impl SimdMath for Vec<f32> {
     /// Computes 2D Euclidean distance using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_hypot(&self, other: Self) -> Self::Output {
         self.as_slice().par_hypot(other.as_slice())
     }
@@ -428,6 +461,7 @@ impl SimdMath for Vec<f32> {
     /// Computes 3D Euclidean distance using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_hypot3(&self, other1: Self, other2: Self) -> Self::Output {
         self.as_slice()
             .par_hypot3(other1.as_slice(), other2.as_slice())
@@ -436,6 +470,7 @@ impl SimdMath for Vec<f32> {
     /// Computes 4D Euclidean distance using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_hypot4(&self, other1: Self, other2: Self, other3: Self) -> Self::Output {
         self.as_slice()
             .par_hypot4(other1.as_slice(), other2.as_slice(), other3.as_slice())
@@ -444,6 +479,7 @@ impl SimdMath for Vec<f32> {
     /// Computes power function using size-adaptive parallel SIMD.
     ///
     /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
     fn par_pow(&self, other: Self) -> Self::Output {
         self.as_slice().par_pow(other.as_slice())
     }
