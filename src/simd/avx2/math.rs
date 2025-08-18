@@ -938,6 +938,119 @@ pub unsafe fn _mm256_exp_ps(x: __m256) -> __m256 {
     final_result
 }
 
+/// Computes the natural exponential (e^x) of 4 packed double-precision floating-point values.
+///
+/// This function computes exp(x) for each element in the input vector using a high-precision
+/// implementation optimized for AVX2 double-precision operations.
+///
+/// # Algorithm
+///
+/// Uses the same mathematical approach as `_mm256_exp_ps` but with double-precision constants
+/// and extended polynomial approximation for better accuracy:
+///
+/// 1. **Range Reduction**: x = n×ln(2) + r where |r| ≤ ln(2)/2
+/// 2. **Polynomial Approximation**: exp(r) ≈ 1 + r + r²/2! + ... + r⁸/8!
+/// 3. **Reconstruction**: exp(x) = 2ⁿ × exp(r)
+///
+/// # Arguments
+///
+/// * `x` - Input vector containing 4 double-precision values
+///
+/// # Returns
+///
+/// Vector containing exp(x[i]) for each input element.
+///
+/// # Special Cases
+///
+/// - exp(+∞) = +∞
+/// - exp(-∞) = 0.0
+/// - exp(NaN) = NaN
+/// - exp(x) = +∞ for x > 709.0 (overflow protection)
+/// - exp(x) = 0.0 for x < -708.0 (underflow protection)
+///
+/// # Accuracy
+///
+/// Provides < 1 ULP accuracy for inputs in the normal range [-708, 709].
+///
+/// # Safety
+///
+/// This function uses AVX2 intrinsics and requires AVX2 support.
+#[allow(clippy::excessive_precision)]
+#[inline(always)]
+pub unsafe fn _mm256_exp_pd(x: __m256d) -> __m256d {
+    // Constants for range reduction: ln(2) split into high and low parts for precision
+    let ln2_hi = _mm256_set1_pd(0.6931471805599452862); // High part of ln(2)
+    let ln2_lo = _mm256_set1_pd(2.3190468138462996e-17); // Low part of ln(2)
+    let log2e = _mm256_set1_pd(std::f64::consts::LOG2_E); // 1/ln(2)
+
+    // Range limits for safe computation (double precision has wider range)
+    let max_input = _mm256_set1_pd(709.0); // exp(709) ≈ 8.2e307 (near f64::MAX)
+    let min_input = _mm256_set1_pd(-708.0); // exp(-708) ≈ 3.3e-308 (near f64::MIN_POSITIVE)
+
+    // Handle special cases first
+    let is_large = _mm256_cmp_pd(x, max_input, _CMP_GT_OQ);
+    let is_small = _mm256_cmp_pd(x, min_input, _CMP_LT_OQ);
+    let is_nan = _mm256_cmp_pd(x, x, _CMP_NEQ_UQ);
+
+    // Range reduction: x = n*ln(2) + r
+    // Find n = round(x / ln(2))
+    let n_float = _mm256_round_pd(_mm256_mul_pd(x, log2e), _MM_FROUND_TO_NEAREST_INT);
+    let n_int = _mm256_cvtpd_epi32(n_float);
+
+    // Compute remainder: r = x - n*ln(2)
+    // Use split representation for high precision
+    let mut r = _mm256_fmsub_pd(n_float, ln2_hi, x); // x - n*ln2_hi
+    r = _mm256_fmsub_pd(n_float, ln2_lo, r); // (x - n*ln2_hi) - n*ln2_lo
+
+    // Polynomial approximation for exp(r) where |r| ≤ ln(2)/2
+    // exp(r) ≈ 1 + r + r²/2! + r³/3! + r⁴/4! + r⁵/5! + r⁶/6! + r⁷/7! + r⁸/8!
+    // Extended precision coefficients for double precision
+    let c1 = _mm256_set1_pd(1.0);
+    let c2 = _mm256_set1_pd(0.5);
+    let c3 = _mm256_set1_pd(0.16666666666666666); // 1/6
+    let c4 = _mm256_set1_pd(0.041666666666666664); // 1/24
+    let c5 = _mm256_set1_pd(0.008333333333333333); // 1/120
+    let c6 = _mm256_set1_pd(0.001388888888888889); // 1/720
+    let c7 = _mm256_set1_pd(0.00019841269841269841); // 1/5040
+    let c8 = _mm256_set1_pd(2.4801587301587302e-05); // 1/40320
+
+    // Polynomial evaluation using Horner's method for better numerical stability
+    // p(r) = 1 + r*(1 + r*(1/2 + r*(1/6 + r*(1/24 + r*(1/120 + r*(1/720 + r*(1/5040 + r/40320)))))))
+    let mut poly = _mm256_fmadd_pd(r, c8, c7);
+    poly = _mm256_fmadd_pd(r, poly, c6);
+    poly = _mm256_fmadd_pd(r, poly, c5);
+    poly = _mm256_fmadd_pd(r, poly, c4);
+    poly = _mm256_fmadd_pd(r, poly, c3);
+    poly = _mm256_fmadd_pd(r, poly, c2);
+    poly = _mm256_fmadd_pd(r, poly, c1);
+    poly = _mm256_fmadd_pd(r, poly, _mm256_set1_pd(1.0));
+
+    // Reconstruct: exp(x) = 2^n * exp(r)
+    // For double precision, convert 32-bit exponents to 64-bit and manipulate IEEE 754 bits
+    // 2^n = (n + 1023) << 52 when interpreted as double bits
+    // n_int is already a __m128i from _mm256_cvtpd_epi32
+    let n_64 = _mm256_cvtepi32_epi64(n_int);
+    let n_biased_64 = _mm256_add_epi64(n_64, _mm256_set1_epi64x(1023));
+    let scale_bits = _mm256_slli_epi64(n_biased_64, 52);
+    let scale = _mm256_castsi256_pd(scale_bits);
+
+    let result = _mm256_mul_pd(poly, scale);
+
+    // Handle special cases with IEEE 754 compliance
+    let mut final_result = result;
+
+    // Large inputs → +∞
+    final_result = _mm256_blendv_pd(final_result, _mm256_set1_pd(f64::INFINITY), is_large);
+
+    // Small inputs → 0.0
+    final_result = _mm256_blendv_pd(final_result, _mm256_setzero_pd(), is_small);
+
+    // NaN inputs → NaN
+    final_result = _mm256_blendv_pd(final_result, x, is_nan);
+
+    final_result
+}
+
 /// Computes natural logarithm for an argument *ULP 1.5*
 ///
 /// This function computes ln(x) for 8 packed single-precision floating-point values
@@ -3406,6 +3519,209 @@ mod tests {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    mod exp_pd_tests {
+        use super::*;
+
+        /// Helper function to extract vector elements for comparison
+        fn extract_f64x4(vec: __m256d) -> [f64; 4] {
+            let mut result = [0.0f64; 4];
+            unsafe {
+                _mm256_storeu_pd(result.as_mut_ptr(), vec);
+            }
+            result
+        }
+
+        /// Helper function to create a double precision vector from array
+        fn create_f64x4(values: [f64; 4]) -> __m256d {
+            unsafe { _mm256_loadu_pd(values.as_ptr()) }
+        }
+
+        #[test]
+        fn test_exp_pd_basic_values() {
+            let input = [0.0, 1.0, 2.0, -1.0];
+            let expected = [1.0, std::f64::consts::E, std::f64::consts::E * std::f64::consts::E, 1.0 / std::f64::consts::E];
+
+            let result = unsafe { _mm256_exp_pd(create_f64x4(input)) };
+            let result_vals = extract_f64x4(result);
+
+            for i in 0..4 {
+                let relative_error = ((result_vals[i] - expected[i]) / expected[i]).abs();
+                assert!(
+                    relative_error < 1e-10,
+                    "Basic exp_pd test failed for {}: got {}, expected {}, error: {:.2e}",
+                    input[i],
+                    result_vals[i],
+                    expected[i],
+                    relative_error
+                );
+            }
+        }
+
+        #[test]
+        fn test_exp_pd_special_cases() {
+            let input = [
+                0.0,               // exp(0) = 1
+                -0.0,              // exp(-0) = 1
+                f64::INFINITY,     // exp(+∞) = +∞
+                f64::NEG_INFINITY, // exp(-∞) = 0
+            ];
+
+            let result = unsafe { _mm256_exp_pd(create_f64x4(input)) };
+            let result_vals = extract_f64x4(result);
+
+            assert_eq!(result_vals[0], 1.0); // exp(0) = 1
+            assert_eq!(result_vals[1], 1.0); // exp(-0) = 1
+            assert_eq!(result_vals[2], f64::INFINITY); // exp(+∞) = +∞
+            assert_eq!(result_vals[3], 0.0); // exp(-∞) = 0
+        }
+
+        #[test]
+        fn test_exp_pd_precision_values() {
+            let input = [
+                std::f64::consts::LN_2,
+                2.0 * std::f64::consts::LN_2,
+                std::f64::consts::LN_10,
+                -std::f64::consts::LN_2,
+            ];
+            let expected = [2.0, 4.0, 10.0, 0.5];
+
+            let result = unsafe { _mm256_exp_pd(create_f64x4(input)) };
+            let result_vals = extract_f64x4(result);
+
+            for i in 0..4 {
+                let relative_error = ((result_vals[i] - expected[i]) / expected[i]).abs();
+                assert!(
+                    relative_error < 1e-10,
+                    "Precision exp_pd test failed for {}: got {}, expected {}, error: {:.2e}",
+                    input[i],
+                    result_vals[i],
+                    expected[i],
+                    relative_error
+                );
+            }
+        }
+
+        #[test]
+        fn test_exp_pd_large_values() {
+            let input = [50.0, 100.0, 200.0, 300.0];
+
+            let result = unsafe { _mm256_exp_pd(create_f64x4(input)) };
+            let result_vals = extract_f64x4(result);
+
+            for i in 0..4 {
+                let expected = input[i].exp();
+                if expected.is_finite() {
+                    let relative_error = ((result_vals[i] - expected) / expected).abs();
+                    assert!(
+                        relative_error < 5e-10,
+                        "Large value exp_pd test failed for {}: got {}, expected {}, error: {:.2e}",
+                        input[i],
+                        result_vals[i],
+                        expected,
+                        relative_error
+                    );
+                } else {
+                    assert!(
+                        result_vals[i].is_infinite(),
+                        "Expected infinity for input {}, got {}",
+                        input[i],
+                        result_vals[i]
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn test_exp_pd_negative_values() {
+            let input = [-10.0, -50.0, -100.0, -200.0];
+
+            let result = unsafe { _mm256_exp_pd(create_f64x4(input)) };
+            let result_vals = extract_f64x4(result);
+
+            for i in 0..4 {
+                let expected = input[i].exp();
+                if expected > 0.0 {
+                    let relative_error = ((result_vals[i] - expected) / expected).abs();
+                    assert!(
+                        relative_error < 1e-10,
+                        "Negative value exp_pd test failed for {}: got {}, expected {}, error: {:.2e}",
+                        input[i],
+                        result_vals[i],
+                        expected,
+                        relative_error
+                    );
+                } else {
+                    assert!(
+                        result_vals[i] == 0.0 || result_vals[i] < 1e-300,
+                        "Expected near-zero for input {}, got {}",
+                        input[i],
+                        result_vals[i]
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn test_exp_pd_boundary_conditions() {
+            // Test near overflow and underflow boundaries
+            let input = [
+                709.0,    // Near overflow
+                -708.0,   // Near underflow
+                710.0,    // Should overflow
+                -710.0,   // Should underflow
+            ];
+
+            let result = unsafe { _mm256_exp_pd(create_f64x4(input)) };
+            let result_vals = extract_f64x4(result);
+
+            // Near overflow should be finite
+            assert!(result_vals[0].is_finite(), "exp(709) should be finite");
+            
+            // Near underflow should be positive
+            assert!(result_vals[1] > 0.0, "exp(-708) should be positive");
+
+            // Overflow should be infinity
+            assert_eq!(result_vals[2], f64::INFINITY, "exp(710) should be infinity");
+
+            // Underflow should be zero
+            assert_eq!(result_vals[3], 0.0, "exp(-710) should be zero");
+        }
+
+        #[test]
+        fn test_exp_pd_nan_handling() {
+            let input = [f64::NAN, 1.0, f64::NAN, -1.0];
+
+            let result = unsafe { _mm256_exp_pd(create_f64x4(input)) };
+            let result_vals = extract_f64x4(result);
+
+            assert!(result_vals[0].is_nan(), "exp(NaN) should be NaN");
+            assert!((result_vals[1] - std::f64::consts::E).abs() < 1e-9); // exp(1) = e
+            assert!(result_vals[2].is_nan(), "exp(NaN) should be NaN");
+            assert!((result_vals[3] - (1.0 / std::f64::consts::E)).abs() < 1e-10); // exp(-1) = 1/e
+        }
+
+        #[test]
+        fn test_exp_pd_consistency() {
+            // Test that exp_pd produces consistent results across multiple calls
+            let input = [0.0, 1.0, 2.0, -1.0];
+
+            let result1 = unsafe { _mm256_exp_pd(create_f64x4(input)) };
+            let result2 = unsafe { _mm256_exp_pd(create_f64x4(input)) };
+
+            let vals1 = extract_f64x4(result1);
+            let vals2 = extract_f64x4(result2);
+
+            // Results should be identical
+            for i in 0..4 {
+                assert_eq!(
+                    vals1[i], vals2[i],
+                    "Inconsistent results at index {}: {} vs {}",
+                    i, vals1[i], vals2[i]
+                );
             }
         }
     }

@@ -36,7 +36,7 @@ Add simdly to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-simdly = "0.1.9"
+simdly = "0.1.10"
 ```
 
 For optimal performance, enable AVX2 support in your build configuration.

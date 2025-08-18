@@ -17,7 +17,7 @@ Add Simdly to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-simdly = "0.1.9"
+simdly = "0.1.10"
 ```
 
 ## Automatic SIMD Optimization
