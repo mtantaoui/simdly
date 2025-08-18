@@ -1,0 +1,247 @@
+---
+// Tabbed Performance Comparison Component
+import RealCriterionChart from "./RealCriterionChart.astro";
+import RealCriterionChartAVX2 from "./RealCriterionChartAVX2.astro";
+---
+
+<div class="tabbed-performance-container">
+  <div class="tab-navigation">
+    <button class="tab-button active" data-tab="avx2">
+      <span class="tab-icon">⚡</span>
+      <span class="tab-label">x86_64 (AVX2)</span>
+    </button>
+    <button class="tab-button" data-tab="neon">
+      <span class="tab-icon">🦾</span>
+      <span class="tab-label">ARM64 (NEON)</span>
+    </button>
+  </div>
+
+  <div class="tab-content-container">
+    <div class="tab-content active" id="tab-avx2">
+      <RealCriterionChartAVX2 />
+    </div>
+    
+    <div class="tab-content" id="tab-neon">
+      <RealCriterionChart />
+    </div>
+  </div>
+</div>
+
+<style>
+  .tabbed-performance-container {
+    margin: 3rem 0;
+    background: rgba(15, 23, 42, 0.3);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 20px;
+    overflow: hidden;
+    backdrop-filter: blur(20px);
+  }
+
+  .tab-navigation {
+    display: flex;
+    background: rgba(30, 41, 59, 0.8);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  }
+
+  .tab-button {
+    flex: 1;
+    padding: 1.25rem 2rem;
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    transition: all 0.3s ease;
+    position: relative;
+    border-right: 1px solid rgba(148, 163, 184, 0.1);
+  }
+
+  .tab-button:last-child {
+    border-right: none;
+  }
+
+  .tab-button:hover {
+    background: rgba(51, 65, 85, 0.4);
+    color: #f1f5f9;
+  }
+
+  .tab-button.active {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+    position: relative;
+  }
+
+  .tab-button.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #10b981, #059669);
+    border-radius: 3px 3px 0 0;
+  }
+
+  .tab-icon {
+    font-size: 1.25rem;
+  }
+
+  .tab-label {
+    font-weight: 700;
+  }
+
+  .tab-content-container {
+    position: relative;
+    min-height: 600px;
+  }
+
+  .tab-content {
+    opacity: 0;
+    visibility: hidden;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    transition: all 0.3s ease;
+    transform: translateY(10px);
+  }
+
+  .tab-content.active {
+    opacity: 1;
+    visibility: visible;
+    position: relative;
+    transform: translateY(0);
+  }
+
+  .tab-content.fade-in {
+    animation: fadeInUp 0.4s ease-out forwards;
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (max-width: 768px) {
+    .tab-button {
+      padding: 1rem;
+      font-size: 0.9rem;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .tab-icon {
+      font-size: 1.5rem;
+    }
+
+    .tab-label {
+      font-size: 0.8rem;
+      text-align: center;
+      line-height: 1.2;
+    }
+
+    .tab-content-container {
+      min-height: 500px;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .tab-button {
+      padding: 0.75rem 0.5rem;
+    }
+
+    .tab-label {
+      font-size: 0.75rem;
+    }
+  }
+</style>
+
+<script is:inline>
+  function initTabs() {
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    function switchTab(targetTab) {
+      // Remove active class from all buttons and contents
+      tabButtons.forEach(btn => btn.classList.remove('active'));
+      tabContents.forEach(content => {
+        content.classList.remove('active', 'fade-in');
+      });
+
+      // Add active class to clicked button
+      const activeButton = document.querySelector(`[data-tab="${targetTab}"]`);
+      if (activeButton) {
+        activeButton.classList.add('active');
+      }
+
+      // Show target content with animation
+      const activeContent = document.getElementById(`tab-${targetTab}`);
+      if (activeContent) {
+        activeContent.classList.add('active', 'fade-in');
+      }
+    }
+
+    // Add click event listeners
+    tabButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        const targetTab = button.getAttribute('data-tab');
+        if (targetTab) {
+          switchTab(targetTab);
+        }
+      });
+    });
+
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        const activeButton = document.querySelector('.tab-button.active');
+        if (activeButton) {
+          const currentIndex = Array.from(tabButtons).indexOf(activeButton);
+          let newIndex;
+          
+          if (e.key === 'ArrowLeft') {
+            newIndex = currentIndex > 0 ? currentIndex - 1 : tabButtons.length - 1;
+          } else {
+            newIndex = currentIndex < tabButtons.length - 1 ? currentIndex + 1 : 0;
+          }
+          
+          const newButton = tabButtons[newIndex];
+          const targetTab = newButton.getAttribute('data-tab');
+          if (targetTab) {
+            switchTab(targetTab);
+            newButton.focus();
+          }
+        }
+      }
+    });
+
+    // Make buttons focusable
+    tabButtons.forEach(button => {
+      button.setAttribute('tabindex', '0');
+      button.setAttribute('role', 'tab');
+      button.setAttribute('aria-controls', `tab-${button.getAttribute('data-tab')}`);
+    });
+
+    // Set ARIA attributes for content
+    tabContents.forEach(content => {
+      content.setAttribute('role', 'tabpanel');
+    });
+  }
+
+  // Initialize when DOM is ready
+  document.addEventListener('DOMContentLoaded', initTabs);
+  
+  // Also initialize after a short delay to ensure all components are loaded
+  setTimeout(initTabs, 100);
+</script>

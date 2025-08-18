@@ -44,7 +44,7 @@ use std::arch::x86_64::*;
 
 use std::ops::{Add, Div, Mul, Sub};
 
-use crate::simd::{avx2::math::*, Alignment, SimdCmp, SimdLoad, SimdMath, SimdStore};
+use crate::simd::{avx2::math::*, Alignment, SimdLoad, SimdMath, SimdStore};
 
 /// AVX2 memory alignment requirement in bytes.
 ///
@@ -958,26 +958,6 @@ impl Div for F32x8 {
         Self {
             size: self.size,
             elements: unsafe { _mm256_div_ps(self.elements, rhs.elements) },
-        }
-    }
-}
-
-impl SimdCmp for F32x8 {
-    type Output = Self;
-    #[inline(always)]
-    fn elementwise_eq(self, rhs: Self) -> Self::Output {
-        debug_assert!(
-            self.size == rhs.size,
-            "Operands must have the same size (expected {} lanes, got {} and {})",
-            LANE_COUNT,
-            self.size,
-            rhs.size
-        );
-
-        let elements = unsafe { _mm256_cmp_ps(self.elements, rhs.elements, _CMP_EQ_OQ) };
-        Self {
-            elements,
-            size: self.size,
         }
     }
 }

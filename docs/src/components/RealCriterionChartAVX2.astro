@@ -1,0 +1,481 @@
+---
+// Real Criterion Performance Chart using actual benchmark data for AVX2
+import fs from 'fs';
+import path from 'path';
+
+function extractRealBenchmarkDataAVX2() {
+  const benchmarkResults = {
+    functions: ['cos', 'exp', 'hypot'],
+    scalar: [],
+    simd: []
+  };
+
+  // Real benchmark data extracted from Large_1MB criterion results (262,144 elements) - AVX2
+  const realData = {
+    cos: {
+      scalar: 2062079.33,     // ~2.06ms - substantial computation
+      simd: 175320.81         // ~0.175ms -> 11.8x speedup
+    },
+    exp: {
+      scalar: 791602.93,      // ~0.79ms - 1MB dataset
+      simd: 134686.66         // ~0.135ms -> 5.9x speedup  
+    },
+    hypot: {
+      scalar: 1010286.38,     // ~1.01ms - 1MB dataset
+      simd: 266393.07         // ~0.266ms -> 3.8x speedup
+    }
+  };
+
+  // Calculate speedups and populate arrays
+  benchmarkResults.functions.forEach(func => {
+    const baseline = realData[func].scalar;
+    
+    // Scalar is always 1.0x baseline
+    benchmarkResults.scalar.push(1.0);
+    
+    // Calculate actual SIMD speedup
+    const simdSpeedup = baseline / realData[func].simd;
+    benchmarkResults.simd.push(Number(simdSpeedup.toFixed(1)));
+  });
+
+  return benchmarkResults;
+}
+
+const realBenchmarkDataAVX2 = extractRealBenchmarkDataAVX2();
+---
+
+<div class="real-performance-showcase">
+  <div class="showcase-header">
+    <h3>📊 SIMD vs Scalar Performance</h3>
+    <p>Real benchmark results from 1MB datasets (262,144 elements)</p>
+  </div>
+
+  <div class="chart-container">
+    <canvas id="real-speedup-chart-avx2" width="800" height="400"></canvas>
+  </div>
+  
+  <div class="performance-insights">
+    <div class="insight-card positive">
+      <div class="insight-icon">🚀</div>
+      <div class="insight-title">cos: 11.8x</div>
+      <div class="insight-detail">Complex trigonometric functions show massive gains</div>
+    </div>
+    
+    <div class="insight-card positive">  
+      <div class="insight-icon">⚡</div>
+      <div class="insight-title">exp: 5.9x</div>
+      <div class="insight-detail">Exponential functions benefit significantly from AVX2</div>
+    </div>
+    
+    <div class="insight-card positive">
+      <div class="insight-icon">📐</div>
+      <div class="insight-title">hypot: 3.8x</div>
+      <div class="insight-detail">Distance calculations benefit from SIMD acceleration</div>
+    </div>
+  </div>
+  
+  <div class="benchmark-meta">
+    <div class="meta-card">
+      <div class="meta-icon">🖥️</div>
+      <div class="meta-title">Platform</div>
+      <div class="meta-value">x86_64 Intel/AMD (AVX2)</div>
+    </div>
+    <div class="meta-card">
+      <div class="meta-icon">📊</div>
+      <div class="meta-title">Dataset Size</div>
+      <div class="meta-value">1MB (262,144 elements)</div>
+    </div>
+    <div class="meta-card">
+      <div class="meta-icon">🔧</div>
+      <div class="meta-title">Benchmarking Tool</div>
+      <div class="meta-value">Criterion.rs (50 samples)</div>
+    </div>
+  </div>
+  
+  <div class="key-takeaway">
+    <div class="takeaway-icon">💡</div>
+    <div class="takeaway-text">
+      <strong>Key Insight:</strong> AVX2 shows excellent performance gains across all operations. 
+      Complex math functions like <code>cos()</code> achieve nearly 12x speedups, while 
+      <code>exp()</code> and <code>hypot()</code> provide solid 4-6x performance improvements.
+    </div>
+  </div>
+</div>
+
+<style>
+  .real-performance-showcase {
+    background: linear-gradient(135deg, 
+      rgba(15, 23, 42, 0.95) 0%, 
+      rgba(30, 41, 59, 0.90) 50%, 
+      rgba(15, 23, 42, 0.95) 100%);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 20px;
+    padding: 2.5rem;
+    margin: 3rem 0;
+    box-shadow: 
+      0 25px 50px rgba(0, 0, 0, 0.4),
+      0 0 0 1px rgba(255, 255, 255, 0.05),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(20px);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .showcase-header {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+
+  .showcase-header h3 {
+    color: #f1f5f9;
+    margin: 0 0 0.5rem 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+
+  .showcase-header p {
+    color: #94a3b8;
+    margin: 0;
+    font-size: 1rem;
+  }
+
+  .chart-container {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(148, 163, 184, 0.1);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    backdrop-filter: blur(10px);
+  }
+
+  .performance-insights {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .insight-card {
+    background: rgba(51, 65, 85, 0.4);
+    border-radius: 12px;
+    padding: 1.5rem;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    text-align: center;
+    transition: transform 0.3s ease;
+    min-height: 140px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .insight-card:hover {
+    transform: translateY(-2px);
+  }
+
+  .insight-card.positive {
+    border-color: rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.05);
+  }
+
+  .insight-card.negative {
+    border-color: rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.05);
+  }
+
+  .insight-icon {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .insight-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+  }
+
+  .insight-card.positive .insight-title {
+    color: #10b981;
+  }
+
+  .insight-card.negative .insight-title {
+    color: #ef4444;
+  }
+
+  .insight-detail {
+    font-size: 0.9rem;
+    color: #94a3b8;
+    line-height: 1.4;
+  }
+
+  .benchmark-meta {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .meta-card {
+    background: rgba(30, 41, 59, 0.6);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 12px;
+    padding: 1rem;
+    text-align: center;
+    backdrop-filter: blur(10px);
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .meta-icon {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .meta-title {
+    color: #f1f5f9;
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .meta-value {
+    color: #94a3b8;
+    font-size: 0.8rem;
+    line-height: 1.3;
+  }
+
+  .key-takeaway {
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 12px;
+    padding: 1.5rem;
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .takeaway-icon {
+    font-size: 1.5rem;
+    color: #3b82f6;
+    flex-shrink: 0;
+  }
+
+  .takeaway-text {
+    color: #cbd5e1;
+    line-height: 1.5;
+  }
+
+  .takeaway-text strong {
+    color: #f1f5f9;
+  }
+
+  .takeaway-text code {
+    background: rgba(51, 65, 85, 0.6);
+    color: #10b981;
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+
+  @media (max-width: 768px) {
+    .real-performance-showcase {
+      padding: 1.5rem;
+      margin: 2rem 0;
+    }
+    
+    .performance-insights {
+      grid-template-columns: 1fr;
+    }
+    
+    .benchmark-meta {
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+    }
+    
+    .meta-card {
+      min-height: 100px;
+      padding: 0.75rem;
+    }
+    
+    .key-takeaway {
+      flex-direction: column;
+      text-align: center;
+    }
+  }
+</style>
+
+<script is:inline define:vars={{ realBenchmarkDataAVX2 }}>
+  let chartAVX2 = null;
+  let chartLoadedAVX2 = false;
+
+  function loadChartJSAVX2() {
+    if (window.Chart) {
+      chartLoadedAVX2 = true;
+      initRealChartAVX2();
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.js';
+    script.onload = () => {
+      chartLoadedAVX2 = true;
+      initRealChartAVX2();
+    };
+    document.head.appendChild(script);
+  }
+
+  function initRealChartAVX2() {
+    if (!chartLoadedAVX2 || !window.Chart) {
+      setTimeout(initRealChartAVX2, 100);
+      return;
+    }
+
+    const ctx = document.getElementById('real-speedup-chart-avx2');
+    if (!ctx) return;
+
+    const data = realBenchmarkDataAVX2;
+
+    // Create gradients
+    const ctx2d = ctx.getContext('2d');
+    
+    const scalarGradient = ctx2d.createLinearGradient(0, 0, 0, 400);
+    scalarGradient.addColorStop(0, 'rgba(107, 114, 128, 0.8)');
+    scalarGradient.addColorStop(1, 'rgba(107, 114, 128, 0.6)');
+    
+    const simdGradient = ctx2d.createLinearGradient(0, 0, 0, 400);
+    simdGradient.addColorStop(0, 'rgba(16, 185, 129, 0.9)');
+    simdGradient.addColorStop(1, 'rgba(16, 185, 129, 0.6)');
+
+    chartAVX2 = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: data.functions,
+        datasets: [
+          {
+            label: 'Scalar Baseline',
+            data: data.scalar,
+            backgroundColor: scalarGradient,
+            borderColor: 'rgba(107, 114, 128, 1)',
+            borderWidth: 2,
+            borderRadius: 8,
+            borderSkipped: false,
+          },
+          {
+            label: 'SIMD Optimized',
+            data: data.simd,
+            backgroundColor: simdGradient,
+            borderColor: 'rgba(16, 185, 129, 1)',
+            borderWidth: 2,
+            borderRadius: 8,
+            borderSkipped: false,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          title: {
+            display: false
+          },
+          legend: {
+            display: true,
+            position: 'top',
+            labels: {
+              color: '#cbd5e1',
+              usePointStyle: true,
+              pointStyle: 'rect',
+              font: {
+                size: 12,
+                weight: '600'
+              },
+              padding: 20
+            }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.95)',
+            titleColor: '#f1f5f9',
+            bodyColor: '#cbd5e1',
+            borderColor: 'rgba(148, 163, 184, 0.3)',
+            borderWidth: 1,
+            cornerRadius: 8,
+            callbacks: {
+              label: function(context) {
+                const value = context.parsed.y;
+                
+                if (context.datasetIndex === 0) {
+                  return `${context.dataset.label}: 1.0x (baseline)`;
+                } else {
+                  return `${context.dataset.label}: ${value}x faster`;
+                }
+              },
+              afterLabel: function(context) {
+                const func = context.label;
+                if (func === 'cos') {
+                  return 'Complex trigonometry shows huge gains';
+                } else if (func === 'exp') {
+                  return 'Exponential math benefits significantly';
+                } else if (func === 'hypot') {
+                  return 'Distance calculations benefit from SIMD';
+                }
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: {
+              color: 'rgba(148, 163, 184, 0.1)',
+              drawBorder: false
+            },
+            ticks: {
+              color: '#cbd5e1',
+              font: {
+                weight: 'bold',
+                size: 12
+              }
+            }
+          },
+          y: {
+            beginAtZero: true,
+            max: 13, // Set max to show the cos speedup clearly
+            grid: {
+              color: 'rgba(148, 163, 184, 0.1)',
+              drawBorder: false
+            },
+            ticks: {
+              color: '#cbd5e1',
+              font: {
+                size: 11
+              },
+              callback: function(value) {
+                return value + 'x';
+              }
+            },
+            title: {
+              display: true,
+              text: 'Performance Multiplier (Higher = Better)',
+              color: '#94a3b8',
+              font: {
+                weight: 'bold',
+                size: 12
+              }
+            }
+          }
+        },
+        animation: {
+          duration: 1500,
+          easing: 'easeOutCubic'
+        }
+      }
+    });
+  }
+
+  // Initialize when DOM is ready
+  document.addEventListener('DOMContentLoaded', loadChartJSAVX2);
+  setTimeout(loadChartJSAVX2, 500);
+</script>
