@@ -32,7 +32,12 @@
 
 ## 📦 Installation
 
-Add simdly to your `Cargo.toml` with version "0.1.7".
+Add simdly to your `Cargo.toml`:
+
+```toml
+[dependencies]
+simdly = "0.1.9"
+```
 
 For optimal performance, enable AVX2 support in your build configuration.
 
