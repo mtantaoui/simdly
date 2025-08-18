@@ -1078,10 +1078,38 @@ pub unsafe fn vlnq_f32(x: float32x4_t) -> float32x4_t {
 /// aarch64 architecture support.
 #[inline(always)]
 pub unsafe fn vhypotq_f32(x: float32x4_t, y: float32x4_t) -> float32x4_t {
+    let x_abs = vabsq_f32(x);
+    let y_abs = vabsq_f32(y);
+
+    // Check for infinity
+    let inf = vdupq_n_f32(f32::INFINITY);
+    let x_is_inf = vceqq_f32(x_abs, inf);
+    let y_is_inf = vceqq_f32(y_abs, inf);
+    let any_inf = vorrq_u32(x_is_inf, y_is_inf);
+
+    // Check for very large values that might overflow (>1e15)
+    let large_threshold = vdupq_n_f32(1e15);
+    let x_is_large = vcgtq_f32(x_abs, large_threshold);
+    let y_is_large = vcgtq_f32(y_abs, large_threshold);
+    let is_large = vorrq_u32(x_is_large, y_is_large);
+
     // Fast path: direct sqrt(x² + y²) using FMA for precision
-    let x_sq = vmulq_f32(x, x);
-    let sum_sq = vfmaq_f32(x_sq, y, y);
-    vsqrtq_f32(sum_sq)
+    let fast_result = vsqrtq_f32(vfmaq_f32(vmulq_f32(x_abs, x_abs), y_abs, y_abs));
+
+    // Overflow-safe path: scale by max, compute, scale back
+    let max_val = vmaxq_f32(x_abs, y_abs);
+    let scale = vdivq_f32(x_abs, max_val);
+    let scale2 = vdivq_f32(y_abs, max_val);
+    let scaled_result = vsqrtq_f32(vfmaq_f32(vmulq_f32(scale, scale), scale2, scale2));
+    let safe_result = vmulq_f32(scaled_result, max_val);
+
+    // Use safe path for large values, fast path otherwise
+    let mut result = vbslq_f32(is_large, safe_result, fast_result);
+
+    // Handle infinity: hypot(±∞, y) = +∞
+    result = vbslq_f32(any_inf, inf, result);
+
+    result
 }
 
 /// Computes 3D Euclidean distance optimized for performance

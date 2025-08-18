@@ -26,13 +26,13 @@ use crate::{simd::SimdMath, PARALLEL_SIMD_THRESHOLD};
 
 #[cfg(all(neon, not(avx2)))]
 use crate::simd::neon::slice::{
-    eq_elementwise, parallel_simd_abs, parallel_simd_acos, parallel_simd_add, parallel_simd_asin,
-    parallel_simd_atan, parallel_simd_atan2, parallel_simd_cbrt, parallel_simd_ceil,
-    parallel_simd_cos, parallel_simd_exp, parallel_simd_floor, parallel_simd_hypot,
-    parallel_simd_hypot3, parallel_simd_hypot4, parallel_simd_ln, parallel_simd_pow,
-    parallel_simd_sin, parallel_simd_sqrt, parallel_simd_tan, simd_abs, simd_acos, simd_add,
-    simd_asin, simd_atan, simd_atan2, simd_cbrt, simd_ceil, simd_cos, simd_exp, simd_floor,
-    simd_hypot, simd_hypot3, simd_hypot4, simd_ln, simd_pow, simd_sin, simd_sqrt, simd_tan,
+    parallel_simd_abs, parallel_simd_acos, parallel_simd_asin, parallel_simd_atan,
+    parallel_simd_atan2, parallel_simd_cbrt, parallel_simd_ceil, parallel_simd_cos,
+    parallel_simd_exp, parallel_simd_floor, parallel_simd_hypot, parallel_simd_hypot3,
+    parallel_simd_hypot4, parallel_simd_ln, parallel_simd_pow, parallel_simd_sin,
+    parallel_simd_sqrt, parallel_simd_tan, simd_abs, simd_acos, simd_asin, simd_atan, simd_atan2,
+    simd_cbrt, simd_ceil, simd_cos, simd_exp, simd_floor, simd_hypot, simd_hypot3, simd_hypot4,
+    simd_ln, simd_pow, simd_sin, simd_sqrt, simd_tan,
 };
 
 #[cfg(avx2)]

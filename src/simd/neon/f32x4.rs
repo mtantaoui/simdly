@@ -129,8 +129,9 @@
 //! # {
 //! use simdly::simd::neon::f32x4::F32x4;
 //! use simdly::simd::SimdMath;
+//! use std::f32::consts::PI;
 //!
-//! let angles = F32x4::from([0.0, π/4.0, π/2.0, π].as_slice());
+//! let angles = F32x4::from([0.0, PI/4.0, PI/2.0, PI].as_slice());
 //! let sines = angles.sin();    // Vectorized sine computation
 //! let cosines = angles.cos();  // Vectorized cosine computation
 //! # }
@@ -553,7 +554,7 @@ impl SimdMath for F32x4 {
     fn pow(&self, other: Self) -> Self::Output {
         unsafe {
             Self {
-                elements: vpowq_f32(x_vec, y_vec),
+                elements: vpowq_f32(self.elements, other.elements),
                 size: self.size,
             }
         }
