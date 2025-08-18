@@ -134,7 +134,7 @@
 use crate::{
     simd::{
         neon::f32x4::{self, F32x4, NEON_ALIGNMENT},
-        SimdCmp, SimdLoad, SimdMath, SimdStore,
+        SimdLoad, SimdMath, SimdStore,
     },
     utils::alloc_uninit_vec,
     PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD,
@@ -412,137 +412,6 @@ fn simd_cos_block(a: *const f32, c: *mut f32) {
 fn simd_cos_partial_block(a: *const f32, c: *mut f32, size: usize) {
     let a_chunk_simd = unsafe { F32x4::load_partial(a, size) };
     unsafe { a_chunk_simd.cos().store_at_partial(c) };
-}
-
-/// Performs element-wise equality comparison using ARM NEON SIMD instructions.
-///
-/// This function compares corresponding elements of two f32 slices and returns a vector
-/// where each element is 1.0 if the elements are equal, 0.0 otherwise. It uses NEON
-/// SIMD instructions to process 4 elements simultaneously for optimal performance.
-///
-/// # Performance Characteristics
-///
-/// - **Vectorized processing**: Compares 4 f32 pairs simultaneously using NEON
-/// - **Memory efficient**: Minimizes allocation overhead with capacity pre-allocation
-/// - **Remainder handling**: Processes non-multiple-of-4 arrays using partial vectors
-/// - **Floating-point equality**: Uses exact bit-wise comparison (IEEE 754)
-///
-/// # Arguments
-///
-/// * `a` - First input slice for comparison
-/// * `b` - Second input slice for comparison (must be same length as `a`)
-///
-/// # Returns
-///
-/// A new vector where each element is 1.0 if the corresponding elements are equal, 0.0 otherwise.
-///
-/// # Panics
-///
-/// Panics if:
-/// - Either input slice is empty
-/// - Input slices have different lengths
-///
-/// # Safety
-///
-/// This function uses `unsafe` operations for:
-/// - Uninitialized memory allocation (immediately overwritten by SIMD operations)
-/// - Direct NEON intrinsic calls through F32x4 wrapper
-/// - Raw pointer arithmetic for block processing
-#[inline(always)]
-// pub fn eq_elementwise(a: &[f32], b: &[f32]) -> Vec<f32> {
-pub fn eq_elementwise(a: &[f32], b: &[f32]) -> Vec<f32> {
-    debug_assert!(
-        !a.is_empty() & !b.is_empty(),
-        "Size can't be empty (size zero)"
-    );
-    debug_assert_eq!(a.len(), b.len(), "Vectors must be the same length");
-
-    let size = a.len();
-
-    let mut c: Vec<f32> = alloc_uninit_vec(size, NEON_ALIGNMENT);
-
-    let step = f32x4::LANE_COUNT;
-
-    let complete_lanes = size - (size % step);
-    let remaining_lanes = size - complete_lanes;
-
-    for i in (0..complete_lanes).step_by(step) {
-        eq_elementwise_block(&a[i], &b[i], &mut c[i]);
-    }
-
-    if remaining_lanes > 0 {
-        eq_elementwise_partial_block(
-            &a[complete_lanes],
-            &b[complete_lanes],
-            &mut c[complete_lanes],
-            remaining_lanes, // number of remaining incomplete lanes
-        );
-    }
-
-    c
-}
-
-/// Processes a partial block (1-3 elements) using NEON SIMD equality comparison.
-///
-/// This function handles the remainder elements when the input array size is not
-/// a multiple of 4. It uses partial SIMD operations to compare 1-3 elements
-/// safely without reading beyond array bounds.
-///
-/// # Arguments
-///
-/// * `a` - Raw pointer to first input data (must point to at least `size` valid f32 values)
-/// * `b` - Raw pointer to second input data (must point to at least `size` valid f32 values)
-/// * `c` - Raw pointer to output buffer (must have space for at least `size` f32 values)
-/// * `size` - Number of elements to process (must be 1, 2, or 3)
-///
-/// # Safety
-///
-/// This function is unsafe because:
-/// - No bounds checking on pointers beyond the `size` parameter
-/// - Caller must ensure pointers are valid for at least `size` elements
-/// - Must guarantee `size` is in range [1, 3]
-/// - Memory regions must not overlap
-#[inline(always)]
-fn eq_elementwise_partial_block(a: *const f32, b: *const f32, c: *mut f32, size: usize) {
-    // Load partial data using masked operations (prevents buffer overrun)
-    let a_chunk_simd = unsafe { F32x4::load_partial(a, size) };
-    let b_chunk_simd = unsafe { F32x4::load_partial(b, size) };
-
-    // Perform element-wise equality comparison and store only the valid elements
-    unsafe {
-        a_chunk_simd
-            .elementwise_eq(b_chunk_simd)
-            .store_at_partial(c)
-    };
-}
-
-/// Processes a complete 4-element block using NEON SIMD equality comparison.
-///
-/// This function is the core computational kernel for SIMD equality operations.
-/// It loads 4 consecutive f32 values from each input array, performs vectorized
-/// equality comparison using NEON instructions, and stores the results back to memory.
-///
-/// # Arguments
-///
-/// * `a` - Raw pointer to first input data (must point to at least 4 valid f32 values)
-/// * `b` - Raw pointer to second input data (must point to at least 4 valid f32 values)
-/// * `c` - Raw pointer to output buffer (must have space for at least 4 f32 values)
-///
-/// # Safety
-///
-/// This function is unsafe because:
-/// - No bounds checking is performed on input/output pointers
-/// - Caller must ensure all pointers are valid and properly aligned
-/// - Must point to at least 4 f32 values each
-/// - Memory regions must not overlap (undefined behavior)
-#[inline(always)]
-fn eq_elementwise_block(a: *const f32, b: *const f32, c: *mut f32) {
-    // Load 4 f32 values using NEON SIMD instructions
-    let a_chunk_simd = unsafe { F32x4::load(a, f32x4::LANE_COUNT) };
-    let b_chunk_simd = unsafe { F32x4::load(b, f32x4::LANE_COUNT) };
-
-    // Store the equality comparison result back to memory with aligned access
-    a_chunk_simd.elementwise_eq(b_chunk_simd).store_at(c);
 }
 
 // ========================================================================

@@ -1,0 +1,93 @@
+---
+// Simple architecture support badges
+---
+
+<div class="architecture-support">
+  <div class="arch-badge supported">
+    <span class="arch-status">✅</span>
+    <span class="arch-text">x86/x86_64 + AVX2</span>
+  </div>
+  
+  <div class="arch-badge supported">
+    <span class="arch-status">✅</span>
+    <span class="arch-text">ARM64 + NEON</span>
+  </div>
+  
+  <div class="arch-badge planned">
+    <span class="arch-status">🚧</span>
+    <span class="arch-text">x86/x86_64 + AVX512</span>
+    <span class="arch-label">Planned</span>
+  </div>
+  
+  <div class="arch-badge planned">
+    <span class="arch-status">🚧</span>
+    <span class="arch-text">WebAssembly SIMD</span>
+    <span class="arch-label">Planned</span>
+  </div>
+</div>
+
+<style>
+  .architecture-support {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 1rem;
+    margin: 1.5rem 0;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .arch-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1rem 1.25rem;
+    border-radius: 12px;
+    font-weight: 600;
+    backdrop-filter: blur(10px);
+    border: 1px solid transparent;
+    min-height: 60px;
+  }
+
+  .arch-badge.supported {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+  }
+
+  .arch-badge.planned {
+    background: rgba(100, 116, 139, 0.1);
+    color: #94a3b8;
+    border-color: rgba(100, 116, 139, 0.3);
+  }
+
+  .arch-status {
+    font-size: 1rem;
+  }
+
+  .arch-text {
+    font-size: 0.9rem;
+  }
+
+  .arch-label {
+    font-size: 0.75rem;
+    opacity: 0.8;
+    font-weight: 500;
+  }
+
+  @media (max-width: 768px) {
+    .architecture-support {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto;
+      gap: 0.75rem;
+      max-width: 100%;
+    }
+    
+    .arch-badge {
+      padding: 0.75rem 1rem;
+      min-height: 50px;
+    }
+  }
+</style>

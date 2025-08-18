@@ -29,14 +29,6 @@ export default defineConfig({
 					],
 				},
 				{
-					label: 'Guides',
-					items: [
-						{ label: 'SIMD Operations', slug: 'guides/simd-operations' },
-						{ label: 'Performance Tips', slug: 'guides/performance' },
-						{ label: 'Examples', slug: 'guides/example' },
-					],
-				},
-				{
 					label: 'API Reference',
 					link: 'https://docs.rs/simdly',
 				},

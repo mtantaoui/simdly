@@ -1,0 +1,244 @@
+---
+// Performance Cards with animations for speedup and math functions count
+---
+
+<div class="performance-cards">
+  <div class="performance-card primary">
+    <div class="card-icon">🚀</div>
+    <div class="card-metric">
+      <span class="metric-number" data-target="13.3">0</span>
+      <span class="metric-suffix">x</span>
+    </div>
+    <div class="card-title">Peak SIMD Speedup</div>
+    <div class="card-description">cos() function with 1MB dataset</div>
+  </div>
+
+  <div class="performance-card secondary">
+    <div class="card-icon">⚡</div>
+    <div class="card-metric">
+      <span class="metric-number" data-target="8.2">0</span>
+      <span class="metric-suffix">x</span>
+    </div>
+    <div class="card-title">Average SIMD Speedup</div>
+    <div class="card-description">Complex mathematical functions</div>
+  </div>
+
+  <div class="performance-card tertiary">
+    <div class="card-icon">🧮</div>
+    <div class="card-metric">
+      <span class="metric-number" data-target="15">0</span>
+      <span class="metric-suffix">+</span>
+    </div>
+    <div class="card-title">Math Functions</div>
+    <div class="card-description">Optimized with SIMD acceleration</div>
+  </div>
+
+  <div class="performance-card quaternary">
+    <div class="card-icon">🏗️</div>
+    <div class="card-metric">
+      <span class="metric-number" data-target="2">0</span>
+      <span class="metric-suffix"></span>
+    </div>
+    <div class="card-title">Architectures</div>
+    <div class="card-description">AVX2 (x86) + NEON (ARM)</div>
+  </div>
+</div>
+
+<style>
+  .performance-cards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .performance-card {
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 16px;
+    padding: 2rem;
+    text-align: center;
+    position: relative;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s ease;
+    overflow: hidden;
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .performance-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, var(--accent-color), transparent);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .performance-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    border-color: var(--accent-color);
+  }
+
+  .performance-card:hover::before {
+    opacity: 1;
+  }
+
+  .performance-card.primary {
+    --accent-color: #10b981;
+    border-color: rgba(16, 185, 129, 0.3);
+  }
+
+  .performance-card.secondary {
+    --accent-color: #3b82f6;
+    border-color: rgba(59, 130, 246, 0.3);
+  }
+
+  .performance-card.tertiary {
+    --accent-color: #8b5cf6;
+    border-color: rgba(139, 92, 246, 0.3);
+  }
+
+  .performance-card.quaternary {
+    --accent-color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.3);
+  }
+
+  .card-icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.2));
+  }
+
+  .card-metric {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    margin-bottom: 1rem;
+    gap: 0.25rem;
+  }
+
+  .metric-number {
+    font-size: 3rem;
+    font-weight: 800;
+    color: var(--accent-color);
+    text-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+    line-height: 1;
+  }
+
+  .metric-suffix {
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--accent-color);
+    opacity: 0.8;
+  }
+
+  .card-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #f1f5f9;
+    margin-bottom: 0.5rem;
+  }
+
+  .card-description {
+    font-size: 0.9rem;
+    color: #94a3b8;
+    line-height: 1.4;
+  }
+
+  @media (max-width: 768px) {
+    .performance-cards {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto;
+      gap: 1rem;
+      max-width: 100%;
+    }
+    
+    .performance-card {
+      padding: 1.5rem;
+      min-height: 180px;
+    }
+    
+    .card-icon {
+      font-size: 2rem;
+    }
+    
+    .metric-number {
+      font-size: 2.5rem;
+    }
+    
+    .metric-suffix {
+      font-size: 1.5rem;
+    }
+    
+    .card-title {
+      font-size: 1.1rem;
+    }
+  }
+</style>
+
+<script>
+  // Animate numbers when they come into view
+  function animateNumber(element, target, duration = 2000) {
+    let startTime = null;
+    const startValue = 0;
+    
+    function updateNumber(timestamp) {
+      if (!startTime) startTime = timestamp;
+      const progress = Math.min((timestamp - startTime) / duration, 1);
+      
+      // Easing function for smooth animation
+      const easeOut = 1 - Math.pow(1 - progress, 3);
+      const currentValue = startValue + (target - startValue) * easeOut;
+      
+      if (target >= 10) {
+        element.textContent = Math.round(currentValue);
+      } else {
+        element.textContent = currentValue.toFixed(1);
+      }
+      
+      if (progress < 1) {
+        requestAnimationFrame(updateNumber);
+      } else {
+        // Ensure final value is exact
+        element.textContent = target.toString();
+      }
+    }
+    
+    requestAnimationFrame(updateNumber);
+  }
+
+  // Intersection Observer to trigger animations when visible
+  function setupNumberAnimations() {
+    const numbers = document.querySelectorAll('.metric-number[data-target]');
+    
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting && !entry.target.dataset.animated) {
+          const target = parseFloat(entry.target.dataset.target);
+          animateNumber(entry.target, target);
+          entry.target.dataset.animated = 'true';
+        }
+      });
+    }, {
+      threshold: 0.5,
+      rootMargin: '0px 0px -50px 0px'
+    });
+    
+    numbers.forEach(number => observer.observe(number));
+  }
+
+  // Initialize animations when DOM is ready
+  document.addEventListener('DOMContentLoaded', setupNumberAnimations);
+</script>

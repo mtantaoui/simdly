@@ -340,51 +340,99 @@ pub trait SimdStore<T> {
     unsafe fn store_at_partial(&self, ptr: *mut T);
 }
 
-/// Trait for SIMD mathematical operations.
+/// Trait for SIMD mathematical operations on f32 vectors.
 ///
 /// This trait provides vectorized implementations of common mathematical functions
-/// that operate on SIMD vectors. Each function processes multiple values simultaneously
-/// using optimized CPU instructions for maximum performance.
+/// that operate on SIMD vectors. Each function processes multiple f32 values simultaneously
+/// using optimized CPU instructions (AVX2, NEON, etc.) for maximum performance.
 ///
-/// # Type Parameters
+/// # Platform Support
 ///
-/// * `T` - The element type (typically f32 or f64)
+/// - **x86/x86_64**: Uses AVX2 instructions with 8-element vectors (256-bit)
+/// - **ARM/AArch64**: Uses NEON instructions with 4-element vectors (128-bit)
+/// - **Fallback**: Scalar implementations for unsupported architectures
 ///
 /// # Performance Characteristics
 ///
 /// - **Vectorization**: All operations process multiple elements per instruction
+/// - **Speedup**: Typically 2-13x faster than scalar operations (function-dependent)
 /// - **Precision**: Maintains high accuracy comparable to scalar implementations
-/// - **Special Values**: Proper handling of NaN, infinity, and edge cases
-/// - **Domain Validation**: Input range checking where applicable
+/// - **Special Values**: Proper handling of NaN, infinity, and edge cases according to IEEE 754
+/// - **Domain Validation**: Input range checking for domain-restricted functions
+///
+/// # Usage Examples
+///
+/// ## High-Level Usage (Recommended)
+/// ```rust
+/// use simdly::simd::SimdMath;
+///
+/// let angles = vec![0.0, std::f32::consts::PI / 4.0, std::f32::consts::PI / 2.0];
+/// let cosines = angles.cos(); // Automatic SIMD acceleration
+/// let roots = angles.sqrt();  // Vectorized square root
+/// ```
+///
+/// ## Platform-Specific Usage
+/// ```rust
+/// #[cfg(target_arch = "x86_64")]{
+/// use simdly::simd::avx2::f32x8::F32x8;
+/// use simdly::simd::SimdMath;
+///
+/// let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+/// let vec = F32x8::from(data.as_slice());
+/// let result = vec.sin(); // 8 parallel sine calculations
+/// }
+/// ```
 ///
 /// # Implementation Notes
 ///
 /// Implementations should:
-/// - Use optimized SIMD instructions where available
+/// - Use optimized SIMD instructions where available (AVX2 `_mm256_*`, NEON `v*q_f32`)
 /// - Handle special values according to IEEE 754 standards
 /// - Provide consistent accuracy across all vector lanes
 /// - Maintain thread safety for concurrent usage
+/// - Fall back to scalar operations when SIMD is unavailable
 pub trait SimdMath {
     /// The output type returned by mathematical operations
     type Output;
 
     /// Computes the absolute value of each element.
     ///
-    /// Returns |x| for each element x in the vector.
-    /// This operation is typically very fast as it only requires clearing the sign bit.
+    /// Returns |x| for each element x in the vector. This operation is typically very fast
+    /// as it only requires clearing the sign bit using bitwise operations.
     ///
+    /// # Performance
+    /// - **Operation**: Sign bit manipulation (very fast)
+    /// - **Typical speedup**: 4-8x over scalar
+    /// - **Special cases**: -0.0 becomes +0.0, preserves NaN
+    ///
+    /// # Examples
+    /// ```rust
+    /// use simdly::simd::SimdMath;
+    /// let data = vec![-2.5, 1.0, -0.0, f32::INFINITY];
+    /// let result = data.abs(); // [2.5, 1.0, 0.0, INFINITY]
+    /// ```
     fn abs(&self) -> Self::Output;
 
     /// Computes the arccosine (inverse cosine) of each element.
     ///
     /// Returns the angle in radians whose cosine is the input value.
-    /// Valid input domain: [-1, 1], output range: [0, π].
+    /// Uses polynomial approximation for high performance while maintaining accuracy.
     ///
-    /// # Domain
+    /// # Domain & Range
+    /// - **Input**: [-1, 1] (values outside this range return NaN)
+    /// - **Output**: [0, π] radians
+    /// - **Accuracy**: Typically within 1-2 ULP of standard library
     ///
-    /// - Input: [-1, 1]
-    /// - Output: [0, π] radians
-    /// - Invalid inputs (|x| > 1) return NaN
+    /// # Performance
+    /// - **Implementation**: Polynomial approximation with range reduction
+    /// - **Typical speedup**: 3-6x over scalar
+    ///
+    /// # Examples
+    /// ```rust
+    /// use simdly::simd::SimdMath;
+    /// let data = vec![1.0, 0.0, -1.0, 0.5];
+    /// let result = data.acos(); // [0.0, π/2, π, π/3]
+    /// ```
     fn acos(&self) -> Self::Output;
 
     /// Computes the arcsine (inverse sine) of each element.
@@ -472,24 +520,52 @@ pub trait SimdMath {
 
     /// Computes the sine of each element.
     ///
-    /// Returns the sine of each input element (in radians).
-    /// Uses range reduction for large inputs to maintain accuracy.
+    /// Returns the sine of each input element (in radians). Uses optimized range reduction
+    /// for large inputs to maintain accuracy across the full input domain.
     ///
-    /// # Domain
+    /// # Domain & Range
+    /// - **Input**: All real numbers (radians)
+    /// - **Output**: [-1, 1]
+    /// - **Accuracy**: Typically within 1-2 ULP of standard library
     ///
-    /// - Input: All real numbers (radians)
-    /// - Output: [-1, 1]
+    /// # Performance
+    /// - **Implementation**: Range reduction + polynomial approximation
+    /// - **Typical speedup**: 4-8x over scalar (depending on input range)
+    /// - **Best performance**: For inputs in [-π, π] range
+    ///
+    /// # Examples
+    /// ```rust
+    /// use simdly::simd::SimdMath;
+    /// use std::f32::consts::PI;
+    ///
+    /// let angles = vec![0.0, PI/2.0, PI, 3.0*PI/2.0];
+    /// let result = angles.sin(); // [0.0, 1.0, 0.0, -1.0]
+    /// ```
     fn sin(&self) -> Self::Output;
 
     /// Computes the cosine of each element.
     ///
-    /// Returns the cosine of each input element (in radians).
-    /// Uses range reduction for large inputs to maintain accuracy.
+    /// Returns the cosine of each input element (in radians). Uses optimized range reduction
+    /// for large inputs to maintain accuracy across the full input domain.
     ///
-    /// # Domain
+    /// # Domain & Range
+    /// - **Input**: All real numbers (radians)
+    /// - **Output**: [-1, 1]
+    /// - **Accuracy**: Typically within 1-2 ULP of standard library
     ///
-    /// - Input: All real numbers (radians)
-    /// - Output: [-1, 1]
+    /// # Performance
+    /// - **Implementation**: Range reduction + polynomial approximation
+    /// - **Typical speedup**: 4-13x over scalar (function showing best SIMD gains)
+    /// - **Best performance**: For inputs in [-π, π] range
+    ///
+    /// # Examples
+    /// ```rust
+    /// use simdly::simd::SimdMath;
+    /// use std::f32::consts::PI;
+    ///
+    /// let angles = vec![0.0, PI/2.0, PI, 3.0*PI/2.0];
+    /// let result = angles.cos(); // [1.0, 0.0, -1.0, 0.0]
+    /// ```
     fn cos(&self) -> Self::Output;
 
     /// Computes the tangent of each element.
@@ -505,14 +581,26 @@ pub trait SimdMath {
 
     /// Computes the square root of each element.
     ///
-    /// Returns the positive square root of each input element.
-    /// Only defined for non-negative inputs.
+    /// Returns the positive square root of each input element using hardware-accelerated
+    /// SIMD instructions where available.
     ///
-    /// # Domain
+    /// # Domain & Range
+    /// - **Input**: [0, ∞) (negative values return NaN)
+    /// - **Output**: [0, ∞)
+    /// - **Accuracy**: Typically within 0.5 ULP (hardware precision)
     ///
-    /// - Input: [0, ∞)
-    /// - Output: [0, ∞)
-    /// - sqrt(x) = NaN for x < 0
+    /// # Performance
+    /// - **Implementation**: Native SIMD square root instructions
+    /// - **Typical speedup**: 4-8x over scalar
+    /// - **Hardware support**: Uses `_mm256_sqrt_ps` (AVX2) or `vsqrtq_f32` (NEON)
+    ///
+    /// # Examples
+    /// ```rust
+    /// use simdly::simd::SimdMath;
+    ///
+    /// let data = vec![4.0, 9.0, 16.0, 25.0];
+    /// let result = data.sqrt(); // [2.0, 3.0, 4.0, 5.0]
+    /// ```
     fn sqrt(&self) -> Self::Output;
 
     /// Computes the ceiling (round up) of each element.
@@ -539,12 +627,26 @@ pub trait SimdMath {
 
     /// Computes the Euclidean distance (2D hypotenuse) for element pairs.
     ///
-    /// Returns sqrt(x² + y²) for corresponding elements, computed in a way
-    /// that avoids overflow for large values and underflow for small values.
+    /// Returns sqrt(x² + y²) for corresponding elements, computed in a numerically
+    /// stable way that avoids overflow for large values and underflow for small values.
     ///
     /// # Algorithm
+    /// Uses scaling and normalization to prevent intermediate overflow/underflow,
+    /// maintaining accuracy across the full range of f32 values.
     ///
-    /// Uses careful scaling to prevent intermediate overflow/underflow.
+    /// # Performance
+    /// - **Implementation**: Optimized scaling + SIMD square root
+    /// - **Typical speedup**: 2-4x over scalar
+    /// - **Stability**: Handles extreme values (1e-20 to 1e20) safely
+    ///
+    /// # Examples
+    /// ```rust
+    /// use simdly::simd::SimdMath;
+    ///
+    /// let x = vec![3.0, 5.0, 1e20];
+    /// let y = vec![4.0, 12.0, 1e20];
+    /// let distances = x.hypot(y); // [5.0, 13.0, ~1.41e20]
+    /// ```
     fn hypot(&self, other: Self) -> Self::Output;
 
     /// Computes the 3D Euclidean distance for element triplets.
@@ -700,55 +802,4 @@ pub trait SimdMath {
     /// Automatically selects between regular SIMD and parallel SIMD based on array size.
     /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
     fn par_pow(&self, other: Self) -> Self::Output;
-}
-
-/// Trait for SIMD comparison operations.
-///
-/// This trait provides vectorized comparison functions that operate on SIMD vectors,
-/// comparing corresponding elements and producing comparison results. The operations
-/// are designed to work efficiently with different SIMD instruction sets.
-///
-/// # Type Parameters
-///
-/// * `Rhs` - The right-hand side type for comparison operations (defaults to `Self`)
-///
-/// # Performance Characteristics
-///
-/// - **Vectorized processing**: Compares multiple elements simultaneously using SIMD
-/// - **Efficient branching**: Produces comparison masks for conditional operations
-/// - **Cross-platform**: Works with AVX2, NEON, and other SIMD instruction sets
-///
-/// # Usage Patterns
-///
-/// Comparison results can be used for:
-/// - Conditional SIMD operations using masks
-/// - Finding elements that meet specific criteria
-/// - Implementing vectorized selection and filtering
-pub trait SimdCmp<Rhs = Self> {
-    /// The output type returned by comparison operations.
-    ///
-    /// Typically a SIMD vector containing comparison results, where each element
-    /// represents the result of comparing corresponding elements from the input vectors.
-    /// The exact representation depends on the underlying SIMD architecture.
-    type Output;
-
-    /// Compares corresponding elements for equality.
-    ///
-    /// Performs element-wise equality comparison between `self` and `rhs`, returning
-    /// a vector of comparison results. Each element in the output indicates whether
-    /// the corresponding elements in the input vectors are equal.
-    ///
-    /// # Arguments
-    ///
-    /// * `rhs` - The right-hand side vector to compare against
-    ///
-    /// # Returns
-    ///
-    /// A vector containing the results of element-wise equality comparisons.
-    ///
-    /// # Performance
-    ///
-    /// This operation is typically very fast as it uses optimized SIMD comparison
-    /// instructions that can process multiple elements per CPU cycle.
-    fn elementwise_eq(self, rhs: Rhs) -> Self::Output;
 }

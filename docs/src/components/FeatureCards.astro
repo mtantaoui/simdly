@@ -1,0 +1,121 @@
+---
+// Clean feature cards with consistent sizing
+---
+
+<div class="feature-cards">
+  <div class="feature-card">
+    <div class="feature-icon">🚀</div>
+    <h3 class="feature-title">Cross-Platform SIMD</h3>
+    <p class="feature-description">
+      Leverages both AVX2 (x86/x86_64) and NEON (ARM) instructions for 
+      high-performance vector operations across multiple architectures.
+    </p>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-icon">🧠</div>
+    <h3 class="feature-title">Memory Efficient</h3>
+    <p class="feature-description">
+      Supports both aligned and unaligned memory access patterns with 
+      cache-friendly data structures and optimized memory layouts.
+    </p>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-icon">🛡️</div>
+    <h3 class="feature-title">Safe Abstractions</h3>
+    <p class="feature-description">
+      Wraps unsafe SIMD operations in safe, ergonomic APIs that prevent 
+      common pitfalls while maintaining zero-cost abstractions.
+    </p>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-icon">🔧</div>
+    <h3 class="feature-title">Universal API</h3>
+    <p class="feature-description">
+      Provides consistent interfaces across AVX2 and NEON implementations, 
+      allowing the same code to run optimally on both architectures.
+    </p>
+  </div>
+</div>
+
+<style>
+  .feature-cards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .feature-card {
+    background: rgba(30, 41, 59, 0.6);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 16px;
+    padding: 2rem;
+    text-align: center;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s ease;
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .feature-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+    border-color: rgba(148, 163, 184, 0.4);
+  }
+
+  .feature-icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.2));
+  }
+
+  .feature-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #f1f5f9;
+    margin: 0 0 1rem 0;
+    line-height: 1.3;
+  }
+
+  .feature-description {
+    font-size: 0.9rem;
+    color: #cbd5e1;
+    line-height: 1.5;
+    margin: 0;
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+  }
+
+  @media (max-width: 768px) {
+    .feature-cards {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto;
+      gap: 1rem;
+      max-width: 100%;
+    }
+    
+    .feature-card {
+      padding: 1.5rem;
+      min-height: 180px;
+    }
+    
+    .feature-icon {
+      font-size: 2rem;
+    }
+    
+    .feature-title {
+      font-size: 1.1rem;
+    }
+  }
+</style>

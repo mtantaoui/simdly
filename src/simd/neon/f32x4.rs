@@ -150,12 +150,14 @@
 //! - **Infinity Support**: Proper handling of positive and negative infinity
 //! - **Zero Handling**: Special cases for division by zero and log(0)
 //! - **Domain Validation**: Input clamping for domain-restricted functions
+
 #[cfg(not(target_arch = "aarch64"))]
 use super::math::{float32x4_t, uint32x4_t};
+
 #[cfg(target_arch = "aarch64")]
 use std::arch::aarch64::*;
 
-use crate::simd::{Alignment, SimdCmp, SimdLoad, SimdMath, SimdStore};
+use crate::simd::{Alignment, SimdLoad, SimdMath, SimdStore};
 use std::ops::{Add, Div, Mul, Sub};
 
 use super::math::*;
@@ -916,30 +918,6 @@ impl Div for F32x4 {
                 elements: vdivq_f32(self.elements, rhs.elements),
                 size: self.size,
             }
-        }
-    }
-}
-
-impl SimdCmp for F32x4 {
-    type Output = Self;
-
-    #[inline(always)]
-    fn elementwise_eq(self, rhs: Self) -> Self::Output {
-        debug_assert!(
-            self.size == rhs.size,
-            "Operands must have the same size (expected {} lanes, got {} and {})",
-            LANE_COUNT,
-            self.size,
-            rhs.size
-        );
-
-        let mask = unsafe { vceqq_f32(self.elements, rhs.elements) };
-
-        let elements = unsafe { vreinterpretq_f32_u32(mask) };
-
-        Self {
-            elements,
-            size: self.size,
         }
     }
 }

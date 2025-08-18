@@ -5,8 +5,6 @@ sidebar:
   order: 2
 ---
 
-# Installation
-
 ## Prerequisites
 
 - **Rust**: Version 1.77 or later
@@ -19,7 +17,7 @@ Add Simdly to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-simdly = "0.1.2"
+simdly = "0.1.9"
 ```
 
 ## Automatic SIMD Optimization
@@ -47,7 +45,7 @@ If you want to use similar settings in your own projects:
 rustflags = ["-C", "target-cpu=native"]
 ```
 
-### Platform-Specific Overrides (Advanced)
+### Platform-Specific Override
 
 For specific deployment scenarios:
 
@@ -58,42 +56,16 @@ export RUSTFLAGS="-C target-feature=+neon"        # Force NEON on ARM
 cargo build --release
 ```
 
-### Cross-Compilation
-
-For cross-compilation to different architectures:
-
-```bash
-# Cross-compile to ARM64 from x86
-cargo build --release --target aarch64-unknown-linux-gnu
-
-# Cross-compile to x86_64 from ARM
-cargo build --release --target x86_64-unknown-linux-gnu
-```
-
-## Verification
-
-To verify that Simdly is working correctly, create a simple test:
-
-```rust
-use simdly::f32x8;
-
-fn main() {
-    // Test basic vector operations
-    let data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-    let vec = f32x8::load_unaligned(&data);
-    let doubled = vec.mul(f32x8::splat(2.0));
-    
-    println!("Simdly is ready! Vector operations working on {} lanes", f32x8::lanes());
-}
-```
-
 ## Performance Considerations
 
-- **Automatic Optimization**: Simdly's `.cargo/config.toml` automatically enables the best SIMD features for your CPU
-- **Release Mode**: Always use `--release` for performance testing
-- **Memory Alignment**: Use 32-byte alignment on x86, 16-byte on ARM for optimal performance
-- **Cross-Compilation**: Simdly supports cross-compilation between x86 and ARM targets
-- **No Setup Required**: Just `cargo add simdly` and start coding - SIMD optimization is automatic!
+- **Automatic Optimization**: Simdly automatically detects CPU features and uses the best SIMD instructions available
+- **Release Mode**: Always use `cargo build --release` for performance testing and production
+- **Data Size Thresholds**:
+  - **Small arrays** (<128 elements): Uses scalar operations for lower overhead
+  - **Medium arrays** (128+ elements): Uses SIMD operations for speed
+  - **Large arrays** (262,144+ elements): Uses parallel SIMD across multiple cores
+- **Cross-Platform Support**: Same API works on both x86_64 (AVX2) and ARM64 (NEON)
+- **Zero Configuration**: Just `cargo add simdly` and start coding - optimization is automatic!
 
 ## Next Steps
 
