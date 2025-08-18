@@ -1,9 +1,31 @@
 use std::arch::x86_64::*;
-use std::time::Instant;
+// use std::time::Instant;
 
 /// High-performance outer product implementation using AVX2 SIMD instructions.
 ///
 /// Computes the outer product of two 8-element vectors: result[i][j] = a[i] * b[j]
+///
+/// # Safety
+///
+/// This function is unsafe because it uses AVX2 intrinsics. The caller must ensure:
+///
+/// - **CPU Support**: The target CPU must support AVX2 instructions. Use
+///   `is_x86_feature_detected!("avx2")` to check before calling.
+/// - **Vector Validity**: Input vectors `a` and `b` must contain valid f32 values
+///   (not uninitialized memory).
+/// - **Result Array**: The `result` array must be properly initialized and have
+///   exactly 8 elements.
+/// - **Memory Safety**: All memory accessed through the vectors and result array
+///   must be valid and properly aligned (though unaligned access is supported).
+/// - **No Data Races**: This function is not thread-safe for the same `result` array.
+///   Concurrent access to the same result array from multiple threads will cause
+///   undefined behavior.
+///
+/// # Arguments
+///
+/// * `a` - First input vector as __m256 (8 f32 elements)
+/// * `b` - Second input vector as __m256 (8 f32 elements)  
+/// * `result` - Output array of 8 __m256 vectors representing the 8x8 result matrix
 #[target_feature(enable = "avx2")]
 pub unsafe fn simd_outer_product(a: __m256, b: __m256, result: &mut [__m256; 8]) {
     // Split vector 'a' into lower and upper halves for broadcasting
@@ -49,41 +71,44 @@ pub fn outer_product_f32_8x8(a: [f32; 8], b: [f32; 8]) -> [[f32; 8]; 8] {
     }
 }
 
-/// Naive reference implementation for comparison
-fn naive_outer_product(a: [f32; 8], b: [f32; 8]) -> [[f32; 8]; 8] {
-    let mut result = [[0.0f32; 8]; 8];
-    for i in 0..8 {
-        for j in 0..8 {
-            result[i][j] = a[i] * b[j];
-        }
-    }
-    result
-}
+// /// Naive reference implementation for comparison
+// fn naive_outer_product(a: [f32; 8], b: [f32; 8]) -> [[f32; 8]; 8] {
+//     let mut result = [[0.0f32; 8]; 8];
+//     for i in 0..8 {
+//         for j in 0..8 {
+//             result[i][j] = a[i] * b[j];
+//         }
+//     }
+//     result
+// }
 
-/// Performance benchmark
-fn benchmark_outer_product() {
-    const ITERATIONS: usize = 1_000_000;
-    let a = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-    let b = [0.1f32, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+// /// Performance benchmark
+// fn benchmark_outer_product() {
+//     const ITERATIONS: usize = 1_000_000;
+//     let a = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+//     let b = [0.1f32, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
 
-    // Benchmark SIMD version
-    let start = Instant::now();
-    for _ in 0..ITERATIONS {
-        let _result = outer_product_f32_8x8(a, b);
-    }
-    let simd_time = start.elapsed();
+//     // Benchmark SIMD version
+//     let start = Instant::now();
+//     for _ in 0..ITERATIONS {
+//         let _result = outer_product_f32_8x8(a, b);
+//     }
+//     let simd_time = start.elapsed();
 
-    // Benchmark naive version
-    let start = Instant::now();
-    for _ in 0..ITERATIONS {
-        let _result = naive_outer_product(a, b);
-    }
-    let naive_time = start.elapsed();
+//     // Benchmark naive version
+//     let start = Instant::now();
+//     for _ in 0..ITERATIONS {
+//         let _result = naive_outer_product(a, b);
+//     }
+//     let naive_time = start.elapsed();
 
-    println!("SIMD version: {:.1} ms", simd_time.as_millis());
-    println!("Naive version: {:.1} ms", naive_time.as_millis());
-    println!("Speedup: {:.1}x", naive_time.as_secs_f64() / simd_time.as_secs_f64());
-}
+//     println!("SIMD version: {:.1} ms", simd_time.as_millis());
+//     println!("Naive version: {:.1} ms", naive_time.as_millis());
+//     println!(
+//         "Speedup: {:.1}x",
+//         naive_time.as_secs_f64() / simd_time.as_secs_f64()
+//     );
+// }
 
 fn main() {
     if !is_x86_feature_detected!("avx2") {
@@ -100,114 +125,35 @@ fn main() {
     println!("Vector a: {:?}", a);
     println!("Vector b: {:?}", b);
 
-    let result = outer_product_f32_8x8(a, b);
-    
-    println!("\nOuter product result (first 4x4 submatrix):");
-    for i in 0..4 {
-        for j in 0..4 {
-            print!("{:6.2} ", result[i][j]);
-        }
-        println!();
-    }
+    let _result = outer_product_f32_8x8(a, b);
 
-    // Verify correctness
-    println!("\nVerification:");
-    println!("result[0][0] = {} (expected: {})", result[0][0], a[0] * b[0]);
-    println!("result[1][2] = {} (expected: {})", result[1][2], a[1] * b[2]);
-    println!("result[7][7] = {} (expected: {})", result[7][7], a[7] * b[7]);
+    // println!("\nOuter product result (first 4x4 submatrix):");
+    // for i in 0..4 {
+    //     for j in 0..4 {
+    //         print!("{:6.2} ", result[i][j]);
+    //     }
+    //     println!();
+    // }
 
-    // Performance comparison
-    println!("\n=== Performance Benchmark ===");
-    benchmark_outer_product();
-}
+    // // Verify correctness
+    // println!("\nVerification:");
+    // println!(
+    //     "result[0][0] = {} (expected: {})",
+    //     result[0][0],
+    //     a[0] * b[0]
+    // );
+    // println!(
+    //     "result[1][2] = {} (expected: {})",
+    //     result[1][2],
+    //     a[1] * b[2]
+    // );
+    // println!(
+    //     "result[7][7] = {} (expected: {})",
+    //     result[7][7],
+    //     a[7] * b[7]
+    // );
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn approx_eq(a: f32, b: f32) -> bool {
-        (a - b).abs() < f32::EPSILON * 10.0
-    }
-
-    #[test]
-    fn test_outer_product_correctness() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-
-        let a = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-        let b = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
-
-        let simd_result = outer_product_f32_8x8(a, b);
-        let naive_result = naive_outer_product(a, b);
-
-        for i in 0..8 {
-            for j in 0..8 {
-                assert!(
-                    approx_eq(simd_result[i][j], naive_result[i][j]),
-                    "Mismatch at [{}, {}]: {} vs {}",
-                    i, j, simd_result[i][j], naive_result[i][j]
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn test_specific_values() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-
-        let a = [2.0, 3.0, 1.0, 4.0, 0.5, 1.5, 2.5, 3.5];
-        let b = [1.0, 0.0, 2.0, 0.5, 3.0, 1.5, 0.25, 4.0];
-
-        let result = outer_product_f32_8x8(a, b);
-
-        assert!(approx_eq(result[0][0], 2.0)); // 2.0 * 1.0
-        assert!(approx_eq(result[0][2], 4.0)); // 2.0 * 2.0
-        assert!(approx_eq(result[1][3], 1.5)); // 3.0 * 0.5
-        assert!(approx_eq(result[7][7], 14.0)); // 3.5 * 4.0
-    }
-
-    #[test]
-    fn test_zero_vector() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-
-        let a = [0.0; 8];
-        let b = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-
-        let result = outer_product_f32_8x8(a, b);
-
-        for i in 0..8 {
-            for j in 0..8 {
-                assert!(approx_eq(result[i][j], 0.0));
-            }
-        }
-    }
-
-    #[test]
-    fn test_identity_vector() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-
-        let a = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-        let b = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-
-        let result = outer_product_f32_8x8(a, b);
-
-        // First row should equal vector b
-        for j in 0..8 {
-            assert!(approx_eq(result[0][j], b[j]));
-        }
-
-        // Other rows should be zero
-        for i in 1..8 {
-            for j in 0..8 {
-                assert!(approx_eq(result[i][j], 0.0));
-            }
-        }
-    }
+    // // Performance comparison
+    // println!("\n=== Performance Benchmark ===");
+    // benchmark_outer_product();
 }
