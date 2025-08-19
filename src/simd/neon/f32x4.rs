@@ -209,6 +209,28 @@ pub struct F32x4 {
 }
 
 impl From<&[f32]> for F32x4 {
+    /// Creates an F32x4 vector from a slice of f32 values.
+    ///
+    /// Automatically selects the appropriate loading method based on slice length:
+    /// - For slices with exactly 4 elements: Uses full SIMD load
+    /// - For slices with fewer than 4 elements: Uses partial load with zero-padding
+    /// - For slices with more than 4 elements: Uses only the first 4 elements
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug builds if the slice is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use simdly::simd::neon::f32x4::F32x4;
+    /// 
+    /// let full_data = [1.0, 2.0, 3.0, 4.0];
+    /// let vec = F32x4::from(full_data.as_slice());
+    /// 
+    /// let partial_data = [1.0, 2.0];
+    /// let partial_vec = F32x4::from(partial_data.as_slice());
+    /// ```
     fn from(slice: &[f32]) -> Self {
         debug_assert!(!slice.is_empty(), "data pointer can't be NULL");
 
@@ -273,46 +295,36 @@ impl SimdLoad<f32> for F32x4 {
         }
     }
 
-    /// Loads 4 elements from aligned memory.
+    /// Not implemented for NEON architecture.
     ///
-    /// **NEON Architecture Note**: This function is not applicable for ARM NEON because
-    /// NEON uses the same `vld1q_f32` intrinsic for both aligned and unaligned loads.
     /// NEON efficiently handles unaligned memory access at the hardware level, making
     /// separate aligned/unaligned load functions unnecessary.
     ///
-    /// # Arguments
+    /// # Panics
     ///
-    /// * `ptr` - Pointer to f32 data (alignment is ignored on NEON)
+    /// This method always panics with a message directing users to use `load()` instead.
     ///
-    /// # Safety
+    /// # Alternative
     ///
-    /// Pointer must point to at least 4 valid f32 values.
-    ///
-    /// # Implementation
-    ///
-    /// For NEON targets, use the standard `load` function instead.
+    /// Use the standard `load()` function which automatically handles both aligned 
+    /// and unaligned memory efficiently on NEON.
     unsafe fn load_aligned(_ptr: *const f32) -> Self::Output {
         panic!("load_aligned is not applicable for ARM NEON architecture. Use load() instead.")
     }
 
-    /// Loads 4 elements from unaligned memory.
+    /// Not implemented for NEON architecture.
     ///
-    /// **NEON Architecture Note**: This function is not applicable for ARM NEON because
-    /// NEON uses the same `vld1q_f32` intrinsic for both aligned and unaligned loads.
     /// NEON efficiently handles unaligned memory access at the hardware level, making
     /// separate aligned/unaligned load functions unnecessary.
     ///
-    /// # Arguments
+    /// # Panics
     ///
-    /// * `ptr` - Pointer to f32 data (no alignment requirement)
+    /// This method always panics with a message directing users to use `load()` instead.
     ///
-    /// # Safety
+    /// # Alternative
     ///
-    /// Pointer must point to at least 4 valid f32 values.
-    ///
-    /// # Implementation
-    ///
-    /// For NEON targets, use the standard `load` function instead.
+    /// Use the standard `load()` function which automatically handles both aligned 
+    /// and unaligned memory efficiently on NEON.
     unsafe fn load_unaligned(_ptr: *const f32) -> Self::Output {
         panic!("load_unaligned is not applicable for ARM NEON architecture. Use load() instead.")
     }
@@ -757,40 +769,38 @@ impl SimdStore<f32> for F32x4 {
         }
     }
 
-    /// Stores vector data to aligned memory.
+    /// Not implemented for NEON architecture.
     ///
-    /// **NEON Architecture Note**: This function is not applicable for ARM NEON because
-    /// NEON uses the same `vst1q_f32` instruction for both aligned and unaligned stores.
     /// NEON efficiently handles unaligned memory access at the hardware level, making
     /// separate aligned/unaligned store functions unnecessary.
     ///
-    /// # Safety
+    /// # Panics
     ///
-    /// Pointer must point to writable memory for all elements.
+    /// This method always panics with a message directing users to use `store_at()` instead.
     ///
-    /// # Implementation
+    /// # Alternative
     ///
-    /// For NEON targets, use the standard `store_at` function instead.
+    /// Use the standard `store_at()` function which automatically handles both aligned 
+    /// and unaligned memory efficiently on NEON.
     unsafe fn store_aligned_at(&self, _ptr: *mut f32) {
         panic!(
             "store_aligned_at is not applicable for ARM NEON architecture. Use store_at() instead."
         )
     }
 
-    /// Stores vector data to unaligned memory.
+    /// Not implemented for NEON architecture.
     ///
-    /// **NEON Architecture Note**: This function is not applicable for ARM NEON because
-    /// NEON uses the same `vst1q_f32` instruction for both aligned and unaligned stores.
     /// NEON efficiently handles unaligned memory access at the hardware level, making
     /// separate aligned/unaligned store functions unnecessary.
     ///
-    /// # Safety
+    /// # Panics
     ///
-    /// Pointer must be valid, non-null, and point to writable memory for all elements.
+    /// This method always panics with a message directing users to use `store_at()` instead.
     ///
-    /// # Implementation
+    /// # Alternative
     ///
-    /// For NEON targets, use the standard `store_at` function instead.
+    /// Use the standard `store_at()` function which automatically handles both aligned 
+    /// and unaligned memory efficiently on NEON.
     unsafe fn store_unaligned_at(&self, _ptr: *mut f32) {
         panic!("store_unaligned_at is not applicable for ARM NEON architecture. Use store_at() instead.")
     }

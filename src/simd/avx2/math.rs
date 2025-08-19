@@ -3075,11 +3075,7 @@ mod tests {
                         relative_error
                     );
 
-                    // Print successful verification
-                    println!(
-                        "✓ cbrt({:.6}) = {:.10} (expected {:.10}, error: {:.2e})",
-                        input[i], result_vals[i], expected[i], relative_error
-                    );
+                    // Precision verification passed
                 }
             }
         }
@@ -3339,11 +3335,7 @@ mod tests {
                             input[i], result_vals[i], expected[i], relative_error
                         );
 
-                        // Print successful verification
-                        println!(
-                            "✓ exp({:.6}) = {:.10} (expected {:.10}, error: {:.2e})",
-                            input[i], result_vals[i], expected[i], relative_error
-                        );
+                        // Precision verification passed
                     }
                 }
             }

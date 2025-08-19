@@ -460,9 +460,15 @@ pub trait SimdMath {
 
     /// Computes the two-argument arctangent of each element pair.
     ///
-    /// Computes atan2(y, x) for corresponding elements, returning the angle
-    /// in radians between the positive x-axis and the point (x, y).
+    /// Computes atan2(y, x) where `self` represents the y-coordinates
+    /// and `other` represents the x-coordinates. Returns the angle in radians
+    /// between the positive x-axis and the point (x, y).
     /// Output range: [-π, π].
+    ///
+    /// # Parameters
+    ///
+    /// - `self` (y): Y-coordinates 
+    /// - `other` (x): X-coordinates
     ///
     /// # Domain
     ///
@@ -627,8 +633,14 @@ pub trait SimdMath {
 
     /// Computes the Euclidean distance (2D hypotenuse) for element pairs.
     ///
-    /// Returns sqrt(x² + y²) for corresponding elements, computed in a numerically
+    /// Returns sqrt(x² + y²) where `self` represents the x-coordinates
+    /// and `other` represents the y-coordinates. Computed in a numerically
     /// stable way that avoids overflow for large values and underflow for small values.
+    ///
+    /// # Parameters
+    ///
+    /// - `self` (x): X-coordinates
+    /// - `other` (y): Y-coordinates
     ///
     /// # Algorithm
     /// Uses scaling and normalization to prevent intermediate overflow/underflow,
@@ -651,14 +663,28 @@ pub trait SimdMath {
 
     /// Computes the 3D Euclidean distance for element triplets.
     ///
-    /// Returns sqrt(x² + y² + z²) for corresponding elements.
+    /// Returns sqrt(x² + y² + z²) where `self` is x, `other1` is y, and `other2` is z.
     /// Computed with care to avoid intermediate overflow/underflow.
+    ///
+    /// # Parameters
+    ///
+    /// - `self` (x): X-coordinates
+    /// - `other1` (y): Y-coordinates  
+    /// - `other2` (z): Z-coordinates
     fn hypot3(&self, other1: Self, other2: Self) -> Self::Output;
 
     /// Computes the 4D Euclidean distance for element quadruplets.
     ///
-    /// Returns sqrt(x² + y² + z² + w²) for corresponding elements.
-    /// Computed with care to avoid intermediate overflow/underflow.
+    /// Returns sqrt(x² + y² + z² + w²) where `self` is x, `other1` is y, 
+    /// `other2` is z, and `other3` is w. Computed with care to avoid 
+    /// intermediate overflow/underflow.
+    ///
+    /// # Parameters
+    ///
+    /// - `self` (x): X-coordinates
+    /// - `other1` (y): Y-coordinates
+    /// - `other2` (z): Z-coordinates
+    /// - `other3` (w): W-coordinates
     fn hypot4(&self, other1: Self, other2: Self, other3: Self) -> Self::Output;
 
     // ================================================================================================
@@ -802,4 +828,185 @@ pub trait SimdMath {
     /// Automatically selects between regular SIMD and parallel SIMD based on array size.
     /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
     fn par_pow(&self, other: Self) -> Self::Output;
+}
+
+/// Trait for SIMD data shuffling and permutation operations.
+///
+/// This trait provides efficient methods for rearranging elements within SIMD vectors,
+/// including broadcasting individual elements and swapping between vector halves.
+/// These operations are fundamental building blocks for more complex SIMD algorithms
+/// like matrix operations, convolutions, and data transformations.
+///
+/// # Platform Support
+///
+/// - **x86/x86_64**: Uses AVX2 permute instructions (`_mm256_permute_ps`, `_mm256_permute2f128_ps`)
+/// - **ARM/AArch64**: Uses NEON shuffle and permute instructions
+/// - **Fallback**: Scalar implementations with manual element copying
+///
+/// # Performance Characteristics
+///
+/// - **Latency**: Typically 1-3 cycles for most shuffle operations
+/// - **Throughput**: Can execute multiple shuffle operations per cycle on modern CPUs
+/// - **Zero data movement**: Operations work entirely within vector registers
+/// - **Compile-time masks**: Template parameters enable optimal instruction selection
+///
+/// # Usage Examples
+///
+/// ## Element Broadcasting
+/// ```rust
+/// use simdly::simd::avx2::f32x8::F32x8;
+/// use simdly::simd::SimdShuffle;
+///
+/// let vec = F32x8::from(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0][..]);
+/// 
+/// // Broadcast first element to all positions: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+/// let broadcast = vec.permute::<0x00>();
+/// 
+/// // Broadcast second element: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]  
+/// let broadcast2 = vec.permute::<0x55>();
+/// ```
+///
+/// ## Lane Swapping
+/// ```rust
+/// use simdly::simd::avx2::f32x8::F32x8;
+/// use simdly::simd::SimdShuffle;
+///
+/// let vec = F32x8::from(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0][..]);
+/// 
+/// // Duplicate lower 4 elements: [1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0]
+/// let low_dup = vec.permute2f128::<0x00>();
+/// 
+/// // Duplicate upper 4 elements: [5.0, 6.0, 7.0, 8.0, 5.0, 6.0, 7.0, 8.0]
+/// let high_dup = vec.permute2f128::<0x11>();
+/// ```
+///
+/// # Implementation Requirements
+///
+/// Implementations should:
+/// - Use compile-time constant masks for optimal performance
+/// - Leverage the fastest available shuffle instructions for the target platform  
+/// - Maintain element precision without introducing rounding errors
+/// - Handle all bit patterns correctly including special values (NaN, infinity)
+/// - Provide consistent behavior across different architectures
+pub trait SimdShuffle {
+    /// The output type returned by shuffle operations
+    type Output;
+
+    /// Permutes elements within each 128-bit lane using a compile-time mask.
+    ///
+    /// This operation rearranges elements within the lower and upper 128-bit halves
+    /// of the vector independently. Each 4-bit group in the mask selects which
+    /// source element to copy to the corresponding output position.
+    ///
+    /// # Mask Encoding
+    /// 
+    /// The 8-bit mask parameter encodes 4 selections, each 2 bits wide:
+    /// - Bits \[1:0\] → Output element 0 source 
+    /// - Bits \[3:2\] → Output element 1 source
+    /// - Bits \[5:4\] → Output element 2 source  
+    /// - Bits \[7:6\] → Output element 3 source
+    ///
+    /// Each 2-bit value selects from positions 0, 1, 2, or 3 within the same 128-bit lane.
+    ///
+    /// # Common Mask Values
+    ///
+    /// - `0x00` (00_00_00_00): Broadcast element 0 → [a, a, a, a, e, e, e, e]
+    /// - `0x55` (01_01_01_01): Broadcast element 1 → [b, b, b, b, f, f, f, f]  
+    /// - `0xAA` (10_10_10_10): Broadcast element 2 → [c, c, c, c, g, g, g, g]
+    /// - `0xFF` (11_11_11_11): Broadcast element 3 → [d, d, d, d, h, h, h, h]
+    /// - `0x1B` (00_01_10_11): Reverse 4 elements → [d, c, b, a, h, g, f, e]
+    ///
+    /// # Arguments
+    ///
+    /// * `MASK` - Compile-time 8-bit mask specifying the permutation pattern
+    ///
+    /// # Returns
+    ///
+    /// A new vector with elements permuted according to the mask within each 128-bit lane.
+    ///
+    /// # Performance
+    ///
+    /// - **Latency**: 1-3 cycles depending on CPU microarchitecture
+    /// - **Throughput**: 1-2 operations per cycle on modern processors
+    /// - **Ports**: Typically executes on shuffle/permute execution ports
+    ///
+    /// # Platform Implementation
+    ///
+    /// - **AVX2**: Uses `_mm256_permute_ps` intrinsic
+    /// - **NEON**: Uses combination of `vrev`, `vdup`, and `vtbl` instructions
+    /// - **Scalar**: Manual element copying with compiler optimization
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use simdly::simd::SimdShuffle;
+    /// # use simdly::simd::avx2::f32x8::F32x8;
+    ///
+    /// let vec = F32x8::from(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0][..]);
+    ///
+    /// // Broadcast first element in each lane
+    /// let broadcast = vec.permute::<0x00>();  // [1.0, 1.0, 1.0, 1.0, 5.0, 5.0, 5.0, 5.0]
+    ///
+    /// // Reverse elements within each lane  
+    /// let reversed = vec.permute::<0x1B>();   // [4.0, 3.0, 2.0, 1.0, 8.0, 7.0, 6.0, 5.0]
+    /// ```
+    fn permute<const MASK: i32>(&self) -> Self::Output;
+
+    /// Permutes 128-bit lanes within the 256-bit vector using a compile-time mask.
+    ///
+    /// This operation swaps or duplicates the upper and lower 128-bit halves of
+    /// the vector. It's essential for operations that need to move data between
+    /// the two halves of AVX2 vectors.
+    ///
+    /// # Mask Encoding
+    ///
+    /// The 8-bit mask parameter controls source selection for each output lane:
+    /// - Bits \[3:0\] → Lower 128-bit lane source (0 = input\[127:0\], 1 = input\[255:128\])  
+    /// - Bits \[7:4\] → Upper 128-bit lane source (0 = input\[127:0\], 1 = input\[255:128\])
+    ///
+    /// # Common Mask Values
+    ///
+    /// - `0x00`: Duplicate lower lane → [a, b, c, d, a, b, c, d]
+    /// - `0x11`: Duplicate upper lane → [e, f, g, h, e, f, g, h]  
+    /// - `0x01`: Swap lanes → [e, f, g, h, a, b, c, d]
+    /// - `0x10`: Identity (no change) → [a, b, c, d, e, f, g, h]
+    ///
+    /// # Arguments
+    ///
+    /// * `MASK` - Compile-time 8-bit mask specifying which lanes to select
+    ///
+    /// # Returns
+    ///
+    /// A new vector with 128-bit lanes rearranged according to the mask.
+    ///
+    /// # Performance
+    ///
+    /// - **Latency**: 1-3 cycles (may be higher for cross-lane operations)
+    /// - **Throughput**: 0.5-1 operations per cycle depending on mask complexity
+    /// - **Domain crossing**: Some masks may cause execution domain penalties
+    ///
+    /// # Platform Implementation
+    ///
+    /// - **AVX2**: Uses `_mm256_permute2f128_ps` intrinsic  
+    /// - **NEON**: Emulated using combinations of `vget_low`/`vget_high` and `vcombine`
+    /// - **Scalar**: Manual 4-element copying with compiler optimization
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use simdly::simd::SimdShuffle;
+    /// # use simdly::simd::avx2::f32x8::F32x8;
+    ///
+    /// let vec = F32x8::from(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0][..]);
+    ///
+    /// // Duplicate lower 4 elements
+    /// let low_dup = vec.permute2f128::<0x00>();   // [1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0]
+    ///
+    /// // Duplicate upper 4 elements
+    /// let high_dup = vec.permute2f128::<0x11>();  // [5.0, 6.0, 7.0, 8.0, 5.0, 6.0, 7.0, 8.0]
+    ///
+    /// // Swap the two halves
+    /// let swapped = vec.permute2f128::<0x01>();   // [5.0, 6.0, 7.0, 8.0, 1.0, 2.0, 3.0, 4.0]
+    /// ```
+    fn permute2f128<const MASK: i32>(&self) -> Self::Output;
 }

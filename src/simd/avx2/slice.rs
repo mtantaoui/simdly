@@ -34,20 +34,25 @@
 //!
 //! # Available Operations
 //!
-//! ## Mathematical Functions
+//! ## Mathematical Functions (Fully Implemented)
 //! - [`SimdMath`]: Mathematical operations with SIMD acceleration
-//!   - [`SimdMath::cos`]: Cosine computation (fully implemented with 4x-13x speedup)
-//!   - [`SimdMath::sin`]: Sine computation (planned)
-//!   - [`SimdMath::exp`]: Exponential function (planned)
-//!   - [`SimdMath::ln`]: Natural logarithm (planned)
-//!   - [`SimdMath::sqrt`]: Square root (planned)
-//!   - [`SimdMath::abs`]: Absolute value (planned)
+//!   - **Basic Functions**: [`abs`](SimdMath::abs), [`sqrt`](SimdMath::sqrt), [`floor`](SimdMath::floor), [`ceil`](SimdMath::ceil)
+//!   - **Trigonometric**: [`sin`](SimdMath::sin), [`cos`](SimdMath::cos), [`tan`](SimdMath::tan)
+//!   - **Inverse Trig**: [`asin`](SimdMath::asin), [`acos`](SimdMath::acos), [`atan`](SimdMath::atan), [`atan2`](SimdMath::atan2)
+//!   - **Exponential**: [`exp`](SimdMath::exp), [`ln`](SimdMath::ln), [`cbrt`](SimdMath::cbrt), [`pow`](SimdMath::pow)
+//!   - **Distance**: [`hypot`](SimdMath::hypot), [`hypot3`](SimdMath::hypot3), [`hypot4`](SimdMath::hypot4)
+//!
+//! ## Specialized AVX2 Functions
+//! - [`simd_cos`]: Direct AVX2 cosine implementation (4x-13x speedup)
+//! - [`parallel_simd_cos`]: Multi-threaded cosine for large arrays
+//! - [`parallel_simd_sin`]: Multi-threaded sine computation
+//! - [`simd_pow`]: Direct AVX2 power function
+//! - [`simd_hypot`], [`simd_hypot3`], [`simd_hypot4`]: Distance calculations
 //!
 //! ## Planned Operations
-//! - Subtraction, multiplication, division with SIMD acceleration
-//! - Additional transcendental functions (sin, tan, exp, log)
 //! - Reduction operations (sum, min, max)
 //! - Comparison and selection operations
+//! - Additional optimization for existing functions
 //!
 //! # Usage Examples
 //!

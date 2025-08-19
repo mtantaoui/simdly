@@ -2016,9 +2016,7 @@ mod tests {
             let exp_ln_result = unsafe { vexpq_f32(ln_result) };
             let exp_ln_vals = extract_f32x4(exp_ln_result);
 
-            // Debug: Check ln(0.1) specifically
-            println!("DEBUG: ln(0.1) = {} (expected ≈ -2.3026)", ln_vals[0]);
-            println!("DEBUG: exp(ln(0.1)) = {} (expected ≈ 0.1)", exp_ln_vals[0]);
+            // Verify ln and exp are inverses
 
             assert_vector_approx_eq_rel(exp_ln_result, positive_vals, 1e-6);
 

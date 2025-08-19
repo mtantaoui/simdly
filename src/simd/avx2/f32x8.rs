@@ -44,7 +44,7 @@ use std::arch::x86_64::*;
 
 use std::ops::{Add, Div, Mul, Sub};
 
-use crate::simd::{avx2::math::*, Alignment, SimdLoad, SimdMath, SimdStore};
+use crate::simd::{avx2::math::*, Alignment, SimdLoad, SimdMath, SimdShuffle, SimdStore};
 
 /// AVX2 memory alignment requirement in bytes.
 ///
@@ -130,6 +130,27 @@ impl Alignment<f32> for F32x8 {
 }
 
 impl From<&[f32]> for F32x8 {
+    /// Creates an F32x8 vector from a slice of f32 values.
+    ///
+    /// Automatically selects the appropriate loading method based on slice length:
+    /// - For slices with exactly 8 elements: Uses full SIMD load
+    /// - For slices with fewer than 8 elements: Uses partial load with zero-padding
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug builds if the slice is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use simdly::simd::avx2::f32x8::F32x8;
+    /// 
+    /// let full_data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    /// let vec = F32x8::from(full_data.as_slice());
+    /// 
+    /// let partial_data = [1.0, 2.0, 3.0];
+    /// let partial_vec = F32x8::from(partial_data.as_slice());
+    /// ```
     fn from(slice: &[f32]) -> Self {
         debug_assert!(!slice.is_empty(), "data pointer can't be NULL");
 
@@ -702,7 +723,7 @@ impl SimdStore<f32> for F32x8 {
     ///
     /// # Safety
     ///
-    /// - Pointer must be 32-byte aligned for optimal performance and to avoid undefined behavior
+    /// - Pointer must be 32-byte aligned (required for correctness, not just performance)
     /// - Pointer must point to at least 8 valid f32 memory locations
     /// - Use `Alignment::is_aligned()` to verify alignment before calling
     ///
@@ -803,6 +824,100 @@ impl SimdStore<f32> for F32x8 {
         };
 
         _mm256_maskstore_ps(ptr, mask, self.elements);
+    }
+}
+
+/// Implementation of SIMD shuffle and permutation operations for F32x8 vectors.
+///
+/// This implementation provides efficient element rearrangement operations using
+/// AVX2 permute instructions, enabling high-performance data shuffling within
+/// 256-bit vectors without moving data outside of vector registers.
+///
+/// # Performance Characteristics
+///
+/// - **Latency**: 1-3 cycles for most permutation patterns
+/// - **Throughput**: 1-2 operations per cycle on modern Intel/AMD processors  
+/// - **Execution**: Runs on dedicated shuffle/permute execution ports
+/// - **Zero Memory**: Operations work entirely within vector registers
+///
+/// # Implementation Details
+///
+/// Uses AVX2 intrinsics:
+/// - `_mm256_permute_ps` for intra-lane element permutation
+/// - `_mm256_permute2f128_ps` for inter-lane 128-bit block permutation
+///
+/// Both operations use compile-time constant masks for optimal performance.
+impl SimdShuffle for F32x8 {
+    type Output = F32x8;
+
+    /// Permutes elements within each 128-bit lane using AVX2 `_mm256_permute_ps`.
+    ///
+    /// This operation rearranges the 4 elements within each 128-bit half of the
+    /// 256-bit vector independently using a compile-time mask. Each lane is
+    /// permuted using the same pattern.
+    ///
+    /// # Performance
+    ///
+    /// - **Instruction**: Single `_mm256_permute_ps` AVX2 instruction
+    /// - **Latency**: 1 cycle on most modern processors
+    /// - **Throughput**: 2 operations per cycle (dual-port execution)
+    /// - **Ports**: Executes on port 5 (Intel) or equivalent shuffle ports (AMD)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use simdly::simd::avx2::f32x8::F32x8;
+    /// use simdly::simd::SimdShuffle;
+    ///
+    /// let vec = F32x8::from(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0][..]);
+    ///
+    /// // Broadcast element 0 in each lane: [1.0, 1.0, 1.0, 1.0, 5.0, 5.0, 5.0, 5.0]
+    /// let broadcast = vec.permute::<0x00>();
+    ///
+    /// // Reverse elements in each lane: [4.0, 3.0, 2.0, 1.0, 8.0, 7.0, 6.0, 5.0]
+    /// let reversed = vec.permute::<0x1B>();
+    /// ```
+    #[inline(always)]
+    fn permute<const MASK: i32>(&self) -> Self::Output {
+        F32x8 {
+            size: self.size,
+            elements: unsafe { _mm256_permute_ps(self.elements, MASK) },
+        }
+    }
+
+    /// Permutes 128-bit lanes using AVX2 `_mm256_permute2f128_ps`.
+    ///
+    /// This operation rearranges the two 128-bit halves of the 256-bit vector,
+    /// allowing duplication or swapping of the upper and lower 4-element groups.
+    /// Essential for algorithms that need cross-lane data movement.
+    ///
+    /// # Performance
+    ///
+    /// - **Instruction**: Single `_mm256_permute2f128_ps` AVX2 instruction
+    /// - **Latency**: 1-3 cycles depending on mask complexity  
+    /// - **Throughput**: 0.5-1 operations per cycle (may use multiple ports)
+    /// - **Domain crossing**: Some patterns may incur slight penalties
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use simdly::simd::avx2::f32x8::F32x8;
+    /// use simdly::simd::SimdShuffle;
+    ///
+    /// let vec = F32x8::from(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0][..]);
+    ///
+    /// // Duplicate lower 4 elements: [1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0]
+    /// let low_dup = vec.permute2f128::<0x00>();
+    ///
+    /// // Swap halves: [5.0, 6.0, 7.0, 8.0, 1.0, 2.0, 3.0, 4.0]
+    /// let swapped = vec.permute2f128::<0x01>();
+    /// ```
+    #[inline(always)]
+    fn permute2f128<const MASK: i32>(&self) -> Self::Output {
+        F32x8 {
+            size: self.size,
+            elements: unsafe { _mm256_permute2f128_ps(self.elements, self.elements, MASK) },
+        }
     }
 }
 
@@ -1015,7 +1130,7 @@ mod tests {
             let is_aligned = F32x8::is_aligned(data.as_ptr());
             // We don't assert a specific result since stack alignment varies
             // but the function should not panic
-            println!("Stack array aligned: {is_aligned}");
+            let _ = is_aligned; // Suppress unused variable warning
         }
     }
 
