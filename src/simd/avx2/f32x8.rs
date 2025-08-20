@@ -144,10 +144,10 @@ impl From<&[f32]> for F32x8 {
     ///
     /// ```rust
     /// use simdly::simd::avx2::f32x8::F32x8;
-    /// 
+    ///
     /// let full_data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
     /// let vec = F32x8::from(full_data.as_slice());
-    /// 
+    ///
     /// let partial_data = [1.0, 2.0, 3.0];
     /// let partial_vec = F32x8::from(partial_data.as_slice());
     /// ```
@@ -167,42 +167,6 @@ impl From<&[f32]> for F32x8 {
 
 impl SimdLoad<f32> for F32x8 {
     type Output = Self;
-
-    // /// Loads data from a slice into the SIMD vector.
-    // ///
-    // /// This is the high-level interface for loading f32 data. It automatically
-    // /// handles partial loads for slices smaller than 8 elements and uses the
-    // /// most appropriate loading strategy based on slice size.
-    // ///
-    // /// # Arguments
-    // ///
-    // /// * `slice` - Input slice of f32 values
-    // ///
-    // /// # Returns
-    // ///
-    // /// F32x8 instance with loaded data
-    // ///
-    // /// # Behavior
-    // ///
-    // /// - For slices < 8 elements: Uses masked partial loading
-    // /// - For slices >= 8 elements: Loads the first 8 elements using full loading
-    // ///
-    // /// # Panics
-    // ///
-    // /// Panics in debug builds if the slice is empty.
-    // #[inline(always)]
-    // fn from_slice(slice: &[f32]) -> Self::Output {
-    //     debug_assert!(!slice.is_empty(), "data pointer can't be NULL");
-
-    //     let size = slice.len();
-
-    //     match slice.len().cmp(&LANE_COUNT) {
-    //         std::cmp::Ordering::Less => unsafe { Self::load_partial(slice.as_ptr(), size) },
-    //         std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => unsafe {
-    //             Self::load(slice.as_ptr(), LANE_COUNT)
-    //         },
-    //     }
-    // }
 
     /// Loads exactly 8 elements from memory.
     ///
@@ -463,6 +427,33 @@ impl SimdMath for F32x8 {
                 size: self.size,
             }
         }
+    }
+
+    /// Computes fused multiply-add (FMA) operation: a * b + c.
+    ///
+    /// Performs `multiplier * multiplicand + self` using AVX2 FMA3 instructions.
+    /// This is more precise than separate multiply and add operations.
+    #[inline(always)]
+    fn fma(&self, multiplier: Self, multiplicand: Self) -> Self::Output {
+        unsafe {
+            Self {
+                elements: _mm256_fmadd_ps(
+                    multiplier.elements,
+                    multiplicand.elements,
+                    self.elements,
+                ),
+                size: self.size,
+            }
+        }
+    }
+
+    /// Computes fused multiply-add (FMA) operation using parallel SIMD.
+    ///
+    /// For single F32x8 vectors, delegates to the regular FMA implementation
+    /// since parallelization is not applicable to individual vectors.
+    #[inline(always)]
+    fn par_fma(&self, multiplier: Self, multiplicand: Self) -> Self::Output {
+        self.fma(multiplier, multiplicand)
     }
 
     /// Computes sine using optimized AVX2 math functions.

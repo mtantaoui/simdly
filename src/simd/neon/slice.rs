@@ -1958,3 +1958,144 @@ fn simd_hypot4_partial_block(
             .store_at_partial(c)
     };
 }
+
+/// Computes fused multiply-add (FMA) operation using NEON SIMD instructions.
+///
+/// Performs `a * b + c` element-wise using NEON FMA instructions for higher precision
+/// than separate multiply and add operations.
+///
+/// # Arguments
+///
+/// * `a` - First multiplicand slice
+/// * `b` - Second multiplicand slice  
+/// * `c` - Addend slice
+///
+/// # Returns
+///
+/// Vector containing `a[i] * b[i] + c[i]` for each element i
+///
+/// # Panics
+///
+/// Panics in debug builds if:
+/// - Any input slice is empty
+/// - Slices have different lengths
+///
+/// # Performance
+///
+/// Uses 128-bit NEON FMA instructions processing 4 f32 values simultaneously.
+/// Significantly faster and more precise than separate multiply-add operations.
+pub(crate) fn simd_fma(a: &[f32], b: &[f32], c: &[f32]) -> Vec<f32> {
+    debug_assert!(
+        !a.is_empty() && !b.is_empty() && !c.is_empty(),
+        "Input slices cannot be empty"
+    );
+    debug_assert_eq!(a.len(), b.len(), "Input slices must have the same length");
+    debug_assert_eq!(a.len(), c.len(), "Input slices must have the same length");
+
+    let size = a.len();
+    let mut aligned_result = alloc_uninit_vec::<f32>(size, NEON_ALIGNMENT);
+
+    let step = f32x4::LANE_COUNT;
+    let complete_lanes = size - (size % step);
+    let remaining_lanes = size - complete_lanes;
+
+    for i in (0..complete_lanes).step_by(step) {
+        simd_fma_block(&a[i], &b[i], &c[i], &mut aligned_result[i]);
+    }
+
+    if remaining_lanes > 0 {
+        simd_fma_partial_block(
+            &a[complete_lanes],
+            &b[complete_lanes],
+            &c[complete_lanes],
+            &mut aligned_result[complete_lanes],
+            remaining_lanes,
+        );
+    }
+
+    aligned_result
+}
+
+/// Computes fused multiply-add (FMA) operation using parallel NEON SIMD.
+///
+/// Uses multi-threaded processing for large arrays, automatically distributing
+/// work across available CPU cores for maximum throughput.
+///
+/// # Performance
+///
+/// Optimal for arrays larger than ~64KB where parallelization overhead
+/// is amortized over computational work.
+pub fn parallel_simd_fma(a: &[f32], b: &[f32], c: &[f32]) -> Vec<f32> {
+    debug_assert!(
+        !a.is_empty() && !b.is_empty() && !c.is_empty(),
+        "Input slices cannot be empty"
+    );
+    debug_assert_eq!(a.len(), b.len(), "Input slices must have the same length");
+    debug_assert_eq!(a.len(), c.len(), "Input slices must have the same length");
+
+    let size = a.len();
+    let mut aligned_result = alloc_uninit_vec::<f32>(size, NEON_ALIGNMENT);
+
+    let step = f32x4::LANE_COUNT;
+
+    aligned_result
+        .par_chunks_mut(PARALLEL_CHUNK_SIZE)
+        .enumerate()
+        .for_each(|(chunk_idx, result_chunk)| {
+            let offset = chunk_idx * PARALLEL_CHUNK_SIZE;
+            let chunk_size = result_chunk.len();
+            let local_complete = chunk_size - (chunk_size % step);
+            let local_remaining = chunk_size - local_complete;
+
+            let a_chunk = &a[offset..offset + chunk_size];
+            let b_chunk = &b[offset..offset + chunk_size];
+            let c_chunk = &c[offset..offset + chunk_size];
+
+            let start_idx = 0;
+            for i in (0..local_complete).step_by(step) {
+                simd_fma_block(
+                    &a_chunk[start_idx + i],
+                    &b_chunk[start_idx + i],
+                    &c_chunk[start_idx + i],
+                    &mut result_chunk[i],
+                );
+            }
+
+            if local_remaining > 0 {
+                simd_fma_partial_block(
+                    &a_chunk[local_complete],
+                    &b_chunk[local_complete],
+                    &c_chunk[local_complete],
+                    &mut result_chunk[local_complete],
+                    local_remaining,
+                );
+            }
+        });
+
+    aligned_result
+}
+
+/// Processes a complete 4-element block using NEON SIMD FMA operations.
+#[inline(always)]
+fn simd_fma_block(a: *const f32, b: *const f32, c: *const f32, result: *mut f32) {
+    let a_simd = unsafe { F32x4::load(a, f32x4::LANE_COUNT) };
+    let b_simd = unsafe { F32x4::load(b, f32x4::LANE_COUNT) };
+    let c_simd = unsafe { F32x4::load(c, f32x4::LANE_COUNT) };
+    let fma_result = c_simd.fma(a_simd, b_simd); // c + a * b (c is addend, a and b are multiplied)
+    unsafe { fma_result.store_aligned_at(result) };
+}
+
+/// Processes a partial block (1-3 elements) using NEON SIMD FMA operations.
+#[inline(always)]
+fn simd_fma_partial_block(
+    a: *const f32,
+    b: *const f32,
+    c: *const f32,
+    result: *mut f32,
+    size: usize,
+) {
+    let a_simd = unsafe { F32x4::load_partial(a, size) };
+    let b_simd = unsafe { F32x4::load_partial(b, size) };
+    let c_simd = unsafe { F32x4::load_partial(c, size) };
+    unsafe { c_simd.fma(a_simd, b_simd).store_at_partial(result) };
+}

@@ -467,7 +467,7 @@ pub trait SimdMath {
     ///
     /// # Parameters
     ///
-    /// - `self` (y): Y-coordinates 
+    /// - `self` (y): Y-coordinates
     /// - `other` (x): X-coordinates
     ///
     /// # Domain
@@ -631,6 +631,35 @@ pub trait SimdMath {
     /// Consult IEEE 754 for complete specification.
     fn pow(&self, other: Self) -> Self::Output;
 
+    /// Computes fused multiply-add (FMA) operation: a * b + c.
+    ///
+    /// Performs `self * multiplier + addend` for corresponding elements.
+    /// FMA is computed as a single operation with higher precision than
+    /// separate multiply and add operations.
+    ///
+    /// # Parameters
+    ///
+    /// - `self` (a): First multiplicand
+    /// - `multiplier` (b): Second multiplicand  
+    /// - `addend` (c): Value to add to the product
+    ///
+    /// # Performance
+    ///
+    /// - **Implementation**: Native FMA instruction when available (AVX2/FMA3, NEON)
+    /// - **Precision**: Higher precision than separate multiply-add
+    /// - **Typical speedup**: 1.5-2x over separate multiply-add operations
+    ///
+    /// # Examples
+    /// ```rust
+    /// use simdly::simd::SimdMath;
+    ///
+    /// let a = vec![2.0, 3.0, 4.0, 5.0];        // multiplier
+    /// let b = vec![1.5, 2.5, 3.5, 4.5];        // multiplicand  
+    /// let c = vec![1.0, 1.0, 1.0, 1.0];        // addend (self)
+    /// let result = c.fma(a, b); // [4.0, 8.5, 15.0, 23.5] = a * b + c
+    /// ```
+    fn fma(&self, multiplier: Self, multiplicand: Self) -> Self::Output;
+
     /// Computes the Euclidean distance (2D hypotenuse) for element pairs.
     ///
     /// Returns sqrt(x² + y²) where `self` represents the x-coordinates
@@ -675,8 +704,8 @@ pub trait SimdMath {
 
     /// Computes the 4D Euclidean distance for element quadruplets.
     ///
-    /// Returns sqrt(x² + y² + z² + w²) where `self` is x, `other1` is y, 
-    /// `other2` is z, and `other3` is w. Computed with care to avoid 
+    /// Returns sqrt(x² + y² + z² + w²) where `self` is x, `other1` is y,
+    /// `other2` is z, and `other3` is w. Computed with care to avoid
     /// intermediate overflow/underflow.
     ///
     /// # Parameters
@@ -828,6 +857,13 @@ pub trait SimdMath {
     /// Automatically selects between regular SIMD and parallel SIMD based on array size.
     /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
     fn par_pow(&self, other: Self) -> Self::Output;
+
+    /// Computes fused multiply-add (FMA) operation using parallel SIMD.
+    ///
+    /// Performs `multiplier * multiplicand + self` using size-adaptive parallel SIMD.
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
+    fn par_fma(&self, multiplier: Self, multiplicand: Self) -> Self::Output;
 }
 
 /// Trait for SIMD data shuffling and permutation operations.
@@ -858,10 +894,10 @@ pub trait SimdMath {
 /// use simdly::simd::SimdShuffle;
 ///
 /// let vec = F32x8::from(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0][..]);
-/// 
+///
 /// // Broadcast first element to all positions: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 /// let broadcast = vec.permute::<0x00>();
-/// 
+///
 /// // Broadcast second element: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]  
 /// let broadcast2 = vec.permute::<0x55>();
 /// ```
@@ -872,10 +908,10 @@ pub trait SimdMath {
 /// use simdly::simd::SimdShuffle;
 ///
 /// let vec = F32x8::from(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0][..]);
-/// 
+///
 /// // Duplicate lower 4 elements: [1.0, 2.0, 3.0, 4.0, 1.0, 2.0, 3.0, 4.0]
 /// let low_dup = vec.permute2f128::<0x00>();
-/// 
+///
 /// // Duplicate upper 4 elements: [5.0, 6.0, 7.0, 8.0, 5.0, 6.0, 7.0, 8.0]
 /// let high_dup = vec.permute2f128::<0x11>();
 /// ```
@@ -899,9 +935,9 @@ pub trait SimdShuffle {
     /// source element to copy to the corresponding output position.
     ///
     /// # Mask Encoding
-    /// 
+    ///
     /// The 8-bit mask parameter encodes 4 selections, each 2 bits wide:
-    /// - Bits \[1:0\] → Output element 0 source 
+    /// - Bits \[1:0\] → Output element 0 source
     /// - Bits \[3:2\] → Output element 1 source
     /// - Bits \[5:4\] → Output element 2 source  
     /// - Bits \[7:6\] → Output element 3 source

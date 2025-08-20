@@ -224,10 +224,10 @@ impl From<&[f32]> for F32x4 {
     ///
     /// ```rust
     /// use simdly::simd::neon::f32x4::F32x4;
-    /// 
+    ///
     /// let full_data = [1.0, 2.0, 3.0, 4.0];
     /// let vec = F32x4::from(full_data.as_slice());
-    /// 
+    ///
     /// let partial_data = [1.0, 2.0];
     /// let partial_vec = F32x4::from(partial_data.as_slice());
     /// ```
@@ -306,7 +306,7 @@ impl SimdLoad<f32> for F32x4 {
     ///
     /// # Alternative
     ///
-    /// Use the standard `load()` function which automatically handles both aligned 
+    /// Use the standard `load()` function which automatically handles both aligned
     /// and unaligned memory efficiently on NEON.
     unsafe fn load_aligned(_ptr: *const f32) -> Self::Output {
         panic!("load_aligned is not applicable for ARM NEON architecture. Use load() instead.")
@@ -323,7 +323,7 @@ impl SimdLoad<f32> for F32x4 {
     ///
     /// # Alternative
     ///
-    /// Use the standard `load()` function which automatically handles both aligned 
+    /// Use the standard `load()` function which automatically handles both aligned
     /// and unaligned memory efficiently on NEON.
     unsafe fn load_unaligned(_ptr: *const f32) -> Self::Output {
         panic!("load_unaligned is not applicable for ARM NEON architecture. Use load() instead.")
@@ -574,6 +574,29 @@ impl SimdMath for F32x4 {
         }
     }
 
+    /// Computes fused multiply-add (FMA) operation: a * b + c.
+    ///
+    /// Performs `multiplier * multiplicand + self` using NEON FMA instructions.
+    /// This is more precise than separate multiply and add operations.
+    #[inline(always)]
+    fn fma(&self, multiplier: Self, multiplicand: Self) -> Self::Output {
+        unsafe {
+            Self {
+                elements: vfmaq_f32(self.elements, multiplier.elements, multiplicand.elements),
+                size: self.size,
+            }
+        }
+    }
+
+    /// Computes fused multiply-add (FMA) operation using parallel SIMD.
+    ///
+    /// For single F32x4 vectors, delegates to the regular FMA implementation
+    /// since parallelization is not applicable to individual vectors.
+    #[inline(always)]
+    fn par_fma(&self, multiplier: Self, multiplicand: Self) -> Self::Output {
+        self.fma(multiplier, multiplicand)
+    }
+
     /// Computes 2D Euclidean distance using optimized NEON math functions.
     ///
     /// Uses the `vhypotq_f32` function for numerically stable computation.
@@ -780,7 +803,7 @@ impl SimdStore<f32> for F32x4 {
     ///
     /// # Alternative
     ///
-    /// Use the standard `store_at()` function which automatically handles both aligned 
+    /// Use the standard `store_at()` function which automatically handles both aligned
     /// and unaligned memory efficiently on NEON.
     unsafe fn store_aligned_at(&self, _ptr: *mut f32) {
         panic!(
@@ -799,7 +822,7 @@ impl SimdStore<f32> for F32x4 {
     ///
     /// # Alternative
     ///
-    /// Use the standard `store_at()` function which automatically handles both aligned 
+    /// Use the standard `store_at()` function which automatically handles both aligned
     /// and unaligned memory efficiently on NEON.
     unsafe fn store_unaligned_at(&self, _ptr: *mut f32) {
         panic!("store_unaligned_at is not applicable for ARM NEON architecture. Use store_at() instead.")

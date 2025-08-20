@@ -28,22 +28,22 @@ use crate::{simd::SimdMath, PARALLEL_SIMD_THRESHOLD};
 use crate::simd::neon::slice::{
     parallel_simd_abs, parallel_simd_acos, parallel_simd_asin, parallel_simd_atan,
     parallel_simd_atan2, parallel_simd_cbrt, parallel_simd_ceil, parallel_simd_cos,
-    parallel_simd_exp, parallel_simd_floor, parallel_simd_hypot, parallel_simd_hypot3,
-    parallel_simd_hypot4, parallel_simd_ln, parallel_simd_pow, parallel_simd_sin,
-    parallel_simd_sqrt, parallel_simd_tan, simd_abs, simd_acos, simd_asin, simd_atan, simd_atan2,
-    simd_cbrt, simd_ceil, simd_cos, simd_exp, simd_floor, simd_hypot, simd_hypot3, simd_hypot4,
-    simd_ln, simd_pow, simd_sin, simd_sqrt, simd_tan,
+    parallel_simd_exp, parallel_simd_floor, parallel_simd_fma, parallel_simd_hypot,
+    parallel_simd_hypot3, parallel_simd_hypot4, parallel_simd_ln, parallel_simd_pow,
+    parallel_simd_sin, parallel_simd_sqrt, parallel_simd_tan, simd_abs, simd_acos, simd_asin,
+    simd_atan, simd_atan2, simd_cbrt, simd_ceil, simd_cos, simd_exp, simd_floor, simd_fma,
+    simd_hypot, simd_hypot3, simd_hypot4, simd_ln, simd_pow, simd_sin, simd_sqrt, simd_tan,
 };
 
 #[cfg(avx2)]
 use crate::simd::avx2::slice::{
     parallel_simd_abs, parallel_simd_acos, parallel_simd_asin, parallel_simd_atan,
     parallel_simd_atan2, parallel_simd_cbrt, parallel_simd_ceil, parallel_simd_cos,
-    parallel_simd_exp, parallel_simd_floor, parallel_simd_hypot, parallel_simd_hypot3,
-    parallel_simd_hypot4, parallel_simd_ln, parallel_simd_pow, parallel_simd_sin,
-    parallel_simd_sqrt, parallel_simd_tan, simd_abs, simd_acos, simd_asin, simd_atan, simd_atan2,
-    simd_cbrt, simd_ceil, simd_cos, simd_exp, simd_floor, simd_hypot, simd_hypot3, simd_hypot4,
-    simd_ln, simd_pow, simd_sin, simd_sqrt, simd_tan,
+    parallel_simd_exp, parallel_simd_floor, parallel_simd_fma, parallel_simd_hypot,
+    parallel_simd_hypot3, parallel_simd_hypot4, parallel_simd_ln, parallel_simd_pow,
+    parallel_simd_sin, parallel_simd_sqrt, parallel_simd_tan, simd_abs, simd_acos, simd_asin,
+    simd_atan, simd_atan2, simd_cbrt, simd_ceil, simd_cos, simd_exp, simd_floor, simd_fma,
+    simd_hypot, simd_hypot3, simd_hypot4, simd_ln, simd_pow, simd_sin, simd_sqrt, simd_tan,
 };
 
 /// Implementation of mathematical operations for `Vec<f32>` using platform-optimized SIMD.
@@ -152,6 +152,12 @@ impl SimdMath for Vec<f32> {
     #[inline(always)]
     fn pow(&self, other: Self) -> Self::Output {
         simd_pow(self, &other)
+    }
+
+    /// Computes fused multiply-add (FMA) operation using platform-optimized SIMD.
+    #[inline(always)]
+    fn fma(&self, multiplier: Self, multiplicand: Self) -> Self::Output {
+        simd_fma(&multiplier, &multiplicand, self)
     }
 
     /// Computes 2D hypotenuse using platform-optimized SIMD instructions.
@@ -321,6 +327,15 @@ impl SimdMath for Vec<f32> {
     fn par_pow(&self, other: Self) -> Self::Output {
         self.as_slice().par_pow(other.as_slice())
     }
+
+    /// Computes fused multiply-add (FMA) operation using size-adaptive parallel SIMD.
+    ///
+    /// Delegates to slice implementation with automatic parallel selection.
+    #[inline(always)]
+    fn par_fma(&self, multiplier: Self, multiplicand: Self) -> Self::Output {
+        self.as_slice()
+            .par_fma(multiplier.as_slice(), multiplicand.as_slice())
+    }
 }
 
 /// Implementation of mathematical operations for f32 slices using platform-optimized SIMD.
@@ -427,6 +442,11 @@ impl SimdMath for &[f32] {
     /// Computes power function using platform-optimized SIMD.
     fn pow(&self, other: Self) -> Self::Output {
         simd_pow(self, other)
+    }
+
+    /// Computes fused multiply-add (FMA) operation using platform-optimized SIMD.
+    fn fma(&self, multiplier: Self, multiplicand: Self) -> Self::Output {
+        simd_fma(multiplier, multiplicand, self)
     }
 
     /// Computes 2D hypotenuse using platform-optimized SIMD.
@@ -627,6 +647,16 @@ impl SimdMath for &[f32] {
         match self.len() > PARALLEL_SIMD_THRESHOLD {
             true => parallel_simd_pow(self, other),
             false => simd_pow(self, other),
+        }
+    }
+
+    /// Computes fused multiply-add (FMA) operation using size-adaptive parallel SIMD.
+    ///
+    /// Automatically selects between regular SIMD and parallel SIMD based on array size.
+    fn par_fma(&self, multiplier: Self, multiplicand: Self) -> Self::Output {
+        match self.len() > PARALLEL_SIMD_THRESHOLD {
+            true => parallel_simd_fma(multiplier, multiplicand, self),
+            false => simd_fma(multiplier, multiplicand, self),
         }
     }
 }
