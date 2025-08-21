@@ -108,6 +108,60 @@ pub struct F32x8 {
     pub elements: __m256,
 }
 
+impl F32x8 {
+    /// Creates a new F32x8 vector with all elements set to zero.
+    ///
+    /// Uses the AVX2 `_mm256_setzero_ps` intrinsic for optimal performance,
+    /// avoiding array allocation and memory operations.
+    ///
+    /// # Returns
+    ///
+    /// A new F32x8 vector containing 8 zero values
+    ///
+    /// # Performance
+    ///
+    /// - **Instruction**: Single `_mm256_setzero_ps` AVX2 intrinsic
+    /// - **Latency**: Zero cycles (handled during register allocation)
+    /// - **Throughput**: No execution units required
+    /// - **Memory**: No memory allocation or access
+    #[inline(always)]
+    pub fn zeros() -> Self {
+        Self {
+            size: LANE_COUNT,
+            elements: unsafe { _mm256_setzero_ps() },
+        }
+    }
+
+    /// Sets the number of valid elements in the vector.
+    ///
+    /// This method updates the size field to indicate how many elements
+    /// in the vector contain valid data. Used for partial vector operations
+    /// where fewer than 8 elements are meaningful.
+    ///
+    /// # Arguments
+    ///
+    /// * `size` - Number of valid elements (should be 1-8)
+    ///
+    /// # Safety
+    ///
+    /// This method does not validate the size parameter. The caller must
+    /// ensure that `size` is within the valid range (1-8) and that the
+    /// corresponding vector elements contain valid data.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use simdly::simd::avx2::f32x8::F32x8;
+    ///
+    /// let mut vec = F32x8::zeros();
+    /// vec.set_size(5); // Mark only first 5 elements as valid
+    /// ```
+    #[inline(always)]
+    pub fn set_size(&mut self, size: usize) {
+        self.size = size;
+    }
+}
+
 impl Alignment<f32> for F32x8 {
     /// Checks if a pointer is properly aligned for AVX2 operations.
     ///

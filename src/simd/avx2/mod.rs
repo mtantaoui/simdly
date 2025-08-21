@@ -50,3 +50,5 @@ pub mod f32x8;
 pub mod math;
 
 pub mod slice;
+
+pub mod outer;

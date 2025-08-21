@@ -241,7 +241,7 @@ impl<T: Clone> From<AlignedVec<T>> for Vec<T> {
 /// - **Fast allocation**: Uses system allocator directly for optimal speed
 /// - **Memory**: Single allocation, no temporary double memory usage
 #[cfg(not(target_os = "windows"))]
-pub(crate) fn alloc_uninit_vec<T>(len: usize, align: usize) -> Vec<T> {
+pub fn alloc_uninit_vec<T>(len: usize, align: usize) -> Vec<T> {
     if len == 0 {
         return Vec::new();
     }

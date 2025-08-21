@@ -83,7 +83,7 @@
 pub mod simd;
 
 /// Internal memory allocation utilities.
-pub(crate) mod utils;
+pub mod utils;
 
 // ================================================================================================
 // PERFORMANCE TUNING CONSTANTS

@@ -103,7 +103,12 @@ harness = false
 name = "hypot4"
 harness = false
 
+[[bench]]
+name = "outer"
+harness = false
+
 [dev-dependencies]
 criterion = { version = "0.5.1", default-features = true, features=["default", "plotters"]}
 ndarray = "0.16.1"
+faer = "0.19.2"
 rand = "0.9.2"
