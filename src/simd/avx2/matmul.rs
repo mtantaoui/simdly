@@ -46,19 +46,19 @@ pub const MR: usize = 8;
 
 /// Microkernel column dimension: Number of columns processed simultaneously.
 /// Set to 8 to balance register usage and cache efficiency for the 8×8 microkernel.
-pub const NR: usize = 8;
+pub const NR: usize = 4;
 
 /// L1 cache block size for K dimension (inner product length).
 /// Chosen so that MR×KC panel of A and KC×NR panel of B fit in L1 cache.
-pub const KC: usize = 32;
+pub const KC: usize = 512;
 
 /// L2 cache block size for M dimension (A rows, C rows).
 /// Must be a multiple of MR. Tuned for L2 cache capacity.
-pub const MC: usize = 32; // 2 × MR
+pub const MC: usize = 256; // 2 × MR
 
 /// L3 cache block size for N dimension (B columns, C columns).
 /// Must be a multiple of NR. Tuned for L3 cache capacity.
-pub const NC: usize = 32; // 2 × NR
+pub const NC: usize = 1024; // 2 × NR
 
 // --- Helper Functions ---
 
@@ -347,7 +347,66 @@ impl<const MR: usize, const KC: usize> IndexMut<usize> for ABlock<MR, KC> {
 /// # Panics
 /// Panics if matrix dimensions don't match slice lengths.
 pub fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
-    matmul_with_params(a, b, c, m, n, k, MC, NC);
+    // Handle edge cases
+    if m == 0 || n == 0 || k == 0 {
+        return; // Nothing to compute
+    }
+
+    // Verify input dimensions
+    assert_eq!(a.len(), m * k, "Matrix A has incorrect dimensions");
+    assert_eq!(b.len(), k * n, "Matrix B has incorrect dimensions");
+    assert_eq!(c.len(), m * n, "Matrix C has incorrect dimensions");
+    // jc loop: Process N dimension in nc-wide blocks (L3 cache optimization)
+    for jc in (0..n).step_by(NC) {
+        let nc_actual = min(NC, n - jc);
+
+        // pc loop: Process K dimension in KC-wide blocks
+        // Placed outside ic loop to reuse packed B across multiple A blocks
+        for pc in (0..k).step_by(KC) {
+            let kc_actual = min(KC, k - pc);
+
+            // Pack B block: B(pc:pc+kc_actual-1, jc:jc+nc_actual-1) → row-major panels
+            let b_block = pack_b::<KC, NR>(b, nc_actual, kc_actual, k, pc, jc);
+
+            // ic loop: Process M dimension in mc-wide blocks (L2 cache optimization)
+            for ic in (0..m).step_by(MC) {
+                let mc_actual = min(MC, m - ic);
+
+                // Pack A block: A(ic:ic+mc_actual-1, pc:pc+kc_actual-1) → column-major panels
+                let a_block = pack_a::<MR, KC>(a, mc_actual, kc_actual, m, ic, pc);
+
+                // jr and ir loops: Process packed panels with MR×NR microkernel
+                for jr in 0..b_block.as_panels().len() {
+                    let b_panel = &b_block[jr];
+                    let nr = min(NR, nc_actual - jr * NR);
+
+                    for ir in 0..a_block.as_panels().len() {
+                        let a_panel = &a_block[ir];
+                        let mr = min(MR, mc_actual - ir * MR);
+
+                        // Compute C(ic+ir*MR:ic+ir*MR+mr-1, jc+jr*NR:jc+jr*NR+nr-1)
+                        let c_row = ic + ir * MR;
+                        let c_col = jc + jr * NR;
+                        let c_micropanel_start_idx = at(c_row, c_col, m);
+                        let c_micropanel = &mut c[c_micropanel_start_idx..];
+
+                        // Execute MR×NR microkernel with AVX2 optimization
+                        unsafe {
+                            kernel_MRxNR(
+                                a_panel,
+                                b_panel,
+                                c_micropanel.as_mut_ptr(),
+                                mr,
+                                nr,
+                                kc_actual,
+                                m,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Column-major matrix multiplication using optimized BLIS algorithm with runtime MC/NC parameters.
@@ -570,70 +629,70 @@ unsafe fn kernel_MRxNR(
         // 8xNR FMA operations: C[0..7, j] += A[0..7, k] * B[k, j]
         // Use optimized SIMD shuffle-based broadcasting for maximum performance
         match nr {
-            8 => {
-                // Load B values into SIMD vector for efficient shuffling
-                let b_vec = F32x8::from(b_data.as_slice());
+            // 8 => {
+            //     // Load B values into SIMD vector for efficient shuffling
+            //     let b_vec = F32x8::from(b_data.as_slice());
 
-                // Use SIMD shuffle operations for efficient broadcasting
-                let b_lower = b_vec.permute2f128::<0x00>(); // [b0,b1,b2,b3, b0,b1,b2,b3]
-                let b_upper = b_vec.permute2f128::<0x11>(); // [b4,b5,b6,b7, b4,b5,b6,b7]
+            //     // Use SIMD shuffle operations for efficient broadcasting
+            //     let b_lower = b_vec.permute2f128::<0x00>(); // [b0,b1,b2,b3, b0,b1,b2,b3]
+            //     let b_upper = b_vec.permute2f128::<0x11>(); // [b4,b5,b6,b7, b4,b5,b6,b7]
 
-                // Broadcast individual elements using permute
-                let b0_bc = b_lower.permute::<0x00>(); // [b0, b0, b0, b0, b0, b0, b0, b0]
-                let b1_bc = b_lower.permute::<0x55>(); // [b1, b1, b1, b1, b1, b1, b1, b1]
-                let b2_bc = b_lower.permute::<0xAA>(); // [b2, b2, b2, b2, b2, b2, b2, b2]
-                let b3_bc = b_lower.permute::<0xFF>(); // [b3, b3, b3, b3, b3, b3, b3, b3]
-                let b4_bc = b_upper.permute::<0x00>(); // [b4, b4, b4, b4, b4, b4, b4, b4]
-                let b5_bc = b_upper.permute::<0x55>(); // [b5, b5, b5, b5, b5, b5, b5, b5]
-                let b6_bc = b_upper.permute::<0xAA>(); // [b6, b6, b6, b6, b6, b6, b6, b6]
-                let b7_bc = b_upper.permute::<0xFF>(); // [b7, b7, b7, b7, b7, b7, b7, b7]
+            //     // Broadcast individual elements using permute
+            //     let b0_bc = b_lower.permute::<0x00>(); // [b0, b0, b0, b0, b0, b0, b0, b0]
+            //     let b1_bc = b_lower.permute::<0x55>(); // [b1, b1, b1, b1, b1, b1, b1, b1]
+            //     let b2_bc = b_lower.permute::<0xAA>(); // [b2, b2, b2, b2, b2, b2, b2, b2]
+            //     let b3_bc = b_lower.permute::<0xFF>(); // [b3, b3, b3, b3, b3, b3, b3, b3]
+            //     let b4_bc = b_upper.permute::<0x00>(); // [b4, b4, b4, b4, b4, b4, b4, b4]
+            //     let b5_bc = b_upper.permute::<0x55>(); // [b5, b5, b5, b5, b5, b5, b5, b5]
+            //     let b6_bc = b_upper.permute::<0xAA>(); // [b6, b6, b6, b6, b6, b6, b6, b6]
+            //     let b7_bc = b_upper.permute::<0xFF>(); // [b7, b7, b7, b7, b7, b7, b7, b7]
 
-                // Optimized 8-way unrolled FMA operations using shuffle-based broadcasts
-                c_cols[0] = c_cols[0].fma(a_vec, b0_bc);
-                c_cols[1] = c_cols[1].fma(a_vec, b1_bc);
-                c_cols[2] = c_cols[2].fma(a_vec, b2_bc);
-                c_cols[3] = c_cols[3].fma(a_vec, b3_bc);
-                c_cols[4] = c_cols[4].fma(a_vec, b4_bc);
-                c_cols[5] = c_cols[5].fma(a_vec, b5_bc);
-                c_cols[6] = c_cols[6].fma(a_vec, b6_bc);
-                c_cols[7] = c_cols[7].fma(a_vec, b7_bc);
-            }
-            7 => {
-                let b_vec = F32x8::from(b_data.as_slice());
-                let b_lower = b_vec.permute2f128::<0x00>();
-                let b_upper = b_vec.permute2f128::<0x11>();
+            //     // Optimized 8-way unrolled FMA operations using shuffle-based broadcasts
+            //     c_cols[0] = c_cols[0].fma(a_vec, b0_bc);
+            //     c_cols[1] = c_cols[1].fma(a_vec, b1_bc);
+            //     c_cols[2] = c_cols[2].fma(a_vec, b2_bc);
+            //     c_cols[3] = c_cols[3].fma(a_vec, b3_bc);
+            //     c_cols[4] = c_cols[4].fma(a_vec, b4_bc);
+            //     c_cols[5] = c_cols[5].fma(a_vec, b5_bc);
+            //     c_cols[6] = c_cols[6].fma(a_vec, b6_bc);
+            //     c_cols[7] = c_cols[7].fma(a_vec, b7_bc);
+            // }
+            // 7 => {
+            //     let b_vec = F32x8::from(b_data.as_slice());
+            //     let b_lower = b_vec.permute2f128::<0x00>();
+            //     let b_upper = b_vec.permute2f128::<0x11>();
 
-                c_cols[0] = c_cols[0].fma(a_vec, b_lower.permute::<0x00>());
-                c_cols[1] = c_cols[1].fma(a_vec, b_lower.permute::<0x55>());
-                c_cols[2] = c_cols[2].fma(a_vec, b_lower.permute::<0xAA>());
-                c_cols[3] = c_cols[3].fma(a_vec, b_lower.permute::<0xFF>());
-                c_cols[4] = c_cols[4].fma(a_vec, b_upper.permute::<0x00>());
-                c_cols[5] = c_cols[5].fma(a_vec, b_upper.permute::<0x55>());
-                c_cols[6] = c_cols[6].fma(a_vec, b_upper.permute::<0xAA>());
-            }
-            6 => {
-                let b_vec = F32x8::from(b_data.as_slice());
-                let b_lower = b_vec.permute2f128::<0x00>();
-                let b_upper = b_vec.permute2f128::<0x11>();
+            //     c_cols[0] = c_cols[0].fma(a_vec, b_lower.permute::<0x00>());
+            //     c_cols[1] = c_cols[1].fma(a_vec, b_lower.permute::<0x55>());
+            //     c_cols[2] = c_cols[2].fma(a_vec, b_lower.permute::<0xAA>());
+            //     c_cols[3] = c_cols[3].fma(a_vec, b_lower.permute::<0xFF>());
+            //     c_cols[4] = c_cols[4].fma(a_vec, b_upper.permute::<0x00>());
+            //     c_cols[5] = c_cols[5].fma(a_vec, b_upper.permute::<0x55>());
+            //     c_cols[6] = c_cols[6].fma(a_vec, b_upper.permute::<0xAA>());
+            // }
+            // 6 => {
+            //     let b_vec = F32x8::from(b_data.as_slice());
+            //     let b_lower = b_vec.permute2f128::<0x00>();
+            //     let b_upper = b_vec.permute2f128::<0x11>();
 
-                c_cols[0] = c_cols[0].fma(a_vec, b_lower.permute::<0x00>());
-                c_cols[1] = c_cols[1].fma(a_vec, b_lower.permute::<0x55>());
-                c_cols[2] = c_cols[2].fma(a_vec, b_lower.permute::<0xAA>());
-                c_cols[3] = c_cols[3].fma(a_vec, b_lower.permute::<0xFF>());
-                c_cols[4] = c_cols[4].fma(a_vec, b_upper.permute::<0x00>());
-                c_cols[5] = c_cols[5].fma(a_vec, b_upper.permute::<0x55>());
-            }
-            5 => {
-                let b_vec = F32x8::from(b_data.as_slice());
-                let b_lower = b_vec.permute2f128::<0x00>();
-                let b_upper = b_vec.permute2f128::<0x11>();
+            //     c_cols[0] = c_cols[0].fma(a_vec, b_lower.permute::<0x00>());
+            //     c_cols[1] = c_cols[1].fma(a_vec, b_lower.permute::<0x55>());
+            //     c_cols[2] = c_cols[2].fma(a_vec, b_lower.permute::<0xAA>());
+            //     c_cols[3] = c_cols[3].fma(a_vec, b_lower.permute::<0xFF>());
+            //     c_cols[4] = c_cols[4].fma(a_vec, b_upper.permute::<0x00>());
+            //     c_cols[5] = c_cols[5].fma(a_vec, b_upper.permute::<0x55>());
+            // }
+            // 5 => {
+            //     let b_vec = F32x8::from(b_data.as_slice());
+            //     let b_lower = b_vec.permute2f128::<0x00>();
+            //     let b_upper = b_vec.permute2f128::<0x11>();
 
-                c_cols[0] = c_cols[0].fma(a_vec, b_lower.permute::<0x00>());
-                c_cols[1] = c_cols[1].fma(a_vec, b_lower.permute::<0x55>());
-                c_cols[2] = c_cols[2].fma(a_vec, b_lower.permute::<0xAA>());
-                c_cols[3] = c_cols[3].fma(a_vec, b_lower.permute::<0xFF>());
-                c_cols[4] = c_cols[4].fma(a_vec, b_upper.permute::<0x00>());
-            }
+            //     c_cols[0] = c_cols[0].fma(a_vec, b_lower.permute::<0x00>());
+            //     c_cols[1] = c_cols[1].fma(a_vec, b_lower.permute::<0x55>());
+            //     c_cols[2] = c_cols[2].fma(a_vec, b_lower.permute::<0xAA>());
+            //     c_cols[3] = c_cols[3].fma(a_vec, b_lower.permute::<0xFF>());
+            //     c_cols[4] = c_cols[4].fma(a_vec, b_upper.permute::<0x00>());
+            // }
             4 => {
                 let b_vec = F32x8::from(b_data.as_slice());
                 let b_lower = b_vec.permute2f128::<0x00>();
@@ -670,40 +729,40 @@ unsafe fn kernel_MRxNR(
 
     // Store results back to C matrix
     match nr {
-        8 => {
-            c_cols[0].store_at(c_micropanel);
-            c_cols[1].store_at(c_micropanel.add(m));
-            c_cols[2].store_at(c_micropanel.add(2 * m));
-            c_cols[3].store_at(c_micropanel.add(3 * m));
-            c_cols[4].store_at(c_micropanel.add(4 * m));
-            c_cols[5].store_at(c_micropanel.add(5 * m));
-            c_cols[6].store_at(c_micropanel.add(6 * m));
-            c_cols[7].store_at(c_micropanel.add(7 * m));
-        }
-        7 => {
-            c_cols[0].store_at(c_micropanel);
-            c_cols[1].store_at(c_micropanel.add(m));
-            c_cols[2].store_at(c_micropanel.add(2 * m));
-            c_cols[3].store_at(c_micropanel.add(3 * m));
-            c_cols[4].store_at(c_micropanel.add(4 * m));
-            c_cols[5].store_at(c_micropanel.add(5 * m));
-            c_cols[6].store_at(c_micropanel.add(6 * m));
-        }
-        6 => {
-            c_cols[0].store_at(c_micropanel);
-            c_cols[1].store_at(c_micropanel.add(m));
-            c_cols[2].store_at(c_micropanel.add(2 * m));
-            c_cols[3].store_at(c_micropanel.add(3 * m));
-            c_cols[4].store_at(c_micropanel.add(4 * m));
-            c_cols[5].store_at(c_micropanel.add(5 * m));
-        }
-        5 => {
-            c_cols[0].store_at(c_micropanel);
-            c_cols[1].store_at(c_micropanel.add(m));
-            c_cols[2].store_at(c_micropanel.add(2 * m));
-            c_cols[3].store_at(c_micropanel.add(3 * m));
-            c_cols[4].store_at(c_micropanel.add(4 * m));
-        }
+        // 8 => {
+        //     c_cols[0].store_at(c_micropanel);
+        //     c_cols[1].store_at(c_micropanel.add(m));
+        //     c_cols[2].store_at(c_micropanel.add(2 * m));
+        //     c_cols[3].store_at(c_micropanel.add(3 * m));
+        //     c_cols[4].store_at(c_micropanel.add(4 * m));
+        //     c_cols[5].store_at(c_micropanel.add(5 * m));
+        //     c_cols[6].store_at(c_micropanel.add(6 * m));
+        //     c_cols[7].store_at(c_micropanel.add(7 * m));
+        // }
+        // 7 => {
+        //     c_cols[0].store_at(c_micropanel);
+        //     c_cols[1].store_at(c_micropanel.add(m));
+        //     c_cols[2].store_at(c_micropanel.add(2 * m));
+        //     c_cols[3].store_at(c_micropanel.add(3 * m));
+        //     c_cols[4].store_at(c_micropanel.add(4 * m));
+        //     c_cols[5].store_at(c_micropanel.add(5 * m));
+        //     c_cols[6].store_at(c_micropanel.add(6 * m));
+        // }
+        // 6 => {
+        //     c_cols[0].store_at(c_micropanel);
+        //     c_cols[1].store_at(c_micropanel.add(m));
+        //     c_cols[2].store_at(c_micropanel.add(2 * m));
+        //     c_cols[3].store_at(c_micropanel.add(3 * m));
+        //     c_cols[4].store_at(c_micropanel.add(4 * m));
+        //     c_cols[5].store_at(c_micropanel.add(5 * m));
+        // }
+        // 5 => {
+        //     c_cols[0].store_at(c_micropanel);
+        //     c_cols[1].store_at(c_micropanel.add(m));
+        //     c_cols[2].store_at(c_micropanel.add(2 * m));
+        //     c_cols[3].store_at(c_micropanel.add(3 * m));
+        //     c_cols[4].store_at(c_micropanel.add(4 * m));
+        // }
         4 => {
             c_cols[0].store_at(c_micropanel);
             c_cols[1].store_at(c_micropanel.add(m));

@@ -4,12 +4,10 @@
 //! using AVX2 SIMD instructions. The implementation processes data in chunks of
 //! LANE_COUNT elements simultaneously for optimal performance.
 
-use rayon::prelude::*;
-
 use crate::{
     simd::{
         avx2::f32x8::{F32x8, AVX_ALIGNMENT, LANE_COUNT},
-        SimdMath, SimdShuffle, SimdStore,
+        SimdShuffle, SimdStore,
     },
     utils::alloc_uninit_vec,
 };
@@ -57,11 +55,17 @@ pub fn simd_outer_product(a: F32x8, b: F32x8) -> [F32x8; LANE_COUNT] {
     let a1_broadcast = a_lower_lane.permute::<0x55>(); // [a1, a1, a1, a1, a1, a1, a1, a1]
     let a5_broadcast = a_upper_lane.permute::<0x55>(); // [a5, a5, a5, a5, a5, a5, a5, a5]
 
-    // Compute outer products using FMA (more precise than separate mul+add)
-    result[0] = result[0].fma(a0_broadcast, b);
-    result[4] = result[4].fma(a4_broadcast, b);
-    result[1] = result[1].fma(a1_broadcast, b);
-    result[5] = result[5].fma(a5_broadcast, b);
+    // Create size-matched broadcast vectors once for all operations
+    let target_size = b.size;
+    let mut a0_sized = a0_broadcast; a0_sized.size = target_size;
+    let mut a4_sized = a4_broadcast; a4_sized.size = target_size;
+    let mut a1_sized = a1_broadcast; a1_sized.size = target_size;
+    let mut a5_sized = a5_broadcast; a5_sized.size = target_size;
+    
+    result[0] = a0_sized * b;
+    result[4] = a4_sized * b;
+    result[1] = a1_sized * b;
+    result[5] = a5_sized * b;
 
     // Second batch: broadcast elements 2 and 6, then 3 and 7
     let a2_broadcast = a_lower_lane.permute::<0xAA>(); // [a2, a2, a2, a2, a2, a2, a2, a2]
@@ -69,10 +73,15 @@ pub fn simd_outer_product(a: F32x8, b: F32x8) -> [F32x8; LANE_COUNT] {
     let a3_broadcast = a_lower_lane.permute::<0xFF>(); // [a3, a3, a3, a3, a3, a3, a3, a3]
     let a7_broadcast = a_upper_lane.permute::<0xFF>(); // [a7, a7, a7, a7, a7, a7, a7, a7]
 
-    result[2] = result[2].fma(a2_broadcast, b);
-    result[6] = result[6].fma(a6_broadcast, b);
-    result[3] = result[3].fma(a3_broadcast, b);
-    result[7] = result[7].fma(a7_broadcast, b);
+    let mut a2_sized = a2_broadcast; a2_sized.size = target_size;
+    let mut a6_sized = a6_broadcast; a6_sized.size = target_size;
+    let mut a3_sized = a3_broadcast; a3_sized.size = target_size;
+    let mut a7_sized = a7_broadcast; a7_sized.size = target_size;
+    
+    result[2] = a2_sized * b;
+    result[6] = a6_sized * b;
+    result[3] = a3_sized * b;
+    result[7] = a7_sized * b;
 
     result
 }
@@ -296,50 +305,50 @@ pub fn outer(vec_a: &[f32], vec_b: &[f32]) -> Vec<f32> {
     result
 }
 
-/// Computes the outer product of two f32 vectors using AVX2 SIMD optimization.
-///
-/// # Arguments
-/// * `vec_a` - First input vector
-/// * `vec_b` - Second input vector
-///
-/// # Returns
-/// Vector containing the outer product matrix in row-major format
-pub fn par_outer(vec_a: &[f32], vec_b: &[f32]) -> Vec<f32> {
-    if vec_a.is_empty() || vec_b.is_empty() {
-        return Vec::new();
-    }
+// /// Computes the outer product of two f32 vectors using AVX2 SIMD optimization.
+// ///
+// /// # Arguments
+// /// * `vec_a` - First input vector
+// /// * `vec_b` - Second input vector
+// ///
+// /// # Returns
+// /// Vector containing the outer product matrix in row-major format
+// pub fn par_outer(vec_a: &[f32], vec_b: &[f32]) -> Vec<f32> {
+//     if vec_a.is_empty() || vec_b.is_empty() {
+//         return Vec::new();
+//     }
 
-    let result = alloc_uninit_vec::<f32>(vec_a.len() * vec_b.len(), AVX_ALIGNMENT);
+//     let result = alloc_uninit_vec::<f32>(vec_a.len() * vec_b.len(), AVX_ALIGNMENT);
 
-    vec_b
-        .chunks(LANE_COUNT)
-        .enumerate()
-        .for_each(|(a_chunk_idx, a_chunk)| {
-            vec_a
-                .chunks(LANE_COUNT)
-                .enumerate()
-                .for_each(|(b_chunk_idx, b_chunk)| {
-                    let a_start = a_chunk_idx * LANE_COUNT;
-                    let b_start = b_chunk_idx * LANE_COUNT;
+//     vec_b
+//         .chunks(LANE_COUNT)
+//         .enumerate()
+//         .for_each(|(a_chunk_idx, a_chunk)| {
+//             vec_a
+//                 .chunks(LANE_COUNT)
+//                 .enumerate()
+//                 .for_each(|(b_chunk_idx, b_chunk)| {
+//                     let a_start = a_chunk_idx * LANE_COUNT;
+//                     let b_start = b_chunk_idx * LANE_COUNT;
 
-                    let a_chunk = F32x8::from(a_chunk);
-                    let b_chunk = F32x8::from(b_chunk);
+//                     let a_chunk = F32x8::from(a_chunk);
+//                     let b_chunk = F32x8::from(b_chunk);
 
-                    let mut chunk_result = simd_outer_product(a_chunk, b_chunk);
+//                     let mut chunk_result = simd_outer_product(a_chunk, b_chunk);
 
-                    // Store results for each row in the chunk
-                    for row_offset in 0..a_chunk.size {
-                        let result_row = a_start + row_offset;
-                        let storage_index = result_row * vec_b.len() + b_start;
+//                     // Store results for each row in the chunk
+//                     for row_offset in 0..a_chunk.size {
+//                         let result_row = a_start + row_offset;
+//                         let storage_index = result_row * vec_b.len() + b_start;
 
-                        chunk_result[row_offset].set_size(b_chunk.size);
-                        chunk_result[row_offset].store_at(result[storage_index..].as_ptr());
-                    }
-                })
-        });
+//                         chunk_result[row_offset].set_size(b_chunk.size);
+//                         chunk_result[row_offset].store_at(result[storage_index..].as_ptr());
+//                     }
+//                 })
+//         });
 
-    result
-}
+//     result
+// }
 
 // /// Computes the outer product of two f32 vectors using AVX2 SIMD optimization.
 // ///
@@ -464,62 +473,62 @@ mod tests {
         assert_eq!(outer(&[], &[]), Vec::<f32>::new());
     }
 
-    // Tests for par_outer function
-    #[test]
-    fn test_par_small_vectors() {
-        let a = vec![1.0, 2.0, 3.0];
-        let b = vec![4.0, 5.0];
-        let result = par_outer(&a, &b);
-        let expected = vec![4.0, 5.0, 8.0, 10.0, 12.0, 15.0];
-        assert_vectors_approx_eq(&result, &expected, 1e-6);
-    }
+    // // Tests for par_outer function
+    // #[test]
+    // fn test_par_small_vectors() {
+    //     let a = vec![1.0, 2.0, 3.0];
+    //     let b = vec![4.0, 5.0];
+    //     let result = par_outer(&a, &b);
+    //     let expected = vec![4.0, 5.0, 8.0, 10.0, 12.0, 15.0];
+    //     assert_vectors_approx_eq(&result, &expected, 1e-6);
+    // }
 
-    #[test]
-    fn test_par_exact_chunk_size() {
-        let a: Vec<f32> = (1..=LANE_COUNT).map(|i| i as f32).collect();
-        let b: Vec<f32> = (9..=9 + LANE_COUNT - 1).map(|i| i as f32).collect();
-        let result = par_outer(&a, &b);
-        let expected = scalar_outer_product(&a, &b);
-        assert_eq!(result.len(), LANE_COUNT * LANE_COUNT);
-        assert_vectors_approx_eq(&result, &expected, 1e-5);
-    }
+    // #[test]
+    // fn test_par_exact_chunk_size() {
+    //     let a: Vec<f32> = (1..=LANE_COUNT).map(|i| i as f32).collect();
+    //     let b: Vec<f32> = (9..=9 + LANE_COUNT - 1).map(|i| i as f32).collect();
+    //     let result = par_outer(&a, &b);
+    //     let expected = scalar_outer_product(&a, &b);
+    //     assert_eq!(result.len(), LANE_COUNT * LANE_COUNT);
+    //     assert_vectors_approx_eq(&result, &expected, 1e-5);
+    // }
 
-    #[test]
-    fn test_par_partial_chunks() {
-        let a: Vec<f32> = (1..=5).map(|i| i as f32).collect();
-        let b: Vec<f32> = (1..=12).map(|i| i as f32 * 0.5).collect();
-        let result = par_outer(&a, &b);
-        let expected = scalar_outer_product(&a, &b);
-        assert_eq!(result.len(), 60);
-        assert_vectors_approx_eq(&result, &expected, 1e-5);
-    }
+    // #[test]
+    // fn test_par_partial_chunks() {
+    //     let a: Vec<f32> = (1..=5).map(|i| i as f32).collect();
+    //     let b: Vec<f32> = (1..=12).map(|i| i as f32 * 0.5).collect();
+    //     let result = par_outer(&a, &b);
+    //     let expected = scalar_outer_product(&a, &b);
+    //     assert_eq!(result.len(), 60);
+    //     assert_vectors_approx_eq(&result, &expected, 1e-5);
+    // }
 
-    #[test]
-    fn test_par_large_vectors() {
-        let a: Vec<f32> = (1..=1000).map(|i| i as f32).collect();
-        let b: Vec<f32> = (1..=758).map(|i| i as f32 * 1.5).collect();
-        let result = par_outer(&a, &b);
-        let expected = scalar_outer_product(&a, &b);
-        assert_eq!(result.len(), a.len() * b.len());
-        assert_vectors_approx_eq(&result, &expected, 1e-4);
-    }
+    // #[test]
+    // fn test_par_large_vectors() {
+    //     let a: Vec<f32> = (1..=1000).map(|i| i as f32).collect();
+    //     let b: Vec<f32> = (1..=758).map(|i| i as f32 * 1.5).collect();
+    //     let result = par_outer(&a, &b);
+    //     let expected = scalar_outer_product(&a, &b);
+    //     assert_eq!(result.len(), a.len() * b.len());
+    //     assert_vectors_approx_eq(&result, &expected, 1e-4);
+    // }
 
-    #[test]
-    fn test_par_empty_vectors() {
-        assert_eq!(par_outer(&[], &[1.0, 2.0]), Vec::<f32>::new());
-        assert_eq!(par_outer(&[1.0, 2.0], &[]), Vec::<f32>::new());
-        assert_eq!(par_outer(&[], &[]), Vec::<f32>::new());
-    }
+    // #[test]
+    // fn test_par_empty_vectors() {
+    //     assert_eq!(par_outer(&[], &[1.0, 2.0]), Vec::<f32>::new());
+    //     assert_eq!(par_outer(&[1.0, 2.0], &[]), Vec::<f32>::new());
+    //     assert_eq!(par_outer(&[], &[]), Vec::<f32>::new());
+    // }
 
-    #[test]
-    fn test_par_vs_sequential_consistency() {
-        let a: Vec<f32> = (1..=50).map(|i| i as f32 * 0.1).collect();
-        let b: Vec<f32> = (1..=37).map(|i| i as f32 * 0.2).collect();
+    // #[test]
+    // fn test_par_vs_sequential_consistency() {
+    //     let a: Vec<f32> = (1..=50).map(|i| i as f32 * 0.1).collect();
+    //     let b: Vec<f32> = (1..=37).map(|i| i as f32 * 0.2).collect();
 
-        let sequential_result = outer(&a, &b);
-        let parallel_result = par_outer(&a, &b);
+    //     let sequential_result = outer(&a, &b);
+    //     let parallel_result = par_outer(&a, &b);
 
-        assert_eq!(sequential_result.len(), parallel_result.len());
-        assert_vectors_approx_eq(&parallel_result, &sequential_result, 1e-6);
-    }
+    //     assert_eq!(sequential_result.len(), parallel_result.len());
+    //     assert_vectors_approx_eq(&parallel_result, &sequential_result, 1e-6);
+    // }
 }

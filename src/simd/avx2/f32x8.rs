@@ -60,6 +60,42 @@ pub(crate) const AVX_ALIGNMENT: usize = 32;
 /// and is used for bounds checking and loop unrolling optimizations.
 pub(crate) const LANE_COUNT: usize = 8;
 
+// Precomputed masks for faster partial loads.
+// The mask is an array of __m256i where each element is either all 1s (-1) or all 0s.
+// MASK[i] will have the first `i` lanes set to 1.
+static MASK: [__m256i; 8] = [
+    unsafe { std::mem::transmute([0u32, 0, 0, 0, 0, 0, 0, 0]) },
+    unsafe { std::mem::transmute([u32::MAX, 0, 0, 0, 0, 0, 0, 0]) },
+    unsafe { std::mem::transmute([u32::MAX, u32::MAX, 0, 0, 0, 0, 0, 0]) },
+    unsafe { std::mem::transmute([u32::MAX, u32::MAX, u32::MAX, 0, 0, 0, 0, 0]) },
+    unsafe { std::mem::transmute([u32::MAX, u32::MAX, u32::MAX, u32::MAX, 0, 0, 0, 0]) },
+    unsafe { std::mem::transmute([u32::MAX, u32::MAX, u32::MAX, u32::MAX, u32::MAX, 0, 0, 0]) },
+    unsafe {
+        std::mem::transmute([
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            0,
+            0,
+        ])
+    },
+    unsafe {
+        std::mem::transmute([
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            0,
+        ])
+    },
+];
+
 /// AVX2 SIMD vector containing 8 packed f32 values.
 ///
 /// This structure provides efficient vectorized operations on 8 single-precision
@@ -323,16 +359,8 @@ impl SimdLoad<f32> for F32x8 {
 
         debug_assert!(!ptr.is_null(), "Pointer must not be null");
 
-        let mask = match size {
-            1 => _mm256_setr_epi32(-1, 0, 0, 0, 0, 0, 0, 0),
-            2 => _mm256_setr_epi32(-1, -1, 0, 0, 0, 0, 0, 0),
-            3 => _mm256_setr_epi32(-1, -1, -1, 0, 0, 0, 0, 0),
-            4 => _mm256_setr_epi32(-1, -1, -1, -1, 0, 0, 0, 0),
-            5 => _mm256_setr_epi32(-1, -1, -1, -1, -1, 0, 0, 0),
-            6 => _mm256_setr_epi32(-1, -1, -1, -1, -1, -1, 0, 0),
-            7 => _mm256_setr_epi32(-1, -1, -1, -1, -1, -1, -1, 0),
-            _ => unreachable!(),
-        };
+        // 1. Create a mask from our pre-computed table.
+        let mask = *MASK.get_unchecked(size);
 
         Self {
             elements: _mm256_maskload_ps(ptr, mask),

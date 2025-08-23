@@ -52,3 +52,7 @@ pub mod math;
 pub mod slice;
 
 pub mod outer;
+
+pub mod matmul;
+
+pub mod blis;
