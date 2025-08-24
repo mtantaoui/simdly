@@ -8,7 +8,27 @@ use std::slice;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use simdly::simd::avx2::f32x8::F32x8;
-use simdly::simd::{SimdMath, SimdShuffle, SimdStore};
+use simdly::simd::{SimdLoad, SimdMath, SimdShuffle, SimdStore};
+
+pub fn display_matrix_row_major(m: usize, n: usize, ld: usize, a: &[f32]) {
+    for i in 0..m {
+        for j in 0..n {
+            print!("{} \t", a[i * ld + j]); // Row-major indexing
+        }
+        println!()
+    }
+    println!("---");
+}
+
+pub fn display_matrix_column_major(m: usize, n: usize, ld: usize, a: &[f32]) {
+    for i in 0..m {
+        for j in 0..n {
+            print!("{} \t", a[at(i, j, ld)]);
+        }
+        println!()
+    }
+    println!("---");
+}
 
 // --- Algorithm Constants ---
 
@@ -17,17 +37,19 @@ use simdly::simd::{SimdMath, SimdShuffle, SimdStore};
 /// allows for the use of faster, aligned load/store instructions.
 const ALIGNMENT: usize = 32;
 
+const LANE_COUNT: usize = 8;
+
 /// Microkernel row dimension: Number of rows processed simultaneously.
 /// Set to 8 to match AVX2 F32x8 vector width (8 × 32-bit floats = 256 bits).
 pub const MR: usize = 8;
 
 /// Microkernel column dimension: Number of columns processed simultaneously.
 /// Set to 8 to balance register usage and cache efficiency for the 8×8 microkernel.
-pub const NR: usize = 6;
+pub const NR: usize = 8;
 
 /// L1 cache block size for K dimension (inner product length).
 /// Chosen so that MR×KC panel of A and KC×NR panel of B fit in L1 cache.
-pub const KC: usize = 64;
+pub const KC: usize = 16;
 
 // /// L2 cache block size for M dimension (A rows, C rows).
 // /// Must be a multiple of MR. Tuned for L2 cache capacity.
@@ -320,6 +342,7 @@ fn matmul_with_params(
     assert_eq!(a.len(), m * k, "Matrix A has incorrect dimensions");
     assert_eq!(b.len(), k * n, "Matrix B has incorrect dimensions");
     assert_eq!(c.len(), m * n, "Matrix C has incorrect dimensions");
+
     // jc loop: Process N dimension in nc-wide blocks (L3 cache optimization)
     for jc in (0..n).step_by(nc) {
         let nc_actual = min(nc, n - jc);
@@ -327,17 +350,17 @@ fn matmul_with_params(
         // pc loop: Process K dimension in KC-wide blocks
         // Placed outside ic loop to reuse packed B across multiple A blocks
         for pc in (0..k).step_by(KC) {
-            let kc_actual = min(KC, k - pc);
+            let kc = min(KC, k - pc);
 
             // Pack B block: B(pc:pc+kc_actual-1, jc:jc+nc_actual-1) → row-major panels
-            let b_block = pack_b::<KC, NR>(b, nc_actual, kc_actual, k, pc, jc);
+            let b_block = pack_b::<KC, NR>(b, nc_actual, kc, k, pc, jc);
 
             // ic loop: Process M dimension in mc-wide blocks (L2 cache optimization)
             for ic in (0..m).step_by(mc) {
                 let mc_actual = min(mc, m - ic);
 
                 // Pack A block: A(ic:ic+mc_actual-1, pc:pc+kc_actual-1) → column-major panels
-                let a_block = pack_a::<MR, KC>(a, mc_actual, kc_actual, m, ic, pc);
+                let a_block = pack_a::<MR, KC>(a, mc_actual, kc, m, ic, pc);
 
                 // jr and ir loops: Process packed panels with MR×NR microkernel
                 for jr in 0..b_block.as_panels().len() {
@@ -354,17 +377,8 @@ fn matmul_with_params(
                         let c_micropanel_start_idx = at(c_row, c_col, m);
                         let c_micropanel = &mut c[c_micropanel_start_idx..];
 
-                        // Execute MR×NR microkernel with AVX2 optimization
                         unsafe {
-                            kernel_MRxNR(
-                                a_panel,
-                                b_panel,
-                                c_micropanel.as_mut_ptr(),
-                                mr,
-                                nr,
-                                kc_actual,
-                                m,
-                            );
+                            kernel(a_panel, b_panel, c_micropanel.as_mut_ptr(), mr, nr, kc, m);
                         }
                     }
                 }
@@ -455,28 +469,51 @@ pub fn pack_b<const KC: usize, const NR: usize>(
     packed_block
 }
 
-/// AVX2-optimized microkernel computing C += A × B for MR×NR blocks.
-///
-/// Uses F32x8 vectors and SIMD shuffle operations for high performance:
-/// - Loads A columns as F32x8 vectors
-/// - Uses permute operations for efficient B element broadcasting  
-/// - Applies FMA operations for C += A × B computation
-/// - Handles partial blocks automatically via F32x8 size tracking
-///
-/// # Arguments
-/// * `a_panel` - Packed A panel (MR×KC)
-/// * `b_panel` - Packed B panel (KC×NR)  
-/// * `c_micropanel` - Pointer to C block (MR×NR)
-/// * `mr`, `nr` - Actual dimensions (≤ MR, NR)
-/// * `kc` - Inner dimension
-/// * `m` - Leading dimension of C
-///
-/// # Safety
-/// Caller must ensure c_micropanel has at least mr×nr elements accessible
-/// in column-major order with leading dimension m.
-#[allow(non_snake_case)]
-#[time_graph::instrument]
-unsafe fn kernel_MRxNR(
+fn outer(a_micropanel: F32x8, b_micropanel: F32x8, result: &mut [F32x8; 8]) -> [F32x8; 8] {
+    // Duplicate 128-bit lanes to prepare for element broadcasting
+    // permute2f128 with mask 0x00: [a0,a1,a2,a3, a0,a1,a2,a3]
+    // permute2f128 with mask 0x11: [a4,a5,a6,a7, a4,a5,a6,a7]
+    let a_lower_lane = a_micropanel.permute2f128::<0x00>();
+    let a_upper_lane = a_micropanel.permute2f128::<0x11>();
+
+    // First batch: broadcast elements 0 and 4, then 1 and 5
+    // Interleave operations to maximize port utilization on modern CPUs
+    let a0_broadcast = a_lower_lane.permute::<0x00>(); // [a0, a0, a0, a0, a0, a0, a0, a0]
+    let a4_broadcast = a_upper_lane.permute::<0x00>(); // [a4, a4, a4, a4, a4, a4, a4, a4]
+    let a1_broadcast = a_lower_lane.permute::<0x55>(); // [a1, a1, a1, a1, a1, a1, a1, a1]
+    let a5_broadcast = a_upper_lane.permute::<0x55>(); // [a5, a5, a5, a5, a5, a5, a5, a5]
+
+    // Create size-matched broadcast vectors once for all operations
+    let a0_sized = a0_broadcast;
+    let a4_sized = a4_broadcast;
+    let a1_sized = a1_broadcast;
+    let a5_sized = a5_broadcast;
+
+    result[0] = result[0].fma(a0_sized, b_micropanel);
+    result[4] = result[4].fma(a4_sized, b_micropanel);
+    result[1] = result[1].fma(a1_sized, b_micropanel);
+    result[5] = result[5].fma(a5_sized, b_micropanel);
+
+    // Second batch: broadcast elements 2 and 6, then 3 and 7
+    let a2_broadcast = a_lower_lane.permute::<0xAA>(); // [a2, a2, a2, a2, a2, a2, a2, a2]
+    let a6_broadcast = a_upper_lane.permute::<0xAA>(); // [a6, a6, a6, a6, a6, a6, a6, a6]
+    let a3_broadcast = a_lower_lane.permute::<0xFF>(); // [a3, a3, a3, a3, a3, a3, a3, a3]
+    let a7_broadcast = a_upper_lane.permute::<0xFF>(); // [a7, a7, a7, a7, a7, a7, a7, a7]
+
+    let a2_sized = a2_broadcast;
+    let a6_sized = a6_broadcast;
+    let a3_sized = a3_broadcast;
+    let a7_sized = a7_broadcast;
+
+    result[2] = result[2].fma(a2_sized, b_micropanel);
+    result[6] = result[6].fma(a6_sized, b_micropanel);
+    result[3] = result[3].fma(a3_sized, b_micropanel);
+    result[7] = result[7].fma(a7_sized, b_micropanel);
+
+    *result
+}
+
+unsafe fn kernel(
     a_panel: &APanel<MR, KC>,
     b_panel: &BPanel<KC, NR>,
     c_micropanel: *mut f32,
@@ -485,119 +522,68 @@ unsafe fn kernel_MRxNR(
     kc: usize,
     m: usize,
 ) {
-    // Optimized 8xNR microkernel (MR=8, NR≤8)
-    // Load existing C values for accumulation (C += A*B)
-    let mut c_cols = [F32x8::zeros(); NR];
+    let mut c0 = F32x8::load(c_micropanel, mr);
+    let mut c1 = F32x8::load(c_micropanel.add(m), mr);
+    let mut c2 = F32x8::load(c_micropanel.add(2 * m), mr);
+    let mut c3 = F32x8::load(c_micropanel.add(3 * m), mr);
+    let mut c4 = F32x8::load(c_micropanel.add(4 * m), mr);
+    let mut c5 = F32x8::load(c_micropanel.add(5 * m), mr);
+    let mut c6 = F32x8::load(c_micropanel.add(6 * m), mr);
+    let mut c7 = F32x8::load(c_micropanel.add(7 * m), mr);
 
-    for j in 0..nr {
-        c_cols[j] = F32x8::from(std::slice::from_raw_parts(c_micropanel.add(j * m), mr));
-    }
-
-    // Unroll KC loop completely for maximum performance
     for k in 0..kc {
-        // Load A column k: 8 elements from A(0..7, k)
-        let a_vec = F32x8::from(&a_panel.data[k][0..mr]);
+        let a_micropanel = F32x8::from(a_panel.data[k].as_slice());
+        let b_micropanel = F32x8::from(b_panel.data[k].as_slice());
 
-        // Load B row k: B(k, 0..nr-1) efficiently
-        let b_data = &b_panel.data[k];
+        // Duplicate 128-bit lanes to prepare for element broadcasting
+        // permute2f128 with mask 0x00: [a0,a1,a2,a3, a0,a1,a2,a3]
+        // permute2f128 with mask 0x11: [a4,a5,a6,a7, a4,a5,a6,a7]
+        let a_lower_lane = a_micropanel.permute2f128::<0x00>();
+        let a_upper_lane = a_micropanel.permute2f128::<0x11>();
 
-        // 8xNR FMA operations: C[0..7, j] += A[0..7, k] * B[k, j]
-        // Use optimized SIMD shuffle-based broadcasting for maximum performance
-        match nr {
-            6 => {
-                let b_vec = F32x8::from(b_data.as_slice());
-                let b_lower = b_vec.permute2f128::<0x00>();
-                let b_upper = b_vec.permute2f128::<0x11>();
+        // First batch: broadcast elements 0 and 4, then 1 and 5
+        // Interleave operations to maximize port utilization on modern CPUs
+        let a0_broadcast = a_lower_lane.permute::<0x00>(); // [a0, a0, a0, a0, a0, a0, a0, a0]
+        let a4_broadcast = a_upper_lane.permute::<0x00>(); // [a4, a4, a4, a4, a4, a4, a4, a4]
+        let a1_broadcast = a_lower_lane.permute::<0x55>(); // [a1, a1, a1, a1, a1, a1, a1, a1]
+        let a5_broadcast = a_upper_lane.permute::<0x55>(); // [a5, a5, a5, a5, a5, a5, a5, a5]
 
-                c_cols[0] = c_cols[0].fma(a_vec, b_lower.permute::<0x00>());
-                c_cols[1] = c_cols[1].fma(a_vec, b_lower.permute::<0x55>());
-                c_cols[2] = c_cols[2].fma(a_vec, b_lower.permute::<0xAA>());
-                c_cols[3] = c_cols[3].fma(a_vec, b_lower.permute::<0xFF>());
-                c_cols[4] = c_cols[4].fma(a_vec, b_upper.permute::<0x00>());
-                c_cols[5] = c_cols[5].fma(a_vec, b_upper.permute::<0x55>());
-            }
-            5 => {
-                let b_vec = F32x8::from(b_data.as_slice());
-                let b_lower = b_vec.permute2f128::<0x00>();
-                let b_upper = b_vec.permute2f128::<0x11>();
+        // Create size-matched broadcast vectors once for all operations
+        let a0_sized = a0_broadcast;
+        let a4_sized = a4_broadcast;
+        let a1_sized = a1_broadcast;
+        let a5_sized = a5_broadcast;
 
-                c_cols[0] = c_cols[0].fma(a_vec, b_lower.permute::<0x00>());
-                c_cols[1] = c_cols[1].fma(a_vec, b_lower.permute::<0x55>());
-                c_cols[2] = c_cols[2].fma(a_vec, b_lower.permute::<0xAA>());
-                c_cols[3] = c_cols[3].fma(a_vec, b_lower.permute::<0xFF>());
-                c_cols[4] = c_cols[4].fma(a_vec, b_upper.permute::<0x00>());
-            }
-            4 => {
-                let b_vec = F32x8::from(b_data.as_slice());
-                let b_lower = b_vec.permute2f128::<0x00>();
+        c0 = c0.fma(a0_sized, b_micropanel);
+        c4 = c4.fma(a4_sized, b_micropanel);
+        c1 = c1.fma(a1_sized, b_micropanel);
+        c5 = c5.fma(a5_sized, b_micropanel);
 
-                c_cols[0] = c_cols[0].fma(a_vec, b_lower.permute::<0x00>());
-                c_cols[1] = c_cols[1].fma(a_vec, b_lower.permute::<0x55>());
-                c_cols[2] = c_cols[2].fma(a_vec, b_lower.permute::<0xAA>());
-                c_cols[3] = c_cols[3].fma(a_vec, b_lower.permute::<0xFF>());
-            }
-            3 => {
-                let b_vec = F32x8::from(b_data.as_slice());
-                let b_lower = b_vec.permute2f128::<0x00>();
+        // Second batch: broadcast elements 2 and 6, then 3 and 7
+        let a2_broadcast = a_lower_lane.permute::<0xAA>(); // [a2, a2, a2, a2, a2, a2, a2, a2]
+        let a6_broadcast = a_upper_lane.permute::<0xAA>(); // [a6, a6, a6, a6, a6, a6, a6, a6]
+        let a3_broadcast = a_lower_lane.permute::<0xFF>(); // [a3, a3, a3, a3, a3, a3, a3, a3]
+        let a7_broadcast = a_upper_lane.permute::<0xFF>(); // [a7, a7, a7, a7, a7, a7, a7, a7]
 
-                c_cols[0] = c_cols[0].fma(a_vec, b_lower.permute::<0x00>());
-                c_cols[1] = c_cols[1].fma(a_vec, b_lower.permute::<0x55>());
-                c_cols[2] = c_cols[2].fma(a_vec, b_lower.permute::<0xAA>());
-            }
-            2 => {
-                let b_vec = F32x8::from(b_data.as_slice());
-                let b_lower = b_vec.permute2f128::<0x00>();
+        let a2_sized = a2_broadcast;
+        let a6_sized = a6_broadcast;
+        let a3_sized = a3_broadcast;
+        let a7_sized = a7_broadcast;
 
-                c_cols[0] = c_cols[0].fma(a_vec, b_lower.permute::<0x00>());
-                c_cols[1] = c_cols[1].fma(a_vec, b_lower.permute::<0x55>());
-            }
-            1 => {
-                let b_vec = F32x8::from(b_data.as_slice());
-                let b_lower = b_vec.permute2f128::<0x00>();
-
-                c_cols[0] = c_cols[0].fma(a_vec, b_lower.permute::<0x00>());
-            }
-            _ => {}
-        }
+        c2 = c2.fma(a2_sized, b_micropanel);
+        c6 = c6.fma(a6_sized, b_micropanel);
+        c3 = c3.fma(a3_sized, b_micropanel);
+        c7 = c7.fma(a7_sized, b_micropanel);
     }
 
-    // Store results back to C matrix
-    match nr {
-        6 => {
-            c_cols[0].store_at(c_micropanel);
-            c_cols[1].store_at(c_micropanel.add(m));
-            c_cols[2].store_at(c_micropanel.add(2 * m));
-            c_cols[3].store_at(c_micropanel.add(3 * m));
-            c_cols[4].store_at(c_micropanel.add(4 * m));
-            c_cols[5].store_at(c_micropanel.add(5 * m));
-        }
-        5 => {
-            c_cols[0].store_at(c_micropanel);
-            c_cols[1].store_at(c_micropanel.add(m));
-            c_cols[2].store_at(c_micropanel.add(2 * m));
-            c_cols[3].store_at(c_micropanel.add(3 * m));
-            c_cols[4].store_at(c_micropanel.add(4 * m));
-        }
-        4 => {
-            c_cols[0].store_at(c_micropanel);
-            c_cols[1].store_at(c_micropanel.add(m));
-            c_cols[2].store_at(c_micropanel.add(2 * m));
-            c_cols[3].store_at(c_micropanel.add(3 * m));
-        }
-        3 => {
-            c_cols[0].store_at(c_micropanel);
-            c_cols[1].store_at(c_micropanel.add(m));
-            c_cols[2].store_at(c_micropanel.add(2 * m));
-        }
-        2 => {
-            c_cols[0].store_at(c_micropanel);
-            c_cols[1].store_at(c_micropanel.add(m));
-        }
-        1 => {
-            c_cols[0].store_at(c_micropanel);
-        }
-        _ => {}
-    }
+    c0.store_at(c_micropanel);
+    c1.store_at(c_micropanel.add(m));
+    c2.store_at(c_micropanel.add(2 * m));
+    c3.store_at(c_micropanel.add(3 * m));
+    c4.store_at(c_micropanel.add(4 * m));
+    c5.store_at(c_micropanel.add(5 * m));
+    c6.store_at(c_micropanel.add(6 * m));
+    c7.store_at(c_micropanel.add(7 * m));
 }
 
 /// Create a test matrix in column-major format
@@ -606,25 +592,30 @@ fn create_test_matrix(rows: usize, cols: usize, rng: &mut StdRng) -> Vec<f32> {
     for col in 0..cols {
         for row in 0..rows {
             let idx = col * rows + row; // column-major indexing
-            matrix[idx] = rng.random_range(-1.0..1.0);
+                                        // matrix[idx] = rng.random_range(-1.0..1.0);
+            matrix[idx] = (idx) as f32;
         }
     }
     matrix
 }
+
 fn main() {
-    let (m, n, k) = (1000, 1000, 1000);
+    let (m, n, k) = (16, 16, 16);
 
     // let mc_values: Vec<usize> = (256..=512).step_by(128).collect(); // [64, 128, 192, ..., 1024]
     // let nc_values: Vec<usize> = (4096..=8192).step_by(1024).collect(); // [64, 128, 192, ..., 1024]
 
-    let mc_values: Vec<usize> = vec![256]; // [64, 128, 192, ..., 1024]
-    let nc_values: Vec<usize> = vec![1000]; // [64, 128, 192, ..., 1024]
+    let mc_values: Vec<usize> = vec![16]; // [64, 128, 192, ..., 1024]
+    let nc_values: Vec<usize> = vec![16]; // [64, 128, 192, ..., 1024]
 
     // Create test matrices once
     let mut rng = StdRng::seed_from_u64(42);
     let a = create_test_matrix(m, k, &mut rng);
     let b = create_test_matrix(k, n, &mut rng);
-    let mut c = vec![0.0; m * n];
+    let mut c = create_test_matrix(m, n, &mut rng);
+    // let mut c = vec![0.0; m * n];
+
+    display_matrix_column_major(m, n, m, &c);
 
     for mc in mc_values.as_slice() {
         for nc in nc_values.as_slice() {

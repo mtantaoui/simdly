@@ -25,7 +25,6 @@ use rand::prelude::*;
 
 // Import our implementations
 use simdly::simd::avx2::matmul::matmul;
-use simdly::simd::avx2::blis::blis_gemm;
 
 /// Create a test matrix in column-major format for our BLIS implementation
 fn create_blis_matrix(rows: usize, cols: usize, rng: &mut StdRng) -> Vec<f32> {
@@ -55,7 +54,7 @@ fn bench_matmul_by_size(c: &mut Criterion) {
         (128, 128, 128),
         (256, 256, 256),
         (512, 512, 512),
-        (1000, 1000, 1000),
+        // (1000, 1000, 1000),
         // (100, 150, 200), // Non-square
         // (512, 256, 128), // Different aspect ratios
     ];
@@ -87,22 +86,6 @@ fn bench_matmul_by_size(c: &mut Criterion) {
         group.bench_function("Simdly_Original", |bench| {
             bench.iter(|| {
                 matmul(
-                    black_box(&a_blis),
-                    black_box(&b_blis),
-                    black_box(&mut c_blis),
-                    black_box(m),
-                    black_box(n),
-                    black_box(k),
-                );
-                black_box(&c_blis);
-            });
-        });
-        
-        // Benchmark BLIS Implementation
-        c_blis.fill(0.0);
-        group.bench_function("Simdly_BLIS", |bench| {
-            bench.iter(|| {
-                blis_gemm(
                     black_box(&a_blis),
                     black_box(&b_blis),
                     black_box(&mut c_blis),
