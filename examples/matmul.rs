@@ -37,8 +37,6 @@ pub fn display_matrix_column_major(m: usize, n: usize, ld: usize, a: &[f32]) {
 /// allows for the use of faster, aligned load/store instructions.
 const ALIGNMENT: usize = 32;
 
-const LANE_COUNT: usize = 8;
-
 /// Microkernel row dimension: Number of rows processed simultaneously.
 /// Set to 8 to match AVX2 F32x8 vector width (8 × 32-bit floats = 256 bits).
 pub const MR: usize = 8;
@@ -469,50 +467,7 @@ pub fn pack_b<const KC: usize, const NR: usize>(
     packed_block
 }
 
-fn outer(a_micropanel: F32x8, b_micropanel: F32x8, result: &mut [F32x8; 8]) -> [F32x8; 8] {
-    // Duplicate 128-bit lanes to prepare for element broadcasting
-    // permute2f128 with mask 0x00: [a0,a1,a2,a3, a0,a1,a2,a3]
-    // permute2f128 with mask 0x11: [a4,a5,a6,a7, a4,a5,a6,a7]
-    let a_lower_lane = a_micropanel.permute2f128::<0x00>();
-    let a_upper_lane = a_micropanel.permute2f128::<0x11>();
-
-    // First batch: broadcast elements 0 and 4, then 1 and 5
-    // Interleave operations to maximize port utilization on modern CPUs
-    let a0_broadcast = a_lower_lane.permute::<0x00>(); // [a0, a0, a0, a0, a0, a0, a0, a0]
-    let a4_broadcast = a_upper_lane.permute::<0x00>(); // [a4, a4, a4, a4, a4, a4, a4, a4]
-    let a1_broadcast = a_lower_lane.permute::<0x55>(); // [a1, a1, a1, a1, a1, a1, a1, a1]
-    let a5_broadcast = a_upper_lane.permute::<0x55>(); // [a5, a5, a5, a5, a5, a5, a5, a5]
-
-    // Create size-matched broadcast vectors once for all operations
-    let a0_sized = a0_broadcast;
-    let a4_sized = a4_broadcast;
-    let a1_sized = a1_broadcast;
-    let a5_sized = a5_broadcast;
-
-    result[0] = result[0].fma(a0_sized, b_micropanel);
-    result[4] = result[4].fma(a4_sized, b_micropanel);
-    result[1] = result[1].fma(a1_sized, b_micropanel);
-    result[5] = result[5].fma(a5_sized, b_micropanel);
-
-    // Second batch: broadcast elements 2 and 6, then 3 and 7
-    let a2_broadcast = a_lower_lane.permute::<0xAA>(); // [a2, a2, a2, a2, a2, a2, a2, a2]
-    let a6_broadcast = a_upper_lane.permute::<0xAA>(); // [a6, a6, a6, a6, a6, a6, a6, a6]
-    let a3_broadcast = a_lower_lane.permute::<0xFF>(); // [a3, a3, a3, a3, a3, a3, a3, a3]
-    let a7_broadcast = a_upper_lane.permute::<0xFF>(); // [a7, a7, a7, a7, a7, a7, a7, a7]
-
-    let a2_sized = a2_broadcast;
-    let a6_sized = a6_broadcast;
-    let a3_sized = a3_broadcast;
-    let a7_sized = a7_broadcast;
-
-    result[2] = result[2].fma(a2_sized, b_micropanel);
-    result[6] = result[6].fma(a6_sized, b_micropanel);
-    result[3] = result[3].fma(a3_sized, b_micropanel);
-    result[7] = result[7].fma(a7_sized, b_micropanel);
-
-    *result
-}
-
+#[time_graph::instrument]
 unsafe fn kernel(
     a_panel: &APanel<MR, KC>,
     b_panel: &BPanel<KC, NR>,
@@ -548,16 +503,10 @@ unsafe fn kernel(
         let a1_broadcast = a_lower_lane.permute::<0x55>(); // [a1, a1, a1, a1, a1, a1, a1, a1]
         let a5_broadcast = a_upper_lane.permute::<0x55>(); // [a5, a5, a5, a5, a5, a5, a5, a5]
 
-        // Create size-matched broadcast vectors once for all operations
-        let a0_sized = a0_broadcast;
-        let a4_sized = a4_broadcast;
-        let a1_sized = a1_broadcast;
-        let a5_sized = a5_broadcast;
-
-        c0 = c0.fma(a0_sized, b_micropanel);
-        c4 = c4.fma(a4_sized, b_micropanel);
-        c1 = c1.fma(a1_sized, b_micropanel);
-        c5 = c5.fma(a5_sized, b_micropanel);
+        c0 = c0.fma(a0_broadcast, b_micropanel);
+        c4 = c4.fma(a4_broadcast, b_micropanel);
+        c1 = c1.fma(a1_broadcast, b_micropanel);
+        c5 = c5.fma(a5_broadcast, b_micropanel);
 
         // Second batch: broadcast elements 2 and 6, then 3 and 7
         let a2_broadcast = a_lower_lane.permute::<0xAA>(); // [a2, a2, a2, a2, a2, a2, a2, a2]
@@ -565,15 +514,10 @@ unsafe fn kernel(
         let a3_broadcast = a_lower_lane.permute::<0xFF>(); // [a3, a3, a3, a3, a3, a3, a3, a3]
         let a7_broadcast = a_upper_lane.permute::<0xFF>(); // [a7, a7, a7, a7, a7, a7, a7, a7]
 
-        let a2_sized = a2_broadcast;
-        let a6_sized = a6_broadcast;
-        let a3_sized = a3_broadcast;
-        let a7_sized = a7_broadcast;
-
-        c2 = c2.fma(a2_sized, b_micropanel);
-        c6 = c6.fma(a6_sized, b_micropanel);
-        c3 = c3.fma(a3_sized, b_micropanel);
-        c7 = c7.fma(a7_sized, b_micropanel);
+        c2 = c2.fma(a2_broadcast, b_micropanel);
+        c6 = c6.fma(a6_broadcast, b_micropanel);
+        c3 = c3.fma(a3_broadcast, b_micropanel);
+        c7 = c7.fma(a7_broadcast, b_micropanel);
     }
 
     c0.store_at(c_micropanel);
@@ -600,13 +544,13 @@ fn create_test_matrix(rows: usize, cols: usize, rng: &mut StdRng) -> Vec<f32> {
 }
 
 fn main() {
-    let (m, n, k) = (16, 16, 16);
+    let (m, n, k) = (3000, 3000, 3000);
 
     // let mc_values: Vec<usize> = (256..=512).step_by(128).collect(); // [64, 128, 192, ..., 1024]
     // let nc_values: Vec<usize> = (4096..=8192).step_by(1024).collect(); // [64, 128, 192, ..., 1024]
 
-    let mc_values: Vec<usize> = vec![16]; // [64, 128, 192, ..., 1024]
-    let nc_values: Vec<usize> = vec![16]; // [64, 128, 192, ..., 1024]
+    let mc_values: Vec<usize> = vec![8 * 6]; // [64, 128, 192, ..., 1024]
+    let nc_values: Vec<usize> = vec![8 * 6]; // [64, 128, 192, ..., 1024]
 
     // Create test matrices once
     let mut rng = StdRng::seed_from_u64(42);
@@ -615,7 +559,7 @@ fn main() {
     let mut c = create_test_matrix(m, n, &mut rng);
     // let mut c = vec![0.0; m * n];
 
-    display_matrix_column_major(m, n, m, &c);
+    // display_matrix_column_major(m, n, m, &c);
 
     for mc in mc_values.as_slice() {
         for nc in nc_values.as_slice() {
