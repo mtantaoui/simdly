@@ -53,4 +53,6 @@ pub mod slice;
 
 pub mod outer;
 
-pub mod matmul;
+pub mod dot;
+pub mod kernels;
+pub mod panels;
