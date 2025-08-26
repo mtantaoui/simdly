@@ -24,7 +24,7 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use rand::prelude::*;
-use simdly::simd::avx2::matmul::matmul_with_params;
+use simdly::simd::avx2::dot::matmul;
 
 /// Configuration for parameter tuning benchmarks
 #[derive(Debug, Clone)]
@@ -37,8 +37,8 @@ impl TuningConfig {
     fn comprehensive() -> Self {
         Self {
             // Match examples/matmul.rs comprehensive configuration
-            mc_values: (128..=512).step_by(128).collect(), // [64, 128, 192, ..., 1024]
-            nc_values: (3072..=3072 * 3).step_by(3072).collect(), // [64, 128, 192, ..., 1024]
+            mc_values: (64..=1024).step_by(64).collect(), // [64, 128, 192, ..., 1024]
+            nc_values: (64..=1024).step_by(64).collect(), // [64, 128, 192, ..., 1024]
         }
     }
 }
@@ -58,7 +58,7 @@ fn create_test_matrix(rows: usize, cols: usize, rng: &mut StdRng) -> Vec<f32> {
 /// Benchmark 512x512x512 matrices with different MC×NC combinations (Large matrices)  
 fn bench_matrix(c: &mut Criterion) {
     let config = TuningConfig::comprehensive();
-    let (m, n, k) = (2048 * 5, 2048 * 5, 2048 * 5);
+    let (m, n, k) = (2048, 2048, 2048);
 
     let mut group = c.benchmark_group(format!("{}x{}x{}", m, n, k));
     // Let criterion handle sample size automatically
@@ -81,7 +81,7 @@ fn bench_matrix(c: &mut Criterion) {
                 &(mc, nc),
                 |bench, &(mc, nc)| {
                     bench.iter(|| {
-                        matmul_with_params(
+                        matmul(
                             black_box(&a),
                             black_box(&b),
                             black_box(&mut c),

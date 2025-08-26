@@ -18,13 +18,15 @@
 //! cargo bench --bench matmul > matmul_results.txt
 //! ```
 
+use std::cmp::min;
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use faer::Mat;
 use ndarray::Array2;
 use rand::prelude::*;
+use simdly::simd::avx2::dot::matmul;
 
 // Import our implementations
-use simdly::simd::avx2::matmul::matmul;
 
 /// Create a test matrix in column-major format for our BLIS implementation
 fn create_blis_matrix(rows: usize, cols: usize, rng: &mut StdRng) -> Vec<f32> {
@@ -59,7 +61,13 @@ fn bench_matmul_by_size(c: &mut Criterion) {
         // (512, 256, 128), // Different aspect ratios
     ];
 
+    // let mc = 64;
+    // let nc = 448;
+
     for (m, k, n) in sizes {
+        let mc = min(m, 64);
+        let nc = min(n, 448);
+
         let group_name = format!("matmul_{}x{}x{}", m, k, n);
         let mut group = c.benchmark_group(&group_name);
         group.sample_size(20); // Reduce sample size for large matrices
@@ -92,6 +100,8 @@ fn bench_matmul_by_size(c: &mut Criterion) {
                     black_box(m),
                     black_box(n),
                     black_box(k),
+                    black_box(mc),
+                    black_box(nc),
                 );
                 black_box(&c_blis);
             });

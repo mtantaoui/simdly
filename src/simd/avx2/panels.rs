@@ -7,9 +7,10 @@ use std::slice;
 
 use crate::simd::avx2::f32x8::AVX_ALIGNMENT;
 
-pub(crate) const MR: usize = 8;
+// pub(crate) const MR: usize = 8;
+pub(crate) const MR: usize = 16;
 pub(crate) const NR: usize = 8;
-pub(crate) const KC: usize = 64;
+pub(crate) const KC: usize = 256;
 
 /// Calculates the 1D index for a 2D element in a column-major matrix.
 ///

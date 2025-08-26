@@ -5,7 +5,16 @@ use crate::simd::avx2::{
     panels::{at, pack_a, pack_b, KC, MR, NR},
 };
 
-fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize, mc: usize, nc: usize) {
+pub fn matmul(
+    a: &[f32],
+    b: &[f32],
+    c: &mut [f32],
+    m: usize,
+    n: usize,
+    k: usize,
+    mc: usize,
+    nc: usize,
+) {
     // Handle edge cases
     if m == 0 || n == 0 || k == 0 {
         return; // Nothing to compute
@@ -15,6 +24,7 @@ fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize, mc:
     assert_eq!(a.len(), m * k, "Matrix A has incorrect dimensions");
     assert_eq!(b.len(), k * n, "Matrix B has incorrect dimensions");
     assert_eq!(c.len(), m * n, "Matrix C has incorrect dimensions");
+
     // jc loop: Process N dimension in nc-wide blocks (L3 cache optimization)
     for jc in (0..n).step_by(nc) {
         let nc_actual = min(nc, n - jc);
@@ -61,6 +71,17 @@ fn matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize, mc:
                                 kc_actual,
                                 m,
                             )
+
+                            // // Always use kernel_8x8 for all NR values
+                            // kernel_16x8(
+                            //     a_panel,
+                            //     b_panel,
+                            //     c_micropanel.as_mut_ptr(),
+                            //     mr,
+                            //     nr,
+                            //     kc_actual,
+                            //     m,
+                            // )
                         }
                     }
                 }
