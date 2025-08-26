@@ -7,8 +7,7 @@ use std::slice;
 
 use crate::simd::avx2::f32x8::AVX_ALIGNMENT;
 
-// pub(crate) const MR: usize = 8;
-pub(crate) const MR: usize = 16;
+pub(crate) const MR: usize = 8;
 pub(crate) const NR: usize = 8;
 pub(crate) const KC: usize = 256;
 
