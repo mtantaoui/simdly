@@ -6,10 +6,17 @@ use std::ops::{Index, IndexMut};
 use std::slice;
 
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
 use simdly::simd::avx2::f32x8::F32x8;
 use simdly::simd::{SimdLoad, SimdMath, SimdShuffle, SimdStore};
 
+/// Displays a matrix stored in row-major format.
+///
+/// # Arguments
+/// * `m` - Number of rows
+/// * `n` - Number of columns  
+/// * `ld` - Leading dimension (stride between rows)
+/// * `a` - Matrix data in row-major storage
 pub fn display_matrix_row_major(m: usize, n: usize, ld: usize, a: &[f32]) {
     for i in 0..m {
         for j in 0..n {
@@ -20,6 +27,13 @@ pub fn display_matrix_row_major(m: usize, n: usize, ld: usize, a: &[f32]) {
     println!("---");
 }
 
+/// Displays a matrix stored in column-major format.
+///
+/// # Arguments
+/// * `m` - Number of rows
+/// * `n` - Number of columns
+/// * `ld` - Leading dimension (number of rows, column stride)
+/// * `a` - Matrix data in column-major storage
 pub fn display_matrix_column_major(m: usize, n: usize, ld: usize, a: &[f32]) {
     for i in 0..m {
         for j in 0..n {
@@ -47,7 +61,8 @@ pub const NR: usize = 8;
 
 /// L1 cache block size for K dimension (inner product length).
 /// Chosen so that MR×KC panel of A and KC×NR panel of B fit in L1 cache.
-pub const KC: usize = 16;
+/// For L1 cache ~32KB: MR*KC + KC*NR = 8*256 + 256*8 = 4KB (fits comfortably)
+pub const KC: usize = 256;
 
 // /// L2 cache block size for M dimension (A rows, C rows).
 // /// Must be a multiple of MR. Tuned for L2 cache capacity.
@@ -341,6 +356,12 @@ fn matmul_with_params(
     assert_eq!(b.len(), k * n, "Matrix B has incorrect dimensions");
     assert_eq!(c.len(), m * n, "Matrix C has incorrect dimensions");
 
+    // BLIS-style nested loop structure with cache-conscious blocking:
+    // - jc loop: N dimension blocking for L3 cache (columns of C and B)
+    // - pc loop: K dimension blocking for L1 cache (shared dimension)  
+    // - ic loop: M dimension blocking for L2 cache (rows of C and A)
+    // This order maximizes data reuse and minimizes cache misses
+    
     // jc loop: Process N dimension in nc-wide blocks (L3 cache optimization)
     for jc in (0..n).step_by(nc) {
         let nc_actual = min(nc, n - jc);
@@ -350,14 +371,14 @@ fn matmul_with_params(
         for pc in (0..k).step_by(KC) {
             let kc = min(KC, k - pc);
 
-            // Pack B block: B(pc:pc+kc_actual-1, jc:jc+nc_actual-1) → row-major panels
+            // Pack B block: B(pc:pc+kc-1, jc:jc+nc_actual-1) → row-major panels
             let b_block = pack_b::<KC, NR>(b, nc_actual, kc, k, pc, jc);
 
             // ic loop: Process M dimension in mc-wide blocks (L2 cache optimization)
             for ic in (0..m).step_by(mc) {
                 let mc_actual = min(mc, m - ic);
 
-                // Pack A block: A(ic:ic+mc_actual-1, pc:pc+kc_actual-1) → column-major panels
+                // Pack A block: A(ic:ic+mc_actual-1, pc:pc+kc-1) → column-major panels
                 let a_block = pack_a::<MR, KC>(a, mc_actual, kc, m, ic, pc);
 
                 // jr and ir loops: Process packed panels with MR×NR microkernel
@@ -467,6 +488,29 @@ pub fn pack_b<const KC: usize, const NR: usize>(
     packed_block
 }
 
+/// Main matrix multiplication microkernel (8×8) using AVX2 SIMD.
+///
+/// This is the computational heart of the matrix multiplication algorithm. It computes
+/// the product of an 8×KC block of matrix A with a KC×8 block of matrix B, accumulating
+/// the result into an 8×8 block of matrix C.
+///
+/// The kernel uses A-element broadcasting strategy where each element of A is broadcast
+/// to all lanes and multiplied with the corresponding row of B. This minimizes memory
+/// traffic and maximizes register reuse.
+///
+/// # Arguments
+/// * `a_panel` - Packed A matrix panel (MR×KC elements, column-major within panel)
+/// * `b_panel` - Packed B matrix panel (KC×NR elements, row-major within panel)
+/// * `c_micropanel` - Output C matrix micropanel (column-major, 8×8 elements)
+/// * `mr` - Actual number of rows in A block (≤ MR=8)
+/// * `nr` - Actual number of columns in B block (≤ NR=8)
+/// * `kc` - Inner dimension (number of dot product terms)
+/// * `m` - Leading dimension of matrix C (stride between columns)
+///
+/// # Safety
+/// - `c_micropanel` must point to valid memory for at least 8×8 f32 elements
+/// - Panels must contain valid data for the specified dimensions
+/// - Memory layout must match the expected column-major format for C
 #[time_graph::instrument]
 unsafe fn kernel(
     a_panel: &APanel<MR, KC>,
@@ -490,25 +534,27 @@ unsafe fn kernel(
         let a_micropanel = F32x8::from(a_panel.data[k].as_slice());
         let b_micropanel = F32x8::from(b_panel.data[k].as_slice());
 
-        // Duplicate 128-bit lanes to prepare for element broadcasting
+        // Duplicate 128-bit lanes to prepare for A element broadcasting
         // permute2f128 with mask 0x00: [a0,a1,a2,a3, a0,a1,a2,a3]
         // permute2f128 with mask 0x11: [a4,a5,a6,a7, a4,a5,a6,a7]
         let a_lower_lane = a_micropanel.permute2f128::<0x00>();
         let a_upper_lane = a_micropanel.permute2f128::<0x11>();
 
-        // First batch: broadcast elements 0 and 4, then 1 and 5
-        // Interleave operations to maximize port utilization on modern CPUs
+        // Broadcast A elements for outer product computation
+        // Each A element is multiplied by the entire B vector (b_micropanel)
         let a0_broadcast = a_lower_lane.permute::<0x00>(); // [a0, a0, a0, a0, a0, a0, a0, a0]
         let a4_broadcast = a_upper_lane.permute::<0x00>(); // [a4, a4, a4, a4, a4, a4, a4, a4]
         let a1_broadcast = a_lower_lane.permute::<0x55>(); // [a1, a1, a1, a1, a1, a1, a1, a1]
         let a5_broadcast = a_upper_lane.permute::<0x55>(); // [a5, a5, a5, a5, a5, a5, a5, a5]
 
+        // FMA: C[i][j] += A[i][k] * B[k][j] for each (i,j) pair
+        // c0 corresponds to C[0:7][0], c1 to C[0:7][1], etc.
         c0 = c0.fma(a0_broadcast, b_micropanel);
         c4 = c4.fma(a4_broadcast, b_micropanel);
         c1 = c1.fma(a1_broadcast, b_micropanel);
         c5 = c5.fma(a5_broadcast, b_micropanel);
 
-        // Second batch: broadcast elements 2 and 6, then 3 and 7
+        // Continue with remaining A elements
         let a2_broadcast = a_lower_lane.permute::<0xAA>(); // [a2, a2, a2, a2, a2, a2, a2, a2]
         let a6_broadcast = a_upper_lane.permute::<0xAA>(); // [a6, a6, a6, a6, a6, a6, a6, a6]
         let a3_broadcast = a_lower_lane.permute::<0xFF>(); // [a3, a3, a3, a3, a3, a3, a3, a3]
@@ -530,27 +576,43 @@ unsafe fn kernel(
     c7.store_at(c_micropanel.add(7 * m));
 }
 
-/// Create a test matrix in column-major format
+/// Creates a test matrix in column-major format with sequential values.
+///
+/// # Arguments
+/// * `rows` - Number of matrix rows
+/// * `cols` - Number of matrix columns  
+/// * `rng` - Random number generator (unused, kept for API compatibility)
+///
+/// # Returns
+/// A vector containing matrix data in column-major order where 
+/// element (i,j) = column*rows + row (for predictable test patterns)
 fn create_test_matrix(rows: usize, cols: usize, rng: &mut StdRng) -> Vec<f32> {
     let mut matrix = vec![0.0; rows * cols];
     for col in 0..cols {
         for row in 0..rows {
-            let idx = col * rows + row; // column-major indexing
-                                        // matrix[idx] = rng.random_range(-1.0..1.0);
+            // Column-major storage: element (row,col) = col*rows + row
+            // This means columns are stored consecutively in memory
+            let idx = col * rows + row; 
+            // Use sequential values for predictable debugging patterns
+            // Could use: matrix[idx] = rng.random_range(-1.0..1.0) for random data
             matrix[idx] = (idx) as f32;
         }
     }
     matrix
 }
 
+/// Benchmarks matrix multiplication performance with different cache blocking parameters.
+///
+/// Runs 3000×3000×3000 matrix multiplication with performance profiling enabled.
+/// Tests optimized MC and NC values for L2/L3 cache utilization.
 fn main() {
     let (m, n, k) = (3000, 3000, 3000);
 
     // let mc_values: Vec<usize> = (256..=512).step_by(128).collect(); // [64, 128, 192, ..., 1024]
     // let nc_values: Vec<usize> = (4096..=8192).step_by(1024).collect(); // [64, 128, 192, ..., 1024]
 
-    let mc_values: Vec<usize> = vec![8 * 6]; // [64, 128, 192, ..., 1024]
-    let nc_values: Vec<usize> = vec![8 * 6]; // [64, 128, 192, ..., 1024]
+    let mc_values: Vec<usize> = vec![8 * 32]; // 256 - Better L2 cache utilization
+    let nc_values: Vec<usize> = vec![8 * 64]; // 512 - Better L3 cache utilization
 
     // Create test matrices once
     let mut rng = StdRng::seed_from_u64(42);

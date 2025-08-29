@@ -54,5 +54,7 @@ pub mod slice;
 pub mod outer;
 
 pub mod dot;
+
 pub mod kernels;
+
 pub mod panels;

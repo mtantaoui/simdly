@@ -1,9 +1,13 @@
 use simdly::simd::SimdMath;
 
-/// AXPY operation: y = alpha * x + y
+/// AXPY operation: y = alpha * x + y (scalar implementation)
 ///
-/// This demonstrates the corrected FMA usage where the addend (y) is `self`.
-/// The FMA signature is: addend.fma(multiplier, multiplicand) = multiplier * multiplicand + addend
+/// Performs the AXPY (A times X Plus Y) operation where:
+/// - alpha: scalar multiplier
+/// - x: input vector  
+/// - y: input/output vector (modified in-place)
+///
+/// This is the scalar reference implementation for comparison with SIMD version.
 fn axpy_scalar(alpha: f32, x: &[f32], y: &mut [f32]) {
     assert_eq!(x.len(), y.len(), "Vectors must have same length");
 
@@ -12,7 +16,11 @@ fn axpy_scalar(alpha: f32, x: &[f32], y: &mut [f32]) {
     }
 }
 
-/// AXPY operation using SIMD FMA with the corrected signature
+/// AXPY operation using SIMD FMA (vectorized implementation)
+///
+/// Performs vectorized AXPY operation using SIMD instructions.
+/// Uses the FMA operation: y.fma(alpha_vec, x) = alpha_vec * x + y
+/// where y acts as the accumulator (addend) in the FMA operation.
 fn axpy_simd(alpha: f32, x: Vec<f32>, y: Vec<f32>) -> Vec<f32> {
     assert_eq!(x.len(), y.len(), "Vectors must have same length");
 
@@ -24,7 +32,10 @@ fn axpy_simd(alpha: f32, x: Vec<f32>, y: Vec<f32>) -> Vec<f32> {
     y.fma(alpha_vec, x)
 }
 
-/// Demonstrate the FMA signature change with AXPY operations
+/// Demonstrates the FMA signature and how it applies to AXPY operations.
+/// 
+/// Shows that both scalar and SIMD implementations produce identical results
+/// when computing y = alpha * x + y using different approaches.
 fn demo_fma_usage() {
     println!("=== FMA Usage Demo with AXPY ===\n");
 

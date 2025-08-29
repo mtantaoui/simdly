@@ -29,7 +29,7 @@ fn ndarray_outer_product(vec_a: &[f32], vec_b: &[f32]) -> Vec<f32> {
     let b_reshaped = b.view().insert_axis(ndarray::Axis(0));
     let result = &a_reshaped * &b_reshaped;
 
-    result.into_raw_vec()
+    result.into_iter().collect()
 }
 
 /// faer outer product implementation.
@@ -60,6 +60,9 @@ fn bench_scaling_behavior(c: &mut Criterion) {
         let a: Vec<f32> = (1..=size).map(|i| i as f32 * 0.01).collect();
         let b: Vec<f32> = (1..=size).map(|i| i as f32 * 0.02).collect();
 
+        // Configure throughput measurement based on output elements
+        // For outer product: output_size = input_size²
+        // This measures computational throughput in elements processed per second
         let elements = size * size;
         group.throughput(Throughput::Elements(elements as u64));
 
@@ -96,16 +99,16 @@ fn bench_scaling_behavior(c: &mut Criterion) {
             },
         );
 
-        // group.bench_with_input(
-        //     BenchmarkId::new("faer", size),
-        //     &(&a, &b),
-        //     |bench, (a, b)| {
-        //         bench.iter(|| {
-        //             let result = faer_outer_product(black_box(a), black_box(b));
-        //             black_box(result)
-        //         })
-        //     },
-        // );
+        group.bench_with_input(
+            BenchmarkId::new("faer", size),
+            &(&a, &b),
+            |bench, (a, b)| {
+                bench.iter(|| {
+                    let result = faer_outer_product(black_box(a), black_box(b));
+                    black_box(result)
+                })
+            },
+        );
     }
 
     group.finish();

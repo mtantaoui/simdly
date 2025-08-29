@@ -50,7 +50,7 @@ fn create_faer_matrix(rows: usize, cols: usize, rng: &mut StdRng) -> Mat<f32> {
     Mat::from_fn(rows, cols, |_, _| rng.random_range(-1.0..1.0))
 }
 
-/// Benchmark all implementations for a specific size - creates one graph per size
+/// Benchmark all implementations across different matrix sizes for comparison
 fn bench_matmul_by_size(c: &mut Criterion) {
     let sizes = [
         (128, 128, 128),
@@ -65,8 +65,11 @@ fn bench_matmul_by_size(c: &mut Criterion) {
     // let nc = 448;
 
     for (m, k, n) in sizes {
-        let mc = min(m, 64);
-        let nc = min(n, 448);
+        // Cache blocking parameters optimized for AVX2 performance
+        // mc: M-dimension blocking for L2 cache (typically 64-128)
+        // nc: N-dimension blocking for L3 cache (typically 256-512)
+        let mc = min(m, 64);   // L2 cache blocking - rows of A and C
+        let nc = min(n, 448);  // L3 cache blocking - columns of B and C
 
         let group_name = format!("matmul_{}x{}x{}", m, k, n);
         let mut group = c.benchmark_group(&group_name);
@@ -91,7 +94,7 @@ fn bench_matmul_by_size(c: &mut Criterion) {
         c_blis.fill(0.0);
 
         // Benchmark Original Simdly
-        group.bench_function("Simdly_Original", |bench| {
+        group.bench_function("Simdly_Packing", |bench| {
             bench.iter(|| {
                 matmul(
                     black_box(&a_blis),

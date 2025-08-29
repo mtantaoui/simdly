@@ -1,10 +1,75 @@
+//! High-performance matrix multiplication using BLIS-style algorithm with AVX2 SIMD.
+//!
+//! This module implements cache-conscious matrix multiplication that follows the BLIS
+//! (BLAS-like Library Instantiation Software) approach with hierarchical blocking
+//! and AVX2 SIMD microkernels for maximum performance on x86_64 architectures.
+
 use std::cmp::min;
 
 use crate::simd::avx2::{
-    kernels::kernel_8x8,
+    kernels::{
+        // kernel_24x8, kernel_32x8, kernel_8x2, kernel_8x6,
+        kernel_8x8,
+    },
     panels::{at, pack_a, pack_b, KC, MR, NR},
 };
 
+/// High-performance matrix multiplication using BLIS-style algorithm with AVX2 SIMD optimization.
+///
+/// This function implements a cache-conscious matrix multiplication algorithm that follows the
+/// BLIS (BLAS-like Library Instantiation Software) design. It uses hierarchical blocking
+/// for different cache levels and AVX2 SIMD microkernels for maximum performance.
+///
+/// # Algorithm Structure
+///
+/// The algorithm uses nested loops with cache-conscious blocking:
+/// ```text
+/// for jc in (0..n).step_by(nc):          // L3 cache blocking (N dimension)
+///     for pc in (0..k).step_by(KC):      // L1 cache blocking (K dimension)  
+///         pack_b(B[pc:pc+KC, jc:jc+nc])  // Pack B into row-major panels
+///         for ic in (0..m).step_by(mc):  // L2 cache blocking (M dimension)
+///             pack_a(A[ic:ic+mc, pc:pc+KC])  // Pack A into column-major panels
+///             for jr in b_panels:        // Panel-level loops
+///                 for ir in a_panels:    
+///                     kernel_8x8()       // AVX2 microkernel
+/// ```
+///
+/// # Performance Features
+///
+/// - **Cache Optimization**: Multi-level blocking for L1, L2, and L3 caches
+/// - **SIMD Acceleration**: 8×8 AVX2 microkernels with FMA operations
+/// - **Memory Packing**: Data reorganization for optimal memory access patterns
+/// - **Register Tiling**: Minimizes memory traffic during computation
+///
+/// # Arguments
+///
+/// * `a` - Input matrix A in column-major format (m×k elements)
+/// * `b` - Input matrix B in column-major format (k×n elements)  
+/// * `c` - Output matrix C in column-major format (m×n elements, may contain initial values)
+/// * `m` - Number of rows in A and C
+/// * `n` - Number of columns in B and C
+/// * `k` - Number of columns in A and rows in B (shared dimension)
+/// * `mc` - Block size for M dimension (L2 cache blocking parameter)
+/// * `nc` - Block size for N dimension (L3 cache blocking parameter)
+///
+/// # Panics
+///
+/// This function will panic if:
+/// - Matrix dimensions don't match: `a.len() != m*k`, `b.len() != k*n`, or `c.len() != m*n`
+/// - Any dimension is 0 (handled gracefully with early return)
+///
+/// # Performance Notes
+///
+/// For optimal performance:
+/// - Use `mc` values around 64-128 (L2 cache blocking)
+/// - Use `nc` values around 256-512 (L3 cache blocking)  
+/// - Ensure matrices are large enough to amortize blocking overhead
+/// - Consider matrix alignment for best SIMD performance
+///
+/// # Safety
+///
+/// This function uses unsafe code internally for SIMD operations but maintains memory safety
+/// through careful bounds checking and proper slice management.
 pub fn matmul(
     a: &[f32],
     b: &[f32],
@@ -61,7 +126,9 @@ pub fn matmul(
 
                         // Execute MR×NR microkernel with AVX2 optimization
                         unsafe {
-                            // Always use kernel_8x8 for all NR values
+                            // Use the stable 8×8 kernel for all panel sizes
+                            // The kernel internally handles partial panels (mr < 8, nr < 8)
+                            // by using masked loads/stores and size information
                             kernel_8x8(
                                 a_panel,
                                 b_panel,
@@ -72,16 +139,18 @@ pub fn matmul(
                                 m,
                             )
 
-                            // // Always use kernel_8x8 for all NR values
-                            // kernel_16x8(
-                            //     a_panel,
-                            //     b_panel,
-                            //     c_micropanel.as_mut_ptr(),
-                            //     mr,
-                            //     nr,
-                            //     kc_actual,
-                            //     m,
-                            // )
+                            
+                            // EXPERIMENTAL KERNELS (currently disabled):
+                            // Alternative kernel implementations for different panel sizes
+                            // and register usage patterns. These may provide better performance
+                            // for specific workloads but have known issues (see kernels.rs docs):
+                            //
+                            // - kernel_8x4, kernel_8x2, kernel_8x6: Optimized for narrow B panels
+                            // - kernel_16x8: Double-width A panels (moderate register pressure)  
+                            // - kernel_24x8, kernel_32x8: Very wide A panels (HIGH register pressure + memory bugs)
+                            //
+                            // TODO: Fix memory access bugs in 24×8 and 32×8 kernels
+                            // TODO: Benchmark against kernel_8x8 for performance comparison
                         }
                     }
                 }
@@ -92,10 +161,12 @@ pub fn matmul(
 
 #[cfg(test)]
 mod tests {
+    use crate::utils::alloc_zeroed_vec;
+
     use super::*;
 
-    const MC: usize = MR * KC;
-    const NC: usize = MR * KC;
+    const MC: usize = MR * 8;
+    const NC: usize = NR * 8;
 
     /// Naive O(mnk) matrix multiplication for correctness verification.
     /// Computes C += A × B using the standard triple-nested loop algorithm.
@@ -122,7 +193,8 @@ mod tests {
     /// Creates test matrix with values (row+1) + (col+1)*0.1 for easy verification.
     /// Examples: A[0,0]=1.1, A[1,0]=2.1, A[0,1]=1.2, A[1,1]=2.2
     fn create_test_matrix(rows: usize, cols: usize) -> Vec<f32> {
-        let mut matrix = vec![0.0; rows * cols];
+        // let mut matrix = vec![0.0; rows * cols];
+        let mut matrix = alloc_zeroed_vec(rows * cols, 32);
         for col in 0..cols {
             for row in 0..rows {
                 let idx = at(row, col, rows);
@@ -134,7 +206,9 @@ mod tests {
 
     /// Creates identity matrix: I[i,j] = 1 if i==j, 0 otherwise.
     fn create_identity_matrix(size: usize) -> Vec<f32> {
-        let mut matrix = vec![0.0; size * size];
+        // let mut matrix = vec![0.0; size * size];
+        let mut matrix = alloc_zeroed_vec(size * size, 32);
+
         for i in 0..size {
             let idx = at(i, i, size);
             matrix[idx] = 1.0;
@@ -918,21 +992,21 @@ mod tests {
     #[test]
     fn test_matmul_random_medium() {
         use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         for _ in 0..5 {
-            let m = rng.gen_range(16..=64);
-            let n = rng.gen_range(16..=64);
-            let k = rng.gen_range(16..=64);
+            let m = rng.random_range(16..=64);
+            let n = rng.random_range(16..=64);
+            let k = rng.random_range(16..=64);
 
             let mut a = vec![0.0; m * k];
             let mut b = vec![0.0; k * n];
 
             for i in 0..a.len() {
-                a[i] = rng.gen_range(-1.0..1.0);
+                a[i] = rng.random_range(-1.0..1.0);
             }
             for i in 0..b.len() {
-                b[i] = rng.gen_range(-1.0..1.0);
+                b[i] = rng.random_range(-1.0..1.0);
             }
 
             let mut c_optimized = vec![0.0; m * n];
@@ -1013,7 +1087,7 @@ mod tests {
     #[test]
     fn test_matmul_random_extreme_ratios() {
         use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // Test extreme aspect ratios with random data
         let test_cases = [
@@ -1030,10 +1104,10 @@ mod tests {
                 let mut b = vec![0.0; k * n];
 
                 for i in 0..a.len() {
-                    a[i] = rng.gen_range(-1.0..1.0);
+                    a[i] = rng.random_range(-1.0..1.0);
                 }
                 for i in 0..b.len() {
-                    b[i] = rng.gen_range(-1.0..1.0);
+                    b[i] = rng.random_range(-1.0..1.0);
                 }
 
                 let mut c_optimized = vec![0.0; m * n];

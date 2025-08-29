@@ -123,18 +123,23 @@ static MASK: [__m256i; 8] = [
 ///
 /// ## Mathematical Operations
 /// ```rust
-/// # use simdly::simd::avx2::f32x8::{self, F32x8};
-/// # use simdly::simd::{SimdLoad, SimdMath};
+/// # #[cfg(target_feature = "avx2")]
+/// # {
+/// use simdly::simd::avx2::f32x8::F32x8;
+/// use simdly::simd::{SimdLoad, SimdMath};
+///
 /// let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
 /// let vec = F32x8::from(data.as_slice());
+/// 
 /// // Compute square root of all elements simultaneously
 /// let sqrt_vec = vec.sqrt();
 ///
 /// // Compute sine of all elements
 /// let sin_vec = vec.sin();
 ///
-/// // Chain operations
+/// // Chain operations for complex calculations
 /// let result = vec.abs().sqrt().sin();
+/// # }
 /// ```
 #[derive(Copy, Clone, Debug)]
 pub struct F32x8 {
@@ -195,6 +200,14 @@ impl F32x8 {
     #[inline(always)]
     pub fn set_size(&mut self, size: usize) {
         self.size = size;
+    }
+
+    #[inline(always)]
+    pub fn broadcast(value: &f32) -> Self {
+        Self {
+            size: LANE_COUNT,
+            elements: unsafe { _mm256_broadcast_ss(value) },
+        }
     }
 }
 

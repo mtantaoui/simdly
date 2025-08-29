@@ -9,7 +9,7 @@
 //!
 //! ## 1. **Scalar vs SIMD Comparison**
 //! - Pure scalar implementation using standard library sqrt (baseline)
-//! - ARM NEON SIMD vectorized implementation using custom math functions
+//! - AVX2 SIMD vectorized implementation using custom math functions
 //!
 //! ## 2. **Memory Hierarchy Analysis**
 //! - L1 Cache: 4 KiB vectors (raw compute performance)
@@ -75,7 +75,9 @@ fn benchmark_sqrt_implementations(c: &mut Criterion) {
     for &size in VECTOR_SIZES {
         let mut group = c.benchmark_group(format!("Square Root {}", format_size(size)));
 
-        // Configure throughput measurement for bandwidth analysis
+        // Configure throughput measurement for bandwidth analysis  
+        // Measures data processing rate in bytes/second based on input vector size
+        // This helps identify when performance becomes memory-bandwidth bound
         group.throughput(Throughput::Bytes(
             (size * std::mem::size_of::<f32>()) as u64, // Reading input vector once
         ));

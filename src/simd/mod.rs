@@ -639,9 +639,9 @@ pub trait SimdMath {
     ///
     /// # Parameters
     ///
-    /// - `self` (a): First multiplicand
-    /// - `multiplier` (b): Second multiplicand  
-    /// - `addend` (c): Value to add to the product
+    /// - `self`: Addend (value to add to the product)
+    /// - `multiplier`: First multiplicand
+    /// - `multiplicand`: Second multiplicand
     ///
     /// # Performance
     ///
@@ -653,10 +653,10 @@ pub trait SimdMath {
     /// ```rust
     /// use simdly::simd::SimdMath;
     ///
-    /// let a = vec![2.0, 3.0, 4.0, 5.0];        // multiplier
-    /// let b = vec![1.5, 2.5, 3.5, 4.5];        // multiplicand  
-    /// let c = vec![1.0, 1.0, 1.0, 1.0];        // addend (self)
-    /// let result = c.fma(a, b); // [4.0, 8.5, 15.0, 23.5] = a * b + c
+    /// let multiplier = vec![2.0, 3.0, 4.0, 5.0];     
+    /// let multiplicand = vec![1.5, 2.5, 3.5, 4.5];       
+    /// let addend = vec![1.0, 1.0, 1.0, 1.0];         // self
+    /// let result = addend.fma(multiplier, multiplicand); // [4.0, 8.5, 15.0, 23.5]
     /// ```
     fn fma(&self, multiplier: Self, multiplicand: Self) -> Self::Output;
 
