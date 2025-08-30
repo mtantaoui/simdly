@@ -250,17 +250,18 @@ impl<const MR: usize, const KC: usize> IndexMut<usize> for ABlock<MR, KC> {
     }
 }
 
-/// Packs an mc×kc block of matrix A into cache-friendly panels.
+/// High-performance packing of an mc×kc block of matrix A using algorithmic optimizations.
 ///
 /// Extracts A(ic:ic+mc-1, pc:pc+kc-1) and reorganizes it into MR-wide row panels,
 /// where each panel stores KC columns in a layout optimized for microkernel access.
+/// Uses cache-friendly memory access patterns and eliminates function call overhead.
 ///
 /// # Arguments
 /// * `a` - Source matrix A in column-major order
 /// * `mc`, `kc` - Block dimensions to pack  
 /// * `m` - Leading dimension (number of rows) of matrix A
 /// * `ic`, `pc` - Top-left coordinates of block in A
-#[inline(always)]
+#[inline]
 pub fn pack_a<const MR: usize, const KC: usize>(
     a: &[f32],
     mc: usize,
@@ -271,37 +272,70 @@ pub fn pack_a<const MR: usize, const KC: usize>(
 ) -> ABlock<MR, KC> {
     let mut packed_block = ABlock::<MR, KC>::new(mc).expect("Memory allocation failed for ABlock");
 
+    // Pre-calculate base addresses to eliminate redundant calculations
+    let base_src_row = ic;
+    let base_src_col_offset = pc * m;
+
     // Process mc rows in groups of MR (microkernel row dimension)
     for (panel_idx, i_panel_start) in (0..mc).step_by(MR).enumerate() {
         let dest_panel = &mut packed_block[panel_idx];
-        let mr_in_panel = min(MR, mc - i_panel_start); // Handle partial panels
-
-        // Pack all KC columns of this row panel
+        let mr_in_panel = min(MR, mc - i_panel_start);
+        
+        // Calculate source row offset once per panel
+        let panel_src_row_offset = base_src_row + i_panel_start;
+        
+        // Pack all KC columns of this row panel with optimized inner loop
         for p_col in 0..kc {
-            // Copy column from A(ic+i_panel_start:ic+i_panel_start+mr_in_panel-1, pc+p_col)
-            let src_col = pc + p_col;
-            let src_row_start = ic + i_panel_start;
-            let src_start = at(src_row_start, src_col, m);
-            let src_slice = &a[src_start..src_start + mr_in_panel];
-            let dest_slice = &mut dest_panel.data[p_col][0..mr_in_panel];
-            dest_slice.copy_from_slice(src_slice);
+            // Inline index calculation - eliminates function call overhead
+            let src_start = base_src_col_offset + p_col * m + panel_src_row_offset;
+            
+            let dest_col = &mut dest_panel.data[p_col];
+            
+            // Optimized copy with manual unrolling for common cases
+            match mr_in_panel {
+                8 => {
+                    // Full panel - most common case, manually unrolled
+                    dest_col[0] = a[src_start];
+                    dest_col[1] = a[src_start + 1];
+                    dest_col[2] = a[src_start + 2];
+                    dest_col[3] = a[src_start + 3];
+                    dest_col[4] = a[src_start + 4];
+                    dest_col[5] = a[src_start + 5];
+                    dest_col[6] = a[src_start + 6];
+                    dest_col[7] = a[src_start + 7];
+                },
+                4 => {
+                    // Half panel
+                    dest_col[0] = a[src_start];
+                    dest_col[1] = a[src_start + 1];
+                    dest_col[2] = a[src_start + 2];
+                    dest_col[3] = a[src_start + 3];
+                },
+                mr => {
+                    // Partial panel - use slice copy for irregular sizes
+                    let src_slice = &a[src_start..src_start + mr];
+                    let dest_slice = &mut dest_col[0..mr];
+                    dest_slice.copy_from_slice(src_slice);
+                }
+            }
         }
     }
 
     packed_block
 }
 
-/// Packs a kc×nc block of matrix B into cache-friendly panels.
+/// High-performance packing of a kc×nc block of matrix B using algorithmic optimizations.
 ///
 /// Extracts B(pc:pc+kc-1, jc:jc+nc-1) and reorganizes it into NR-wide column panels,
 /// where each panel stores KC rows in row-major format for efficient broadcasting.
+/// Eliminates nested loops, function call overhead, and optimizes memory access patterns.
 ///
 /// # Arguments  
 /// * `b` - Source matrix B in column-major order
 /// * `nc`, `kc` - Block dimensions to pack
 /// * `k` - Leading dimension (number of rows) of matrix B
 /// * `pc`, `jc` - Top-left coordinates of block in B
-#[inline(always)]
+#[inline]
 pub fn pack_b<const KC: usize, const NR: usize>(
     b: &[f32],
     nc: usize,
@@ -315,16 +349,62 @@ pub fn pack_b<const KC: usize, const NR: usize>(
     // Process nc columns in groups of NR (microkernel column dimension)
     for (panel_idx, j_panel_start) in (0..nc).step_by(NR).enumerate() {
         let dest_panel = &mut packed_block[panel_idx];
-        let nr_in_panel = min(NR, nc - j_panel_start); // Handle partial panels
+        let nr_in_panel = min(NR, nc - j_panel_start);
 
-        // Pack KC rows of this column panel in row-major order
+        // Pre-calculate column base addresses to eliminate function calls
+        let col_base = jc + j_panel_start;
+        
+        // Pack KC rows of this column panel with optimized inner loops
         for p_row in 0..kc {
-            // Pack row pc+p_row across columns jc+j_panel_start:jc+j_panel_start+nr_in_panel-1
             let src_row = pc + p_row;
-            for j_col_in_panel in 0..nr_in_panel {
-                let src_col = jc + j_panel_start + j_col_in_panel;
-                let src_idx = at(src_row, src_col, k); // B(src_row, src_col)
-                dest_panel.data[p_row][j_col_in_panel] = b[src_idx];
+            let dest_row = &mut dest_panel.data[p_row];
+            
+            // Optimized packing with manual unrolling for common cases
+            match nr_in_panel {
+                8 => {
+                    // Full panel - most common case, manually unrolled
+                    // Inline index calculation: col * k + row
+                    dest_row[0] = b[(col_base + 0) * k + src_row];
+                    dest_row[1] = b[(col_base + 1) * k + src_row];
+                    dest_row[2] = b[(col_base + 2) * k + src_row];
+                    dest_row[3] = b[(col_base + 3) * k + src_row];
+                    dest_row[4] = b[(col_base + 4) * k + src_row];
+                    dest_row[5] = b[(col_base + 5) * k + src_row];
+                    dest_row[6] = b[(col_base + 6) * k + src_row];
+                    dest_row[7] = b[(col_base + 7) * k + src_row];
+                },
+                4 => {
+                    // Half panel
+                    dest_row[0] = b[(col_base + 0) * k + src_row];
+                    dest_row[1] = b[(col_base + 1) * k + src_row];
+                    dest_row[2] = b[(col_base + 2) * k + src_row];
+                    dest_row[3] = b[(col_base + 3) * k + src_row];
+                },
+                6 => {
+                    // 3/4 panel
+                    dest_row[0] = b[(col_base + 0) * k + src_row];
+                    dest_row[1] = b[(col_base + 1) * k + src_row];
+                    dest_row[2] = b[(col_base + 2) * k + src_row];
+                    dest_row[3] = b[(col_base + 3) * k + src_row];
+                    dest_row[4] = b[(col_base + 4) * k + src_row];
+                    dest_row[5] = b[(col_base + 5) * k + src_row];
+                },
+                2 => {
+                    // Quarter panel
+                    dest_row[0] = b[(col_base + 0) * k + src_row];
+                    dest_row[1] = b[(col_base + 1) * k + src_row];
+                },
+                1 => {
+                    // Single element
+                    dest_row[0] = b[col_base * k + src_row];
+                },
+                nr => {
+                    // General case for other sizes - still optimized with eliminated function calls
+                    for j_col_in_panel in 0..nr {
+                        let src_col = col_base + j_col_in_panel;
+                        dest_row[j_col_in_panel] = b[src_col * k + src_row];
+                    }
+                }
             }
         }
     }
