@@ -41,8 +41,14 @@ pub mod slice;
 ///
 /// Proper alignment can significantly improve SIMD performance:
 /// - **Aligned loads/stores**: Can be 2-4x faster than unaligned operations
-/// - **Memory bandwidth**: Better utilization of cache lines and memory buses
+/// - **Memory bandwidth**: Better utilization of cache lines and memory buses  
 /// - **Instruction efficiency**: Some SIMD instructions require aligned data
+///
+/// # Alignment Requirements
+///
+/// - **AVX2 (x86_64)**: 32-byte alignment for optimal performance
+/// - **NEON (ARM)**: 16-byte alignment for optimal performance
+/// - **Unaligned access**: Supported but may reduce performance
 ///
 /// # Examples
 ///
@@ -633,14 +639,14 @@ pub trait SimdMath {
 
     /// Computes fused multiply-add (FMA) operation: a * b + c.
     ///
-    /// **CRITICAL**: Performs `multiplier * multiplicand + self` for corresponding elements.
-    /// The addend is `self`, not a separate parameter.
+    /// Performs `multiplier * multiplicand + self` for corresponding elements.
+    /// The addend is `self`, following the standard FMA convention.
     ///
     /// # Parameters
     ///
-    /// - `self`: **Addend** (value added to the product)
-    /// - `multiplier`: **First factor** in the multiplication  
-    /// - `multiplicand`: **Second factor** in the multiplication
+    /// - `self`: Addend (value added to the product)
+    /// - `multiplier`: First factor in the multiplication  
+    /// - `multiplicand`: Second factor in the multiplication
     ///
     /// # Mathematical Operation
     /// ```text
@@ -865,7 +871,7 @@ pub trait SimdMath {
 
     /// Computes fused multiply-add (FMA) operation using parallel SIMD.
     ///
-    /// **CRITICAL**: Performs `multiplier * multiplicand + self` where `self` is the addend.
+    /// Performs `multiplier * multiplicand + self` where `self` is the addend.
     /// Automatically selects between regular SIMD and parallel SIMD based on array size.
     /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
     fn par_fma(&self, multiplier: Self, multiplicand: Self) -> Self::Output;

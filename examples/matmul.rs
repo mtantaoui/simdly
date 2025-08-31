@@ -52,6 +52,9 @@ pub fn display_matrix_column_major(m: usize, n: usize, ld: usize, a: &[f32]) {
 /// The memory alignment required for AVX2 SIMD instructions. AVX instructions operate
 /// on 256-bit (32-byte) registers, so aligning memory to 32-byte boundaries
 /// allows for the use of faster, aligned load/store instructions.
+/// 
+/// Note: This example defines its own alignment constant for simplicity.
+/// In production code, consider using the library's AVX_ALIGNMENT constant.
 const ALIGNMENT: usize = 32;
 
 /// Microkernel row dimension: Number of rows processed simultaneously.
@@ -497,9 +500,10 @@ pub fn pack_b<const KC: usize, const NR: usize>(
 /// the product of an 8×KC block of matrix A with a KC×8 block of matrix B, accumulating
 /// the result into an 8×8 block of matrix C.
 ///
-/// **CRITICAL**: The kernel uses A-element broadcasting strategy where each element of A is broadcast
-/// to all lanes and multiplied with the entire B vector. However, note that this creates
-/// a different memory access pattern than typical B-broadcasting kernels.
+/// The kernel uses A-element broadcasting strategy where each element of A is broadcast
+/// to all lanes and multiplied with the entire B vector. This creates a different
+/// memory access pattern than typical B-broadcasting kernels and may have different
+/// performance characteristics.
 ///
 /// # Arguments
 /// * `a_panel` - Packed A matrix panel (MR×KC elements, column-major within panel)
@@ -550,9 +554,8 @@ unsafe fn kernel(
         let a1_broadcast = a_lower_lane.permute::<0x55>(); // [a1, a1, a1, a1, a1, a1, a1, a1]
         let a5_broadcast = a_upper_lane.permute::<0x55>(); // [a5, a5, a5, a5, a5, a5, a5, a5]
 
-        // **CRITICAL FMA OPERATION**: c0.fma(a, b) computes a * b + c0
-        // Computing: A[i] * B[k][0:7] + C[i][0:7] but stored in column registers
-        // This differs from standard mathematical notation!
+        // FMA operation: c0.fma(a, b) computes a * b + c0
+        // Computing: A[i] * B[k][0:7] + C[i][0:7] with results stored in column registers
         c0 = c0.fma(a0_broadcast, b_micropanel); // a0*B + c0 -> column 0 of C
         c4 = c4.fma(a4_broadcast, b_micropanel); // a4*B + c4 -> column 4 of C
         c1 = c1.fma(a1_broadcast, b_micropanel); // a1*B + c1 -> column 1 of C

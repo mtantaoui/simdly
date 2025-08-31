@@ -227,7 +227,9 @@ impl Alignment<f32> for F32x8 {
     #[inline(always)]
     fn is_aligned(ptr: *const f32) -> bool {
         let ptr = ptr as usize;
-
+        
+        // Uses core::mem::align_of::<__m256>() for alignment checking
+        // This should match AVX_ALIGNMENT = 32 for consistency
         ptr % core::mem::align_of::<__m256>() == 0
     }
 }

@@ -261,6 +261,9 @@ impl Alignment<f32> for F32x4 {
     #[inline(always)]
     fn is_aligned(ptr: *const f32) -> bool {
         let ptr = ptr as usize;
+        
+        // Uses core::mem::align_of::<float32x4_t>() for alignment checking
+        // This should match NEON_ALIGNMENT = 16 for consistency
         ptr % core::mem::align_of::<float32x4_t>() == 0
     }
 }

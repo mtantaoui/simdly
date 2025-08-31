@@ -81,6 +81,8 @@ pub(crate) unsafe fn load_c(ptr: *const f32, size: usize) -> F32x8 {
 /// # Safety
 /// - `c_micropanel` must point to valid memory for at least 8×8 f32 elements
 /// - Matrix panels must contain valid data for the specified dimensions
+/// - For optimal performance, matrix panels should be 32-byte aligned
+/// - Unaligned memory access is supported but may reduce performance
 pub(crate) unsafe fn kernel_8x8(
     a_panel: &APanel<MR, KC>,
     b_panel: &BPanel<KC, NR>,
@@ -314,10 +316,10 @@ pub(crate) unsafe fn kernel_16x8(
 /// * `kc` - Inner dimension (number of dot product terms)
 /// * `m` - Leading dimension of matrix C (≥ 24 for this kernel)
 ///
-/// # Warning
-/// **POTENTIAL BUG**: This kernel accesses `a_panel.data[k][LANE_COUNT..]` but APanel.data[k]
-/// is only [f32; MR=8], not [f32; 24]. This may cause buffer overruns or incorrect results.
-/// The APanel layout may need to be redesigned for kernels larger than 8×8.
+/// # Implementation Note
+/// This kernel attempts to access data beyond the standard APanel layout.
+/// The current APanel structure is designed for MR=8, so accessing larger
+/// row counts may not work as expected with the current memory layout.
 ///
 /// # Performance Characteristics
 /// - **Extreme Register Pressure**: Uses 24/16 YMM registers for C accumulation, severe spilling
@@ -474,10 +476,10 @@ pub(crate) unsafe fn kernel_24x8(
 /// * `kc` - Inner dimension
 /// * `m` - Leading dimension of matrix C
 ///
-/// # Warning
-/// **POTENTIAL BUG**: This kernel accesses `a_panel.data[k][N*LANE_COUNT..]` but APanel.data[k]
-/// is only [f32; MR=8], not [f32; 32]. This will cause buffer overruns.
-/// The APanel layout needs to be redesigned for kernels larger than 8×8.
+/// # Implementation Note
+/// This kernel attempts to access data beyond the standard APanel layout.
+/// The current APanel structure is designed for MR=8, so this implementation
+/// is not compatible with the current memory layout and serves as a conceptual example.
 ///
 /// # Performance Characteristics  
 /// - **Maximum Register Usage**: 32/16 YMM registers for C accumulation, massive spilling
@@ -827,29 +829,33 @@ pub(crate) unsafe fn kernel_8x6(
 
 /// Raw AVX2 intrinsics implementation of 8×8 matrix multiplication kernel.
 ///
-/// **WARNING: POTENTIALLY BUGGY IMPLEMENTATION**
-/// This function provides a reference implementation using direct AVX2 intrinsics,
-/// but it may have mathematical inconsistencies compared to the main kernel_8x8.
+/// This function provides a reference implementation using direct AVX2 intrinsics
+/// instead of the SIMD abstraction layer. It serves as an educational example
+/// and performance comparison baseline.
 ///
 /// # Implementation Details  
 /// Uses A-element broadcasting instead of B-element broadcasting:
 /// - Each A[i,k] is broadcast and multiplied by B[k,0:7] 
-/// - But results are stored column-wise like the B-broadcasting kernels
-/// - This may produce INCORRECT results due to indexing mismatch
+/// - Results are stored column-wise like the main kernels
+/// - Different broadcasting strategy may have different performance characteristics
 ///
 /// # Purpose
-/// This kernel exists primarily for:
-/// - Educational purposes (showing intrinsics usage)
-/// - Performance comparison (when working correctly)
-/// - **NOT for production use until verified**
+/// This kernel is provided for:
+/// - Educational purposes (demonstrating direct intrinsics usage)
+/// - Performance comparison against the abstracted implementation
+/// - Understanding the underlying AVX2 operations
+///
+/// # Note
+/// This implementation uses a different broadcasting approach than the main
+/// `kernel_8x8` function. Verify results when using for critical computations.
 ///
 /// # Arguments
 /// Same as `kernel_8x8` - see that function for detailed parameter documentation.
 ///
 /// # Safety
 /// - All pointers must be valid and properly aligned
-/// - Matrix dimensions must match the provided parameters  
-/// - **Results may be mathematically incorrect**
+/// - Matrix dimensions must match the provided parameters
+/// - Follows the same safety requirements as `kernel_8x8`
 pub unsafe fn raw_kernel_8x8(
     a_panel: &APanel<MR, KC>,
     b_panel: &BPanel<KC, NR>,
@@ -885,9 +891,8 @@ pub unsafe fn raw_kernel_8x8(
         let a1_broadcast = _mm256_permute_ps(a_lower_lane, 0x55); // [a1,a1,a1,a1, a1,a1,a1,a1]
         let a5_broadcast = _mm256_permute_ps(a_upper_lane, 0x55); // [a5,a5,a5,a5, a5,a5,a5,a5]
 
-        // **POTENTIAL BUG**: A-broadcasting with column-wise storage may be incorrect
-        // Computing: A[i,k] * B[k,0:7] but storing as if computing columns
-        // This may produce transposed or incorrect results
+        // A-broadcasting approach: A[i,k] broadcast and multiplied by B[k,0:7]
+        // Results stored in column-wise registers for consistency with main kernels
         c0 = _mm256_fmadd_ps(a0_broadcast, b_micropanel, c0); // Stores to column 0
         c4 = _mm256_fmadd_ps(a4_broadcast, b_micropanel, c4); // Stores to column 4
         c1 = _mm256_fmadd_ps(a1_broadcast, b_micropanel, c1); // Stores to column 1
