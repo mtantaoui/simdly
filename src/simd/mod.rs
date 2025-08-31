@@ -633,30 +633,35 @@ pub trait SimdMath {
 
     /// Computes fused multiply-add (FMA) operation: a * b + c.
     ///
-    /// Performs `self * multiplier + addend` for corresponding elements.
-    /// FMA is computed as a single operation with higher precision than
-    /// separate multiply and add operations.
+    /// **CRITICAL**: Performs `multiplier * multiplicand + self` for corresponding elements.
+    /// The addend is `self`, not a separate parameter.
     ///
     /// # Parameters
     ///
-    /// - `self`: Addend (value to add to the product)
-    /// - `multiplier`: First multiplicand
-    /// - `multiplicand`: Second multiplicand
+    /// - `self`: **Addend** (value added to the product)
+    /// - `multiplier`: **First factor** in the multiplication  
+    /// - `multiplicand`: **Second factor** in the multiplication
+    ///
+    /// # Mathematical Operation
+    /// ```text
+    /// result = multiplier * multiplicand + self
+    /// ```
     ///
     /// # Performance
     ///
     /// - **Implementation**: Native FMA instruction when available (AVX2/FMA3, NEON)
-    /// - **Precision**: Higher precision than separate multiply-add
+    /// - **Precision**: Higher precision than separate multiply-add operations
     /// - **Typical speedup**: 1.5-2x over separate multiply-add operations
     ///
     /// # Examples
     /// ```rust
     /// use simdly::simd::SimdMath;
     ///
+    /// let addend = vec![1.0, 1.0, 1.0, 1.0];         // self (the addend)
     /// let multiplier = vec![2.0, 3.0, 4.0, 5.0];     
     /// let multiplicand = vec![1.5, 2.5, 3.5, 4.5];       
-    /// let addend = vec![1.0, 1.0, 1.0, 1.0];         // self
     /// let result = addend.fma(multiplier, multiplicand); // [4.0, 8.5, 15.0, 23.5]
+    /// // Computation: [2*1.5+1, 3*2.5+1, 4*3.5+1, 5*4.5+1] = [4.0, 8.5, 15.0, 23.5]
     /// ```
     fn fma(&self, multiplier: Self, multiplicand: Self) -> Self::Output;
 
@@ -860,7 +865,7 @@ pub trait SimdMath {
 
     /// Computes fused multiply-add (FMA) operation using parallel SIMD.
     ///
-    /// Performs `multiplier * multiplicand + self` using size-adaptive parallel SIMD.
+    /// **CRITICAL**: Performs `multiplier * multiplicand + self` where `self` is the addend.
     /// Automatically selects between regular SIMD and parallel SIMD based on array size.
     /// For arrays larger than PARALLEL_SIMD_THRESHOLD, uses multi-threaded processing.
     fn par_fma(&self, multiplier: Self, multiplicand: Self) -> Self::Output;

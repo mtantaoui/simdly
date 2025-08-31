@@ -1,3 +1,6 @@
+use std::arch::x86_64::{
+    _mm256_fmadd_ps, _mm256_load_ps, _mm256_permute2f128_ps, _mm256_permute_ps, _mm256_store_ps,
+};
 use std::cmp::min;
 
 use std::alloc::{self, Layout};
@@ -358,10 +361,10 @@ fn matmul_with_params(
 
     // BLIS-style nested loop structure with cache-conscious blocking:
     // - jc loop: N dimension blocking for L3 cache (columns of C and B)
-    // - pc loop: K dimension blocking for L1 cache (shared dimension)  
+    // - pc loop: K dimension blocking for L1 cache (shared dimension)
     // - ic loop: M dimension blocking for L2 cache (rows of C and A)
     // This order maximizes data reuse and minimizes cache misses
-    
+
     // jc loop: Process N dimension in nc-wide blocks (L3 cache optimization)
     for jc in (0..n).step_by(nc) {
         let nc_actual = min(nc, n - jc);
@@ -494,9 +497,9 @@ pub fn pack_b<const KC: usize, const NR: usize>(
 /// the product of an 8×KC block of matrix A with a KC×8 block of matrix B, accumulating
 /// the result into an 8×8 block of matrix C.
 ///
-/// The kernel uses A-element broadcasting strategy where each element of A is broadcast
-/// to all lanes and multiplied with the corresponding row of B. This minimizes memory
-/// traffic and maximizes register reuse.
+/// **CRITICAL**: The kernel uses A-element broadcasting strategy where each element of A is broadcast
+/// to all lanes and multiplied with the entire B vector. However, note that this creates
+/// a different memory access pattern than typical B-broadcasting kernels.
 ///
 /// # Arguments
 /// * `a_panel` - Packed A matrix panel (MR×KC elements, column-major within panel)
@@ -534,9 +537,9 @@ unsafe fn kernel(
         let a_micropanel = F32x8::from(a_panel.data[k].as_slice());
         let b_micropanel = F32x8::from(b_panel.data[k].as_slice());
 
-        // Duplicate 128-bit lanes to prepare for A element broadcasting
-        // permute2f128 with mask 0x00: [a0,a1,a2,a3, a0,a1,a2,a3]
-        // permute2f128 with mask 0x11: [a4,a5,a6,a7, a4,a5,a6,a7]
+        // // Duplicate 128-bit lanes to prepare for A element broadcasting
+        // // permute2f128 with mask 0x00: [a0,a1,a2,a3, a0,a1,a2,a3]
+        // // permute2f128 with mask 0x11: [a4,a5,a6,a7, a4,a5,a6,a7]
         let a_lower_lane = a_micropanel.permute2f128::<0x00>();
         let a_upper_lane = a_micropanel.permute2f128::<0x11>();
 
@@ -547,12 +550,13 @@ unsafe fn kernel(
         let a1_broadcast = a_lower_lane.permute::<0x55>(); // [a1, a1, a1, a1, a1, a1, a1, a1]
         let a5_broadcast = a_upper_lane.permute::<0x55>(); // [a5, a5, a5, a5, a5, a5, a5, a5]
 
-        // FMA: C[i][j] += A[i][k] * B[k][j] for each (i,j) pair
-        // c0 corresponds to C[0:7][0], c1 to C[0:7][1], etc.
-        c0 = c0.fma(a0_broadcast, b_micropanel);
-        c4 = c4.fma(a4_broadcast, b_micropanel);
-        c1 = c1.fma(a1_broadcast, b_micropanel);
-        c5 = c5.fma(a5_broadcast, b_micropanel);
+        // **CRITICAL FMA OPERATION**: c0.fma(a, b) computes a * b + c0
+        // Computing: A[i] * B[k][0:7] + C[i][0:7] but stored in column registers
+        // This differs from standard mathematical notation!
+        c0 = c0.fma(a0_broadcast, b_micropanel); // a0*B + c0 -> column 0 of C
+        c4 = c4.fma(a4_broadcast, b_micropanel); // a4*B + c4 -> column 4 of C
+        c1 = c1.fma(a1_broadcast, b_micropanel); // a1*B + c1 -> column 1 of C
+        c5 = c5.fma(a5_broadcast, b_micropanel); // a5*B + c5 -> column 5 of C
 
         // Continue with remaining A elements
         let a2_broadcast = a_lower_lane.permute::<0xAA>(); // [a2, a2, a2, a2, a2, a2, a2, a2]
@@ -560,10 +564,10 @@ unsafe fn kernel(
         let a3_broadcast = a_lower_lane.permute::<0xFF>(); // [a3, a3, a3, a3, a3, a3, a3, a3]
         let a7_broadcast = a_upper_lane.permute::<0xFF>(); // [a7, a7, a7, a7, a7, a7, a7, a7]
 
-        c2 = c2.fma(a2_broadcast, b_micropanel);
-        c6 = c6.fma(a6_broadcast, b_micropanel);
-        c3 = c3.fma(a3_broadcast, b_micropanel);
-        c7 = c7.fma(a7_broadcast, b_micropanel);
+        c2 = c2.fma(a2_broadcast, b_micropanel); // a2*B + c2 -> column 2 of C
+        c6 = c6.fma(a6_broadcast, b_micropanel); // a6*B + c6 -> column 6 of C
+        c3 = c3.fma(a3_broadcast, b_micropanel); // a3*B + c3 -> column 3 of C
+        c7 = c7.fma(a7_broadcast, b_micropanel); // a7*B + c7 -> column 7 of C
     }
 
     c0.store_at(c_micropanel);
@@ -576,6 +580,78 @@ unsafe fn kernel(
     c7.store_at(c_micropanel.add(7 * m));
 }
 
+#[time_graph::instrument]
+unsafe fn raw_kernel(
+    a_panel: &APanel<MR, KC>,
+    b_panel: &BPanel<KC, NR>,
+    c_micropanel: *mut f32,
+    mr: usize,
+    nr: usize,
+    kc: usize,
+    m: usize,
+) {
+    let mut c0 = _mm256_load_ps(c_micropanel);
+
+    let mut c1 = _mm256_load_ps(c_micropanel.add(m));
+
+    let mut c2 = _mm256_load_ps(c_micropanel.add(2 * m));
+
+    let mut c3 = _mm256_load_ps(c_micropanel.add(3 * m));
+
+    let mut c4 = _mm256_load_ps(c_micropanel.add(4 * m));
+
+    let mut c5 = _mm256_load_ps(c_micropanel.add(5 * m));
+
+    let mut c6 = _mm256_load_ps(c_micropanel.add(6 * m));
+
+    let mut c7 = _mm256_load_ps(c_micropanel.add(7 * m));
+
+    for k in 0..kc {
+        let a_micropanel = _mm256_load_ps(a_panel.data[k].as_ptr());
+        let b_micropanel = _mm256_load_ps(b_panel.data[k].as_ptr());
+
+        // Duplicate 128-bit lanes to prepare for A element broadcasting
+        // permute2f128 with mask 0x00: [a0,a1,a2,a3, a0,a1,a2,a3]
+        // permute2f128 with mask 0x11: [a4,a5,a6,a7, a4,a5,a6,a7]
+        let a_lower_lane = _mm256_permute2f128_ps::<0x00>(a_micropanel, a_micropanel);
+        let a_upper_lane = _mm256_permute2f128_ps::<0x11>(a_micropanel, a_micropanel);
+
+        // Broadcast A elements for outer product computation
+        // Each A element is multiplied by the entire B vector (b_micropanel)
+        let a0_broadcast = _mm256_permute_ps(a_lower_lane, 0x00); // [a0, a0, a0, a0, a0, a0, a0, a0]
+        let a4_broadcast = _mm256_permute_ps(a_upper_lane, 0x00); // [a4, a4, a4, a4, a4, a4, a4, a4]
+        let a1_broadcast = _mm256_permute_ps(a_lower_lane, 0x55); // [a1, a1, a1, a1, a1, a1, a1, a1]
+        let a5_broadcast = _mm256_permute_ps(a_upper_lane, 0x55); // [a5, a5, a5, a5, a5, a5, a5, a5]
+
+        // FMA: C[i][j] += A[i][k] * B[k][j] for each (i,j) pair
+        // c0 corresponds to C[0:7][0], c1 to C[0:7][1], etc.
+        c0 = _mm256_fmadd_ps(a0_broadcast, b_micropanel, c0);
+        c4 = _mm256_fmadd_ps(a4_broadcast, b_micropanel, c4);
+        c1 = _mm256_fmadd_ps(a1_broadcast, b_micropanel, c1);
+        c5 = _mm256_fmadd_ps(a5_broadcast, b_micropanel, c5);
+
+        // Continue with remaining A elements
+        let a2_broadcast = _mm256_permute_ps(a_lower_lane, 0xAA); // [a2, a2, a2, a2, a2, a2, a2, a2]
+        let a6_broadcast = _mm256_permute_ps(a_upper_lane, 0xAA); // [a6, a6, a6, a6, a6, a6, a6, a6]
+        let a3_broadcast = _mm256_permute_ps(a_lower_lane, 0xFF); // [a3, a3, a3, a3, a3, a3, a3, a3]
+        let a7_broadcast = _mm256_permute_ps(a_upper_lane, 0xFF); // [a7, a7, a7, a7, a7, a7, a7, a7]
+
+        c2 = _mm256_fmadd_ps(a2_broadcast, b_micropanel, c2);
+        c6 = _mm256_fmadd_ps(a6_broadcast, b_micropanel, c6);
+        c3 = _mm256_fmadd_ps(a3_broadcast, b_micropanel, c3);
+        c7 = _mm256_fmadd_ps(a7_broadcast, b_micropanel, c7);
+    }
+
+    _mm256_store_ps(c_micropanel, c0);
+    _mm256_store_ps(c_micropanel.add(m), c1);
+    _mm256_store_ps(c_micropanel.add(2 * m), c2);
+    _mm256_store_ps(c_micropanel.add(3 * m), c3);
+    _mm256_store_ps(c_micropanel.add(4 * m), c4);
+    _mm256_store_ps(c_micropanel.add(5 * m), c5);
+    _mm256_store_ps(c_micropanel.add(6 * m), c6);
+    _mm256_store_ps(c_micropanel.add(7 * m), c7);
+}
+
 /// Creates a test matrix in column-major format with sequential values.
 ///
 /// # Arguments
@@ -584,7 +660,7 @@ unsafe fn kernel(
 /// * `rng` - Random number generator (unused, kept for API compatibility)
 ///
 /// # Returns
-/// A vector containing matrix data in column-major order where 
+/// A vector containing matrix data in column-major order where
 /// element (i,j) = column*rows + row (for predictable test patterns)
 fn create_test_matrix(rows: usize, cols: usize, rng: &mut StdRng) -> Vec<f32> {
     let mut matrix = vec![0.0; rows * cols];
@@ -592,7 +668,7 @@ fn create_test_matrix(rows: usize, cols: usize, rng: &mut StdRng) -> Vec<f32> {
         for row in 0..rows {
             // Column-major storage: element (row,col) = col*rows + row
             // This means columns are stored consecutively in memory
-            let idx = col * rows + row; 
+            let idx = col * rows + row;
             // Use sequential values for predictable debugging patterns
             // Could use: matrix[idx] = rng.random_range(-1.0..1.0) for random data
             matrix[idx] = (idx) as f32;

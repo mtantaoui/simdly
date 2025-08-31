@@ -10,6 +10,7 @@ use crate::simd::avx2::{
     kernels::{
         // kernel_24x8, kernel_32x8, kernel_8x2, kernel_8x6,
         kernel_8x8,
+        raw_kernel_8x8,
     },
     panels::{at, pack_a, pack_b, KC, MR, NR},
 };
@@ -129,7 +130,7 @@ pub fn matmul(
                             // Use the stable 8×8 kernel for all panel sizes
                             // The kernel internally handles partial panels (mr < 8, nr < 8)
                             // by using masked loads/stores and size information
-                            kernel_8x8(
+                            raw_kernel_8x8(
                                 a_panel,
                                 b_panel,
                                 c_micropanel.as_mut_ptr(),
@@ -139,14 +140,13 @@ pub fn matmul(
                                 m,
                             )
 
-                            
                             // EXPERIMENTAL KERNELS (currently disabled):
                             // Alternative kernel implementations for different panel sizes
                             // and register usage patterns. These may provide better performance
                             // for specific workloads but have known issues (see kernels.rs docs):
                             //
                             // - kernel_8x4, kernel_8x2, kernel_8x6: Optimized for narrow B panels
-                            // - kernel_16x8: Double-width A panels (moderate register pressure)  
+                            // - kernel_16x8: Double-width A panels (moderate register pressure)
                             // - kernel_24x8, kernel_32x8: Very wide A panels (HIGH register pressure + memory bugs)
                             //
                             // TODO: Fix memory access bugs in 24×8 and 32×8 kernels

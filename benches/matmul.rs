@@ -24,13 +24,13 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use faer::Mat;
 use ndarray::Array2;
 use rand::prelude::*;
-use simdly::simd::avx2::dot::matmul;
+use simdly::{simd::avx2::dot::matmul, utils::alloc_zeroed_vec};
 
 // Import our implementations
 
 /// Create a test matrix in column-major format for our BLIS implementation
 fn create_blis_matrix(rows: usize, cols: usize, rng: &mut StdRng) -> Vec<f32> {
-    let mut matrix = vec![0.0; rows * cols];
+    let mut matrix = alloc_zeroed_vec(rows * cols, 32);
     for col in 0..cols {
         for row in 0..rows {
             let idx = col * rows + row; // column-major indexing
@@ -68,8 +68,8 @@ fn bench_matmul_by_size(c: &mut Criterion) {
         // Cache blocking parameters optimized for AVX2 performance
         // mc: M-dimension blocking for L2 cache (typically 64-128)
         // nc: N-dimension blocking for L3 cache (typically 256-512)
-        let mc = min(m, 64);   // L2 cache blocking - rows of A and C
-        let nc = min(n, 448);  // L3 cache blocking - columns of B and C
+        let mc = min(m, 64); // L2 cache blocking - rows of A and C
+        let nc = min(n, 448); // L3 cache blocking - columns of B and C
 
         let group_name = format!("matmul_{}x{}x{}", m, k, n);
         let mut group = c.benchmark_group(&group_name);
@@ -80,7 +80,7 @@ fn bench_matmul_by_size(c: &mut Criterion) {
         // Prepare data for each implementation
         let a_blis = create_blis_matrix(m, k, &mut rng);
         let b_blis = create_blis_matrix(k, n, &mut rng);
-        let mut c_blis = vec![0.0; m * n];
+        let mut c_blis = alloc_zeroed_vec(m * n, 32);
 
         rng = StdRng::seed_from_u64(42); // Reset RNG for consistency
         let a_ndarray = create_ndarray_matrix(m, k, &mut rng);

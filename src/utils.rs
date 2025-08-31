@@ -298,7 +298,7 @@ pub fn alloc_uninit_vec<T>(len: usize, align: usize) -> Vec<T> {
 /// - **vs `Vec::new() + resize`**: Faster due to aligned allocation
 #[cfg(not(target_os = "windows"))]
 #[allow(dead_code)]
-pub(crate) fn alloc_zeroed_vec<T>(len: usize, align: usize) -> Vec<T> {
+pub fn alloc_zeroed_vec<T>(len: usize, align: usize) -> Vec<T> {
     if len == 0 {
         return Vec::new();
     }
