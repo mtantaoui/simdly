@@ -4,7 +4,7 @@
 //! of the BLIS-style matrix multiplication algorithm. These kernels operate on small
 //! matrix blocks (typically 8×8 or 16×8) and are optimized for AVX2's 256-bit vectors.
 
-use std::{arch::x86_64::*, cmp::min};
+use std::arch::x86_64::*;
 
 use crate::simd::{
     avx2::{
@@ -18,17 +18,23 @@ use crate::simd::{
 // UTILITY FUNCTIONS
 // ================================================================================================
 
-/// Helper function to load C matrix elements, choosing between full and partial load.
+/// Optimized SIMD load with compile-time dispatch.
 ///
-/// Automatically selects between aligned/unaligned full loads and masked partial loads
-/// based on the number of valid elements to prevent buffer overruns.
+/// Uses match statements that the compiler can optimize into jump tables
+/// or conditional moves for maximum performance.
 #[inline(always)]
-pub(crate) unsafe fn load_c(ptr: *const f32, size: usize) -> F32x8 {
-    let size = min(size, LANE_COUNT);
-    if size == LANE_COUNT {
-        F32x8::load(ptr, size)
-    } else {
-        F32x8::load_partial(ptr, size)
+pub(crate) unsafe fn simd_load(ptr: *const f32, size: usize) -> F32x8 {
+    match size {
+        8 => F32x8::load(ptr, 8),
+        7 => F32x8::load_partial(ptr, 7),
+        6 => F32x8::load_partial(ptr, 6),
+        5 => F32x8::load_partial(ptr, 5),
+        4 => F32x8::load_partial(ptr, 4),
+        3 => F32x8::load_partial(ptr, 3),
+        2 => F32x8::load_partial(ptr, 2),
+        1 => F32x8::load_partial(ptr, 1),
+        0 => F32x8::zeros(),
+        _ => unreachable!(), // Size > 8, load full vector
     }
 }
 
@@ -83,6 +89,7 @@ pub(crate) unsafe fn load_c(ptr: *const f32, size: usize) -> F32x8 {
 /// - Matrix panels must contain valid data for the specified dimensions
 /// - For optimal performance, matrix panels should be 32-byte aligned
 /// - Unaligned memory access is supported but may reduce performance
+#[inline(always)]
 pub(crate) unsafe fn kernel_8x8(
     a_panel: &APanel<MR, KC>,
     b_panel: &BPanel<KC, NR>,
@@ -92,14 +99,14 @@ pub(crate) unsafe fn kernel_8x8(
     kc: usize,
     m: usize,
 ) {
-    let mut c0 = load_c(c_micropanel, mr);
-    let mut c1 = load_c(c_micropanel.add(m), mr);
-    let mut c2 = load_c(c_micropanel.add(2 * m), mr);
-    let mut c3 = load_c(c_micropanel.add(3 * m), mr);
-    let mut c4 = load_c(c_micropanel.add(4 * m), mr);
-    let mut c5 = load_c(c_micropanel.add(5 * m), mr);
-    let mut c6 = load_c(c_micropanel.add(6 * m), mr);
-    let mut c7 = load_c(c_micropanel.add(7 * m), mr);
+    let mut c0 = simd_load(c_micropanel, mr);
+    let mut c1 = simd_load(c_micropanel.add(m), mr);
+    let mut c2 = simd_load(c_micropanel.add(2 * m), mr);
+    let mut c3 = simd_load(c_micropanel.add(3 * m), mr);
+    let mut c4 = simd_load(c_micropanel.add(4 * m), mr);
+    let mut c5 = simd_load(c_micropanel.add(5 * m), mr);
+    let mut c6 = simd_load(c_micropanel.add(6 * m), mr);
+    let mut c7 = simd_load(c_micropanel.add(7 * m), mr);
 
     for k in 0..kc {
         let a_micropanel = F32x8::load_aligned(a_panel.data[k].as_ptr());
@@ -201,29 +208,29 @@ pub(crate) unsafe fn kernel_16x8(
     kc: usize,
     m: usize,
 ) {
-    let mut c0_hi = load_c(c_micropanel, mr);
-    let mut c0_lo = load_c(c_micropanel.add(LANE_COUNT), mr);
+    let mut c0_hi = simd_load(c_micropanel, mr);
+    let mut c0_lo = simd_load(c_micropanel.add(LANE_COUNT), mr);
 
-    let mut c1_hi = load_c(c_micropanel.add(m), mr);
-    let mut c1_lo = load_c(c_micropanel.add(m + LANE_COUNT), mr);
+    let mut c1_hi = simd_load(c_micropanel.add(m), mr);
+    let mut c1_lo = simd_load(c_micropanel.add(m + LANE_COUNT), mr);
 
-    let mut c2_hi = load_c(c_micropanel.add(2 * m), mr);
-    let mut c2_lo = load_c(c_micropanel.add(2 * m + LANE_COUNT), mr);
+    let mut c2_hi = simd_load(c_micropanel.add(2 * m), mr);
+    let mut c2_lo = simd_load(c_micropanel.add(2 * m + LANE_COUNT), mr);
 
-    let mut c3_hi = load_c(c_micropanel.add(3 * m), mr);
-    let mut c3_lo = load_c(c_micropanel.add(3 * m + LANE_COUNT), mr);
+    let mut c3_hi = simd_load(c_micropanel.add(3 * m), mr);
+    let mut c3_lo = simd_load(c_micropanel.add(3 * m + LANE_COUNT), mr);
 
-    let mut c4_hi = load_c(c_micropanel.add(4 * m), mr);
-    let mut c4_lo = load_c(c_micropanel.add(4 * m + LANE_COUNT), mr);
+    let mut c4_hi = simd_load(c_micropanel.add(4 * m), mr);
+    let mut c4_lo = simd_load(c_micropanel.add(4 * m + LANE_COUNT), mr);
 
-    let mut c5_hi = load_c(c_micropanel.add(5 * m), mr);
-    let mut c5_lo = load_c(c_micropanel.add(5 * m + LANE_COUNT), mr);
+    let mut c5_hi = simd_load(c_micropanel.add(5 * m), mr);
+    let mut c5_lo = simd_load(c_micropanel.add(5 * m + LANE_COUNT), mr);
 
-    let mut c6_hi = load_c(c_micropanel.add(6 * m), mr);
-    let mut c6_lo = load_c(c_micropanel.add(6 * m + LANE_COUNT), mr);
+    let mut c6_hi = simd_load(c_micropanel.add(6 * m), mr);
+    let mut c6_lo = simd_load(c_micropanel.add(6 * m + LANE_COUNT), mr);
 
-    let mut c7_hi = load_c(c_micropanel.add(7 * m), mr);
-    let mut c7_lo = load_c(c_micropanel.add(7 * m + LANE_COUNT), mr);
+    let mut c7_hi = simd_load(c_micropanel.add(7 * m), mr);
+    let mut c7_lo = simd_load(c_micropanel.add(7 * m + LANE_COUNT), mr);
 
     for k in 0..kc {
         // === Process upper 8 rows (rows 0-7) ===
@@ -346,32 +353,32 @@ pub(crate) unsafe fn kernel_24x8(
     kc: usize,
     m: usize,
 ) {
-    let mut c0_0 = load_c(c_micropanel, mr);
-    let mut c1_0 = load_c(c_micropanel.add(m), mr);
-    let mut c2_0 = load_c(c_micropanel.add(2 * m), mr);
-    let mut c3_0 = load_c(c_micropanel.add(3 * m), mr);
-    let mut c4_0 = load_c(c_micropanel.add(4 * m), mr);
-    let mut c5_0 = load_c(c_micropanel.add(5 * m), mr);
-    let mut c6_0 = load_c(c_micropanel.add(6 * m), mr);
-    let mut c7_0 = load_c(c_micropanel.add(7 * m), mr);
+    let mut c0_0 = simd_load(c_micropanel, mr);
+    let mut c1_0 = simd_load(c_micropanel.add(m), mr);
+    let mut c2_0 = simd_load(c_micropanel.add(2 * m), mr);
+    let mut c3_0 = simd_load(c_micropanel.add(3 * m), mr);
+    let mut c4_0 = simd_load(c_micropanel.add(4 * m), mr);
+    let mut c5_0 = simd_load(c_micropanel.add(5 * m), mr);
+    let mut c6_0 = simd_load(c_micropanel.add(6 * m), mr);
+    let mut c7_0 = simd_load(c_micropanel.add(7 * m), mr);
 
-    let mut c0_1 = load_c(c_micropanel.add(LANE_COUNT), mr);
-    let mut c1_1 = load_c(c_micropanel.add(m + LANE_COUNT), mr);
-    let mut c2_1 = load_c(c_micropanel.add(2 * m + LANE_COUNT), mr);
-    let mut c3_1 = load_c(c_micropanel.add(3 * m + LANE_COUNT), mr);
-    let mut c4_1 = load_c(c_micropanel.add(4 * m + LANE_COUNT), mr);
-    let mut c5_1 = load_c(c_micropanel.add(5 * m + LANE_COUNT), mr);
-    let mut c6_1 = load_c(c_micropanel.add(6 * m + LANE_COUNT), mr);
-    let mut c7_1 = load_c(c_micropanel.add(7 * m + LANE_COUNT), mr);
+    let mut c0_1 = simd_load(c_micropanel.add(LANE_COUNT), mr);
+    let mut c1_1 = simd_load(c_micropanel.add(m + LANE_COUNT), mr);
+    let mut c2_1 = simd_load(c_micropanel.add(2 * m + LANE_COUNT), mr);
+    let mut c3_1 = simd_load(c_micropanel.add(3 * m + LANE_COUNT), mr);
+    let mut c4_1 = simd_load(c_micropanel.add(4 * m + LANE_COUNT), mr);
+    let mut c5_1 = simd_load(c_micropanel.add(5 * m + LANE_COUNT), mr);
+    let mut c6_1 = simd_load(c_micropanel.add(6 * m + LANE_COUNT), mr);
+    let mut c7_1 = simd_load(c_micropanel.add(7 * m + LANE_COUNT), mr);
 
-    let mut c0_2 = load_c(c_micropanel.add(LANE_COUNT * 2), mr);
-    let mut c1_2 = load_c(c_micropanel.add(m + LANE_COUNT * 2), mr);
-    let mut c2_2 = load_c(c_micropanel.add(2 * m + LANE_COUNT * 2), mr);
-    let mut c3_2 = load_c(c_micropanel.add(3 * m + LANE_COUNT * 2), mr);
-    let mut c4_2 = load_c(c_micropanel.add(4 * m + LANE_COUNT * 2), mr);
-    let mut c5_2 = load_c(c_micropanel.add(5 * m + LANE_COUNT * 2), mr);
-    let mut c6_2 = load_c(c_micropanel.add(6 * m + LANE_COUNT * 2), mr);
-    let mut c7_2 = load_c(c_micropanel.add(7 * m + LANE_COUNT * 2), mr);
+    let mut c0_2 = simd_load(c_micropanel.add(LANE_COUNT * 2), mr);
+    let mut c1_2 = simd_load(c_micropanel.add(m + LANE_COUNT * 2), mr);
+    let mut c2_2 = simd_load(c_micropanel.add(2 * m + LANE_COUNT * 2), mr);
+    let mut c3_2 = simd_load(c_micropanel.add(3 * m + LANE_COUNT * 2), mr);
+    let mut c4_2 = simd_load(c_micropanel.add(4 * m + LANE_COUNT * 2), mr);
+    let mut c5_2 = simd_load(c_micropanel.add(5 * m + LANE_COUNT * 2), mr);
+    let mut c6_2 = simd_load(c_micropanel.add(6 * m + LANE_COUNT * 2), mr);
+    let mut c7_2 = simd_load(c_micropanel.add(7 * m + LANE_COUNT * 2), mr);
 
     for k in 0..kc {
         // 0
@@ -509,41 +516,41 @@ pub(crate) unsafe fn kernel_32x8(
     kc: usize,
     m: usize,
 ) {
-    let mut c0_0 = load_c(c_micropanel, mr);
-    let mut c1_0 = load_c(c_micropanel.add(m), mr);
-    let mut c2_0 = load_c(c_micropanel.add(2 * m), mr);
-    let mut c3_0 = load_c(c_micropanel.add(3 * m), mr);
-    let mut c4_0 = load_c(c_micropanel.add(4 * m), mr);
-    let mut c5_0 = load_c(c_micropanel.add(5 * m), mr);
-    let mut c6_0 = load_c(c_micropanel.add(6 * m), mr);
-    let mut c7_0 = load_c(c_micropanel.add(7 * m), mr);
+    let mut c0_0 = simd_load(c_micropanel, mr);
+    let mut c1_0 = simd_load(c_micropanel.add(m), mr);
+    let mut c2_0 = simd_load(c_micropanel.add(2 * m), mr);
+    let mut c3_0 = simd_load(c_micropanel.add(3 * m), mr);
+    let mut c4_0 = simd_load(c_micropanel.add(4 * m), mr);
+    let mut c5_0 = simd_load(c_micropanel.add(5 * m), mr);
+    let mut c6_0 = simd_load(c_micropanel.add(6 * m), mr);
+    let mut c7_0 = simd_load(c_micropanel.add(7 * m), mr);
 
-    let mut c0_1 = load_c(c_micropanel.add(LANE_COUNT), mr);
-    let mut c1_1 = load_c(c_micropanel.add(m + LANE_COUNT), mr);
-    let mut c2_1 = load_c(c_micropanel.add(2 * m + LANE_COUNT), mr);
-    let mut c3_1 = load_c(c_micropanel.add(3 * m + LANE_COUNT), mr);
-    let mut c4_1 = load_c(c_micropanel.add(4 * m + LANE_COUNT), mr);
-    let mut c5_1 = load_c(c_micropanel.add(5 * m + LANE_COUNT), mr);
-    let mut c6_1 = load_c(c_micropanel.add(6 * m + LANE_COUNT), mr);
-    let mut c7_1 = load_c(c_micropanel.add(7 * m + LANE_COUNT), mr);
+    let mut c0_1 = simd_load(c_micropanel.add(LANE_COUNT), mr);
+    let mut c1_1 = simd_load(c_micropanel.add(m + LANE_COUNT), mr);
+    let mut c2_1 = simd_load(c_micropanel.add(2 * m + LANE_COUNT), mr);
+    let mut c3_1 = simd_load(c_micropanel.add(3 * m + LANE_COUNT), mr);
+    let mut c4_1 = simd_load(c_micropanel.add(4 * m + LANE_COUNT), mr);
+    let mut c5_1 = simd_load(c_micropanel.add(5 * m + LANE_COUNT), mr);
+    let mut c6_1 = simd_load(c_micropanel.add(6 * m + LANE_COUNT), mr);
+    let mut c7_1 = simd_load(c_micropanel.add(7 * m + LANE_COUNT), mr);
 
-    let mut c0_2 = load_c(c_micropanel.add(LANE_COUNT * 2), mr);
-    let mut c1_2 = load_c(c_micropanel.add(m + LANE_COUNT * 2), mr);
-    let mut c2_2 = load_c(c_micropanel.add(2 * m + LANE_COUNT * 2), mr);
-    let mut c3_2 = load_c(c_micropanel.add(3 * m + LANE_COUNT * 2), mr);
-    let mut c4_2 = load_c(c_micropanel.add(4 * m + LANE_COUNT * 2), mr);
-    let mut c5_2 = load_c(c_micropanel.add(5 * m + LANE_COUNT * 2), mr);
-    let mut c6_2 = load_c(c_micropanel.add(6 * m + LANE_COUNT * 2), mr);
-    let mut c7_2 = load_c(c_micropanel.add(7 * m + LANE_COUNT * 2), mr);
+    let mut c0_2 = simd_load(c_micropanel.add(LANE_COUNT * 2), mr);
+    let mut c1_2 = simd_load(c_micropanel.add(m + LANE_COUNT * 2), mr);
+    let mut c2_2 = simd_load(c_micropanel.add(2 * m + LANE_COUNT * 2), mr);
+    let mut c3_2 = simd_load(c_micropanel.add(3 * m + LANE_COUNT * 2), mr);
+    let mut c4_2 = simd_load(c_micropanel.add(4 * m + LANE_COUNT * 2), mr);
+    let mut c5_2 = simd_load(c_micropanel.add(5 * m + LANE_COUNT * 2), mr);
+    let mut c6_2 = simd_load(c_micropanel.add(6 * m + LANE_COUNT * 2), mr);
+    let mut c7_2 = simd_load(c_micropanel.add(7 * m + LANE_COUNT * 2), mr);
 
-    let mut c0_3 = load_c(c_micropanel.add(LANE_COUNT * 3), mr);
-    let mut c1_3 = load_c(c_micropanel.add(m + LANE_COUNT * 3), mr);
-    let mut c2_3 = load_c(c_micropanel.add(2 * m + LANE_COUNT * 3), mr);
-    let mut c3_3 = load_c(c_micropanel.add(3 * m + LANE_COUNT * 3), mr);
-    let mut c4_3 = load_c(c_micropanel.add(4 * m + LANE_COUNT * 3), mr);
-    let mut c5_3 = load_c(c_micropanel.add(5 * m + LANE_COUNT * 3), mr);
-    let mut c6_3 = load_c(c_micropanel.add(6 * m + LANE_COUNT * 3), mr);
-    let mut c7_3 = load_c(c_micropanel.add(7 * m + LANE_COUNT * 3), mr);
+    let mut c0_3 = simd_load(c_micropanel.add(LANE_COUNT * 3), mr);
+    let mut c1_3 = simd_load(c_micropanel.add(m + LANE_COUNT * 3), mr);
+    let mut c2_3 = simd_load(c_micropanel.add(2 * m + LANE_COUNT * 3), mr);
+    let mut c3_3 = simd_load(c_micropanel.add(3 * m + LANE_COUNT * 3), mr);
+    let mut c4_3 = simd_load(c_micropanel.add(4 * m + LANE_COUNT * 3), mr);
+    let mut c5_3 = simd_load(c_micropanel.add(5 * m + LANE_COUNT * 3), mr);
+    let mut c6_3 = simd_load(c_micropanel.add(6 * m + LANE_COUNT * 3), mr);
+    let mut c7_3 = simd_load(c_micropanel.add(7 * m + LANE_COUNT * 3), mr);
 
     for k in 0..kc {
         // 0
@@ -688,10 +695,10 @@ pub(crate) unsafe fn kernel_8x4(
     kc: usize,
     m: usize,
 ) {
-    let mut c0 = load_c(c_micropanel, mr);
-    let mut c1 = load_c(c_micropanel.add(m), mr);
-    let mut c2 = load_c(c_micropanel.add(2 * m), mr);
-    let mut c3 = load_c(c_micropanel.add(3 * m), mr);
+    let mut c0 = simd_load(c_micropanel, mr);
+    let mut c1 = simd_load(c_micropanel.add(m), mr);
+    let mut c2 = simd_load(c_micropanel.add(2 * m), mr);
+    let mut c3 = simd_load(c_micropanel.add(3 * m), mr);
 
     for k in 0..kc {
         let a_micropanel = F32x8::load_aligned(a_panel.data[k].as_ptr());
@@ -742,8 +749,8 @@ pub(crate) unsafe fn kernel_8x2(
     kc: usize,
     m: usize,
 ) {
-    let mut c0 = load_c(c_micropanel, mr);
-    let mut c1 = load_c(c_micropanel.add(m), mr);
+    let mut c0 = simd_load(c_micropanel, mr);
+    let mut c1 = simd_load(c_micropanel.add(m), mr);
 
     for k in 0..kc {
         let a_micropanel = F32x8::load_aligned(a_panel.data[k].as_ptr());
@@ -786,12 +793,12 @@ pub(crate) unsafe fn kernel_8x6(
     kc: usize,
     m: usize,
 ) {
-    let mut c0 = load_c(c_micropanel, mr);
-    let mut c1 = load_c(c_micropanel.add(m), mr);
-    let mut c2 = load_c(c_micropanel.add(2 * m), mr);
-    let mut c3 = load_c(c_micropanel.add(3 * m), mr);
-    let mut c4 = load_c(c_micropanel.add(4 * m), mr);
-    let mut c5 = load_c(c_micropanel.add(5 * m), mr);
+    let mut c0 = simd_load(c_micropanel, mr);
+    let mut c1 = simd_load(c_micropanel.add(m), mr);
+    let mut c2 = simd_load(c_micropanel.add(2 * m), mr);
+    let mut c3 = simd_load(c_micropanel.add(3 * m), mr);
+    let mut c4 = simd_load(c_micropanel.add(4 * m), mr);
+    let mut c5 = simd_load(c_micropanel.add(5 * m), mr);
 
     for k in 0..kc {
         let a_micropanel = F32x8::load_aligned(a_panel.data[k].as_ptr());
@@ -835,7 +842,7 @@ pub(crate) unsafe fn kernel_8x6(
 ///
 /// # Implementation Details  
 /// Uses A-element broadcasting instead of B-element broadcasting:
-/// - Each A[i,k] is broadcast and multiplied by B[k,0:7] 
+/// - Each A[i,k] is broadcast and multiplied by B[k,0:7]
 /// - Results are stored column-wise like the main kernels
 /// - Different broadcasting strategy may have different performance characteristics
 ///

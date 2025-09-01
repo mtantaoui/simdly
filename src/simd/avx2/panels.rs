@@ -261,7 +261,7 @@ impl<const MR: usize, const KC: usize> IndexMut<usize> for ABlock<MR, KC> {
 /// * `mc`, `kc` - Block dimensions to pack  
 /// * `m` - Leading dimension (number of rows) of matrix A
 /// * `ic`, `pc` - Top-left coordinates of block in A
-#[inline]
+#[inline(always)]
 pub fn pack_a<const MR: usize, const KC: usize>(
     a: &[f32],
     mc: usize,
@@ -280,17 +280,17 @@ pub fn pack_a<const MR: usize, const KC: usize>(
     for (panel_idx, i_panel_start) in (0..mc).step_by(MR).enumerate() {
         let dest_panel = &mut packed_block[panel_idx];
         let mr_in_panel = min(MR, mc - i_panel_start);
-        
+
         // Calculate source row offset once per panel
         let panel_src_row_offset = base_src_row + i_panel_start;
-        
+
         // Pack all KC columns of this row panel with optimized inner loop
         for p_col in 0..kc {
             // Inline index calculation - eliminates function call overhead
             let src_start = base_src_col_offset + p_col * m + panel_src_row_offset;
-            
+
             let dest_col = &mut dest_panel.data[p_col];
-            
+
             // Optimized copy with manual unrolling for common cases
             match mr_in_panel {
                 8 => {
@@ -303,14 +303,14 @@ pub fn pack_a<const MR: usize, const KC: usize>(
                     dest_col[5] = a[src_start + 5];
                     dest_col[6] = a[src_start + 6];
                     dest_col[7] = a[src_start + 7];
-                },
+                }
                 4 => {
                     // Half panel
                     dest_col[0] = a[src_start];
                     dest_col[1] = a[src_start + 1];
                     dest_col[2] = a[src_start + 2];
                     dest_col[3] = a[src_start + 3];
-                },
+                }
                 mr => {
                     // Partial panel - use slice copy for irregular sizes
                     let src_slice = &a[src_start..src_start + mr];
@@ -335,7 +335,7 @@ pub fn pack_a<const MR: usize, const KC: usize>(
 /// * `nc`, `kc` - Block dimensions to pack
 /// * `k` - Leading dimension (number of rows) of matrix B
 /// * `pc`, `jc` - Top-left coordinates of block in B
-#[inline]
+#[inline(always)]
 pub fn pack_b<const KC: usize, const NR: usize>(
     b: &[f32],
     nc: usize,
@@ -353,12 +353,12 @@ pub fn pack_b<const KC: usize, const NR: usize>(
 
         // Pre-calculate column base addresses to eliminate function calls
         let col_base = jc + j_panel_start;
-        
+
         // Pack KC rows of this column panel with optimized inner loops
         for p_row in 0..kc {
             let src_row = pc + p_row;
             let dest_row = &mut dest_panel.data[p_row];
-            
+
             // Optimized packing with manual unrolling for common cases
             match nr_in_panel {
                 8 => {
@@ -372,14 +372,14 @@ pub fn pack_b<const KC: usize, const NR: usize>(
                     dest_row[5] = b[(col_base + 5) * k + src_row];
                     dest_row[6] = b[(col_base + 6) * k + src_row];
                     dest_row[7] = b[(col_base + 7) * k + src_row];
-                },
+                }
                 4 => {
                     // Half panel
                     dest_row[0] = b[(col_base + 0) * k + src_row];
                     dest_row[1] = b[(col_base + 1) * k + src_row];
                     dest_row[2] = b[(col_base + 2) * k + src_row];
                     dest_row[3] = b[(col_base + 3) * k + src_row];
-                },
+                }
                 6 => {
                     // 3/4 panel
                     dest_row[0] = b[(col_base + 0) * k + src_row];
@@ -388,16 +388,16 @@ pub fn pack_b<const KC: usize, const NR: usize>(
                     dest_row[3] = b[(col_base + 3) * k + src_row];
                     dest_row[4] = b[(col_base + 4) * k + src_row];
                     dest_row[5] = b[(col_base + 5) * k + src_row];
-                },
+                }
                 2 => {
                     // Quarter panel
                     dest_row[0] = b[(col_base + 0) * k + src_row];
                     dest_row[1] = b[(col_base + 1) * k + src_row];
-                },
+                }
                 1 => {
                     // Single element
                     dest_row[0] = b[col_base * k + src_row];
-                },
+                }
                 nr => {
                     // General case for other sizes - still optimized with eliminated function calls
                     for j_col_in_panel in 0..nr {

@@ -57,6 +57,8 @@ fn bench_matmul_by_size(c: &mut Criterion) {
         (256, 256, 256),
         (512, 512, 512),
         // (1000, 1000, 1000),
+        (3000, 3000, 3000),
+        (8000, 8000, 8000),
         // (100, 150, 200), // Non-square
         // (512, 256, 128), // Different aspect ratios
     ];
@@ -64,12 +66,14 @@ fn bench_matmul_by_size(c: &mut Criterion) {
     // let mc = 64;
     // let nc = 448;
 
+    let mc = 192;
+    let nc = 896;
     for (m, k, n) in sizes {
         // Cache blocking parameters optimized for AVX2 performance
         // mc: M-dimension blocking for L2 cache (typically 64-128)
         // nc: N-dimension blocking for L3 cache (typically 256-512)
-        let mc = min(m, 64); // L2 cache blocking - rows of A and C
-        let nc = min(n, 448); // L3 cache blocking - columns of B and C
+        // let mc = min(m, 192); // L2 cache blocking - rows of A and C
+        // let nc = min(n, 896); // L3 cache blocking - columns of B and C
 
         let group_name = format!("matmul_{}x{}x{}", m, k, n);
         let mut group = c.benchmark_group(&group_name);
