@@ -89,6 +89,7 @@ fn bench_matrix(c: &mut Criterion) {
                             black_box(n),
                             black_box(k),
                             black_box(*mc),
+                            black_box(64), // KC parameter - using reasonable default
                             black_box(*nc),
                         );
                         black_box(&c);

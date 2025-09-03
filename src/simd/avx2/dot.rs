@@ -10,9 +10,8 @@ use crate::simd::avx2::{
     kernels::{
         // kernel_24x8, kernel_32x8, kernel_8x2, kernel_8x6,
         kernel_8x8,
-        raw_kernel_8x8,
     },
-    panels::{at, pack_a, pack_b, KC, MR, NR},
+    panels::{at, pack_a, pack_b, MR, NR},
 };
 
 /// High-performance matrix multiplication using BLIS-style algorithm with AVX2 SIMD optimization.
@@ -79,12 +78,14 @@ pub fn matmul(
     n: usize,
     k: usize,
     mc: usize,
+    kc: usize,
     nc: usize,
 ) {
     // Handle edge cases
     if m == 0 || n == 0 || k == 0 {
         return; // Nothing to compute
     }
+
 
     // Verify input dimensions
     assert_eq!(a.len(), m * k, "Matrix A has incorrect dimensions");
@@ -97,26 +98,27 @@ pub fn matmul(
 
         // pc loop: Process K dimension in KC-wide blocks
         // Placed outside ic loop to reuse packed B across multiple A blocks
-        for pc in (0..k).step_by(KC) {
-            let kc_actual = min(KC, k - pc);
+        for pc in (0..k).step_by(kc) {
+            let kc_actual = min(kc, k - pc);
 
             // Pack B block: B(pc:pc+kc_actual-1, jc:jc+nc_actual-1) → row-major panels
-            let b_block = pack_b::<KC, NR>(b, nc_actual, kc_actual, k, pc, jc);
+            let b_block = pack_b::<NR>(b, nc_actual, kc_actual, k, pc, jc);
 
             // ic loop: Process M dimension in mc-wide blocks (L2 cache optimization)
             for ic in (0..m).step_by(mc) {
                 let mc_actual = min(mc, m - ic);
 
                 // Pack A block: A(ic:ic+mc_actual-1, pc:pc+kc_actual-1) → column-major panels
-                let a_block = pack_a::<MR, KC>(a, mc_actual, kc_actual, m, ic, pc);
+                let a_block = pack_a::<MR>(a, mc_actual, kc_actual, m, ic, pc);
 
                 // jr and ir loops: Process packed panels with MR×NR microkernel
-                for jr in 0..b_block.as_panels().len() {
-                    let b_panel = &b_block[jr];
+                let num_b_panels = (nc_actual + NR - 1) / NR;
+                let num_a_panels = (mc_actual + MR - 1) / MR;
+
+                for jr in 0..num_b_panels {
                     let nr = min(NR, nc_actual - jr * NR);
 
-                    for ir in 0..a_block.as_panels().len() {
-                        let a_panel = &a_block[ir];
+                    for ir in 0..num_a_panels {
                         let mr = min(MR, mc_actual - ir * MR);
 
                         // Compute C(ic+ir*MR:ic+ir*MR+mr-1, jc+jr*NR:jc+jr*NR+nr-1)
@@ -125,11 +127,11 @@ pub fn matmul(
                         let c_micropanel_start_idx = at(c_row, c_col, m);
                         let c_micropanel = &mut c[c_micropanel_start_idx..];
 
-                        // Execute MR×NR microkernel with AVX2 optimization
+                        // Execute MR×NR microkernel with AVX2 optimization using direct pointers
                         unsafe {
                             kernel_8x8(
-                                a_panel,
-                                b_panel,
+                                a_block.get_panel_data(ir),
+                                b_block.get_panel_data(jr),
                                 c_micropanel.as_mut_ptr(),
                                 mr,
                                 nr,
@@ -152,6 +154,7 @@ mod tests {
 
     const MC: usize = MR * 8;
     const NC: usize = NR * 8;
+    const KC: usize = 256;
 
     /// Naive O(mnk) matrix multiplication for correctness verification.
     /// Computes C += A × B using the standard triple-nested loop algorithm.
@@ -230,7 +233,17 @@ mod tests {
         let mut c_naive = vec![0.0; size * size];
 
         // A * I = A
-        matmul(&a, &identity, &mut c_optimized, size, size, size, MC, NC);
+        matmul(
+            &a,
+            &identity,
+            &mut c_optimized,
+            size,
+            size,
+            size,
+            MC,
+            KC,
+            NC,
+        );
         naive_matmul(&a, &identity, &mut c_naive, size, size, size);
 
         // Verify both implementations match
@@ -258,6 +271,19 @@ mod tests {
 
     /// Tests 2×2 multiplication with manually computed expected result.
     #[test]
+    fn test_debug_simple() {
+        println!("Starting debug test...");
+        let a = vec![1.0, 2.0]; // 2x1 matrix
+        let b = vec![3.0, 4.0]; // 1x2 matrix
+        let mut c = vec![0.0; 4]; // 2x2 result
+
+        println!("About to call matmul with 2x2x1...");
+        matmul(&a, &b, &mut c, 2, 2, 1, MC, KC, NC);
+        println!("matmul completed successfully");
+        println!("Result: {:?}", c);
+    }
+
+    #[test]
     fn test_matmul_2x2() {
         // A = | 1 3 |   B = | 5 7 |   C = | 1*5+3*6  1*7+3*8 | = | 23 31 |
         //     | 2 4 |       | 6 8 |       | 2*5+4*6  2*7+4*8 |   | 34 46 |
@@ -271,7 +297,7 @@ mod tests {
         let n = 2;
         let k = 2;
 
-        matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+        matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
         // Expected C in column-major: [23,34, 31,46] (col0=[23,34], col1=[31,46])
@@ -306,7 +332,7 @@ mod tests {
         let mut c_optimized = vec![0.0; m * n];
         let mut c_naive = vec![0.0; m * n];
 
-        matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+        matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
         for i in 0..m * n {
@@ -332,7 +358,7 @@ mod tests {
         let mut c_optimized = vec![0.0; m * n];
         let mut c_naive = vec![0.0; m * n];
 
-        matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+        matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
         for i in 0..m * n {
@@ -357,7 +383,7 @@ mod tests {
         let mut c_optimized = vec![0.0; m * n];
         let mut c_naive = vec![0.0; m * n];
 
-        matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+        matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
         for i in 0..m * n {
@@ -382,7 +408,7 @@ mod tests {
         let mut c_optimized = vec![0.0; m * n];
         let mut c_naive = vec![0.0; m * n];
 
-        matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+        matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
         for i in 0..m * n {
@@ -407,7 +433,7 @@ mod tests {
         let mut c_optimized = vec![0.0; m * n];
         let mut c_naive = vec![0.0; m * n];
 
-        matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+        matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
         for i in 0..m * n {
@@ -438,7 +464,7 @@ mod tests {
         let mut c_optimized = vec![1.0; m * n]; // Pre-filled with ones
         let mut c_naive = vec![1.0; m * n];
 
-        matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+        matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
         for i in 0..m * n {
@@ -460,7 +486,7 @@ mod tests {
         let mut c_optimized = vec![0.0; 1];
         let mut c_naive = vec![0.0; 1];
 
-        matmul(&a, &b, &mut c_optimized, 1, 1, 1, MC, NC);
+        matmul(&a, &b, &mut c_optimized, 1, 1, 1, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, 1, 1, 1);
 
         assert!(
@@ -482,7 +508,7 @@ mod tests {
         let mut c_optimized = vec![0.0; 1]; // 1x1 result
         let mut c_naive = vec![0.0; 1];
 
-        matmul(&a, &b, &mut c_optimized, 1, 1, 2, MC, NC);
+        matmul(&a, &b, &mut c_optimized, 1, 1, 2, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, 1, 1, 2);
 
         // Expected: 1*3 + 2*4 = 11
@@ -501,7 +527,7 @@ mod tests {
         let mut c_optimized = vec![0.0; 4]; // 2x2 result
         let mut c_naive = vec![0.0; 4];
 
-        matmul(&a, &b, &mut c_optimized, 2, 2, 1, MC, NC);
+        matmul(&a, &b, &mut c_optimized, 2, 2, 1, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, 2, 2, 1);
 
         // Expected: [[1*3, 1*4], [2*3, 2*4]] = [[3, 4], [6, 8]]
@@ -532,7 +558,7 @@ mod tests {
         let mut c_optimized: Vec<f32> = vec![];
         let mut c_naive: Vec<f32> = vec![];
 
-        matmul(&a, &b, &mut c_optimized, 0, 0, 0, MC, NC);
+        matmul(&a, &b, &mut c_optimized, 0, 0, 0, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, 0, 0, 0);
 
         assert!(c_optimized.is_empty(), "0x0 result should be empty");
@@ -544,7 +570,7 @@ mod tests {
         let mut c_optimized: Vec<f32> = vec![]; // 2x0
         let mut c_naive: Vec<f32> = vec![];
 
-        matmul(&a, &b, &mut c_optimized, 2, 0, 1, MC, NC);
+        matmul(&a, &b, &mut c_optimized, 2, 0, 1, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, 2, 0, 1);
 
         assert!(c_optimized.is_empty(), "2x0 result should be empty");
@@ -560,7 +586,7 @@ mod tests {
         let mut c_optimized = vec![0.0; 8]; // 8x1
         let mut c_naive = vec![0.0; 8];
 
-        matmul(&a, &b, &mut c_optimized, 8, 1, 1, MC, NC);
+        matmul(&a, &b, &mut c_optimized, 8, 1, 1, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, 8, 1, 1);
 
         let expected = vec![2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0];
@@ -585,7 +611,7 @@ mod tests {
         let mut c_optimized = vec![0.0; 1]; // 1x1
         let mut c_naive = vec![0.0; 1];
 
-        matmul(&a, &b, &mut c_optimized, 1, 1, 8, MC, NC);
+        matmul(&a, &b, &mut c_optimized, 1, 1, 8, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, 1, 1, 8);
 
         // Expected: sum of 1+2+3+4+5+6+7+8 = 36
@@ -608,7 +634,7 @@ mod tests {
         let mut c_optimized = vec![0.0; 1];
         let mut c_naive = vec![0.0; 1];
 
-        matmul(&a, &b, &mut c_optimized, 1, 1, 2, MC, NC);
+        matmul(&a, &b, &mut c_optimized, 1, 1, 2, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, 1, 1, 2);
 
         // Expected: 1e-10 * 3e10 + 2e-10 * 4e10 = 3 + 8 = 11
@@ -634,7 +660,7 @@ mod tests {
         let mut c_naive = vec![0.0; m * n];
 
         let start = std::time::Instant::now();
-        matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+        matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
         let optimized_time = start.elapsed();
 
         let start = std::time::Instant::now();
@@ -674,7 +700,7 @@ mod tests {
             let mut c_optimized = vec![0.0; m * n];
             let mut c_naive = vec![0.0; m * n];
 
-            matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+            matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
             naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
             for i in 0..(m * n) {
@@ -706,7 +732,7 @@ mod tests {
             let mut c_optimized = vec![0.0; m * n];
             let mut c_naive = vec![0.0; m * n];
 
-            matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+            matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
             naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
             for i in 0..(m * n) {
@@ -750,7 +776,7 @@ mod tests {
         let mut c_optimized = vec![0.0; m * n];
         let mut c_naive = vec![0.0; m * n];
 
-        matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+        matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
         for i in 0..(m * n) {
@@ -799,7 +825,7 @@ mod tests {
         let mut c_optimized = vec![0.0; m * n];
         let mut c_naive = vec![0.0; m * n];
 
-        matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+        matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
         for i in 0..(m * n) {
@@ -848,7 +874,7 @@ mod tests {
         let mut c_optimized = vec![0.0; m * n];
         let mut c_naive = vec![0.0; m * n];
 
-        matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+        matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
         naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
         let mut mismatches = 0;
@@ -899,7 +925,7 @@ mod tests {
             let mut c_naive = vec![0.0; m * n];
 
             let start = std::time::Instant::now();
-            matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+            matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
             let optimized_time = start.elapsed();
 
             let start = std::time::Instant::now();
@@ -954,7 +980,7 @@ mod tests {
             let mut c_optimized = vec![0.0; m * n];
             let mut c_naive = vec![0.0; m * n];
 
-            matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+            matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
             naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
             for i in 0..(m * n) {
@@ -997,7 +1023,7 @@ mod tests {
             let mut c_optimized = vec![0.0; m * n];
             let mut c_naive = vec![0.0; m * n];
 
-            matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+            matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
             naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
             for i in 0..(m * n) {
@@ -1049,7 +1075,7 @@ mod tests {
                 let mut c_optimized = vec![0.0; m * n];
                 let mut c_naive = vec![0.0; m * n];
 
-                matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+                matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
                 naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
                 for i in 0..(m * n) {
@@ -1098,7 +1124,7 @@ mod tests {
                 let mut c_optimized = vec![0.0; m * n];
                 let mut c_naive = vec![0.0; m * n];
 
-                matmul(&a, &b, &mut c_optimized, m, n, k, MC, NC);
+                matmul(&a, &b, &mut c_optimized, m, n, k, MC, KC, NC);
                 naive_matmul(&a, &b, &mut c_naive, m, n, k);
 
                 for i in 0..(m * n) {

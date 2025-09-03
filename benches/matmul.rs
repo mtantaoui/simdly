@@ -57,8 +57,8 @@ fn bench_matmul_by_size(c: &mut Criterion) {
         (256, 256, 256),
         (512, 512, 512),
         // (1000, 1000, 1000),
-        (3000, 3000, 3000),
-        (8000, 8000, 8000),
+        // (3000, 3000, 3000),
+        // (8000, 8000, 8000),
         // (100, 150, 200), // Non-square
         // (512, 256, 128), // Different aspect ratios
     ];
@@ -74,6 +74,10 @@ fn bench_matmul_by_size(c: &mut Criterion) {
         // nc: N-dimension blocking for L3 cache (typically 256-512)
         // let mc = min(m, 192); // L2 cache blocking - rows of A and C
         // let nc = min(n, 896); // L3 cache blocking - columns of B and C
+
+        let mc = m;
+        let nc = n;
+        let kc = k;
 
         let group_name = format!("matmul_{}x{}x{}", m, k, n);
         let mut group = c.benchmark_group(&group_name);
@@ -108,6 +112,7 @@ fn bench_matmul_by_size(c: &mut Criterion) {
                     black_box(n),
                     black_box(k),
                     black_box(mc),
+                    black_box(kc),
                     black_box(nc),
                 );
                 black_box(&c_blis);

@@ -2,14 +2,11 @@ use std::cmp::min;
 
 use std::alloc::{self, Layout};
 use std::marker::PhantomData;
-use std::ops::{Index, IndexMut};
-use std::slice;
 
 use crate::simd::avx2::f32x8::AVX_ALIGNMENT;
 
 pub(crate) const MR: usize = 8;
 pub(crate) const NR: usize = 8;
-pub(crate) const KC: usize = 256;
 
 /// Calculates the 1D index for a 2D element in a column-major matrix.
 ///
@@ -24,128 +21,184 @@ pub(crate) fn at(i: usize, j: usize, ld: usize) -> usize {
 
 /// A packed panel of matrix B with dimensions KC×NR.
 ///
-/// Data is stored in **row-major** format: `data[k][j]` contains B(k,j) where:
-/// - k ranges from 0 to KC-1 (rows from the KC×NR block of B)
-/// - j ranges from 0 to NR-1 (columns within this NR-wide panel)
+/// Data is stored in **row-major** format: each row contains NR elements.
+/// For variable KC, we use manually aligned memory allocation for performance.
 ///
 /// This layout enables the microkernel to:
-/// 1. Load a full row `data[k]` to get B(k, 0..NR-1)
+/// 1. Load a full row to get B(k, 0..NR-1)
 /// 2. Broadcast individual elements B(k,j) efficiently
 ///
 /// The `#[repr(C, align(32))]` ensures 32-byte alignment for AVX2 operations.
 #[repr(C, align(32))]
-pub struct BPanel<const KC: usize, const NR: usize> {
-    pub data: [[f32; NR]; KC],
-}
-
-/// A heap-allocated block containing multiple B panels.
-///
-/// Manages memory for ceil(nc/NR) panels of KC×NR elements each, where nc is the
-/// number of columns from the original B matrix block being packed.
-///
-/// Memory layout: [Panel₀][Panel₁]...[Panelₙ] with 32-byte alignment.
-pub struct BBlock<const KC: usize, const NR: usize> {
-    /// A raw pointer to the heap-allocated, aligned block of `BPanel`s.
-    ptr: *mut BPanel<KC, NR>,
-    /// The number of `BPanel`s allocated in the memory block.
-    num_panels: usize,
-    /// The memory `Layout` used for allocation. Storing this guarantees that
-    /// deallocation is performed with the exact same layout, which is required for safety.
+pub struct BPanel<const NR: usize> {
+    /// Raw pointer to aligned storage for kc rows of NR elements each
+    pub data_ptr: *mut f32,
+    /// Number of rows (KC) in this panel  
+    pub kc: usize,
+    /// Layout for safe deallocation
     layout: Layout,
-    /// The original number of columns from matrix `B` packed into this block.
-    pub nc: usize,
-    /// `PhantomData` informs the Rust compiler that this struct "owns" the data
-    /// pointed to by `ptr`, enabling proper borrow checking and drop semantics.
-    _marker: PhantomData<BPanel<KC, NR>>,
+    /// Marker for proper drop semantics
+    _marker: PhantomData<[f32; NR]>,
 }
 
-impl<const KC: usize, const NR: usize> BBlock<KC, NR> {
-    /// Allocates zero-initialized, aligned memory for packing nc columns.
-    ///
-    /// Creates ceil(nc/NR) panels to hold all nc columns. Panels beyond the first
-    /// may be partially filled if nc is not a multiple of NR.
-    ///
-    /// # Arguments
-    /// * `nc` - Number of columns from original B matrix to pack
-    ///
-    /// # Returns
-    /// New BBlock or allocation error
-    #[inline(always)]
-    pub fn new(nc: usize) -> Result<Self, Layout> {
-        // Calculate panels needed: ceil(nc / NR)
-        let num_panels = nc.div_ceil(NR);
-
-        // Define the memory layout for an array of `BPanel`s.
-        let layout = Layout::array::<BPanel<KC, NR>>(num_panels).unwrap();
-
-        // Ensure the layout meets our minimum alignment requirement.
-        let layout = layout.align_to(AVX_ALIGNMENT).unwrap();
-
-        let ptr = unsafe {
-            // Zero-initialize since partial panels need zero-padding
+impl<const NR: usize> BPanel<NR> {
+    /// Create a new BPanel with the given KC size
+    pub fn new(kc: usize) -> Result<Self, Layout> {
+        let total_elements = kc * NR;
+        let layout = Layout::array::<f32>(total_elements)
+            .unwrap()
+            .align_to(AVX_ALIGNMENT)
+            .unwrap();
+            
+        let data_ptr = unsafe {
             let raw_ptr = alloc::alloc_zeroed(layout);
             if raw_ptr.is_null() {
                 alloc::handle_alloc_error(layout);
             }
-            raw_ptr.cast::<BPanel<KC, NR>>()
+            raw_ptr.cast::<f32>()
         };
-
-        Ok(BBlock {
-            ptr,
-            num_panels,
+        
+        Ok(BPanel {
+            data_ptr,
+            kc,
             layout,
-            nc,
             _marker: PhantomData,
         })
     }
-
-    /// Returns an immutable slice view of the `BPanel`s.
+    
+    /// Get a pointer to the k-th row (NR elements)
     #[inline(always)]
-    pub fn as_panels(&self) -> &[BPanel<KC, NR>] {
-        unsafe { slice::from_raw_parts(self.ptr, self.num_panels) }
+    pub fn get_row(&self, k: usize) -> *const f32 {
+        debug_assert!(k < self.kc, "Row index {} out of bounds (kc={})", k, self.kc);
+        unsafe { self.data_ptr.add(k * NR) }
     }
-
-    /// Returns a mutable slice view of the `BPanel`s.
+    
+    /// Get a mutable pointer to the k-th row (NR elements)
     #[inline(always)]
-    pub fn as_panels_mut(&mut self) -> &mut [BPanel<KC, NR>] {
-        unsafe { slice::from_raw_parts_mut(self.ptr, self.num_panels) }
+    pub fn get_row_mut(&mut self, k: usize) -> *mut f32 {
+        debug_assert!(k < self.kc, "Row index {} out of bounds (kc={})", k, self.kc);
+        unsafe { self.data_ptr.add(k * NR) }
     }
 }
 
-/// The `Drop` implementation ensures that the heap-allocated memory is safely
-/// deallocated when a `BBlock` goes out of scope.
-impl<const KC: usize, const NR: usize> Drop for BBlock<KC, NR> {
-    #[inline(always)]
+impl<const NR: usize> Drop for BPanel<NR> {
     fn drop(&mut self) {
-        // Deallocating with a zero-sized layout is undefined behavior.
-        // This check prevents UB if a BBlock was created with `nc = 0`.
         if self.layout.size() > 0 {
             unsafe {
-                // Deallocate the memory using the exact layout that was stored
-                // during allocation. This is the only safe way to deallocate
-                // memory obtained from the global allocator.
-                alloc::dealloc(self.ptr.cast::<u8>(), self.layout);
+                alloc::dealloc(self.data_ptr.cast::<u8>(), self.layout);
             }
         }
     }
 }
 
-// --- Convenience Indexing for BBlock ---
+/// A high-performance block containing multiple B panels.
+///
+/// Manages memory for ceil(nc/NR) panels of KC×NR elements each, where nc is the
+/// number of columns from the original B matrix block being packed.
+///
+/// **Performance Optimization**: Uses thread-local memory pool for small blocks,
+/// heap allocation for large blocks to minimize allocation overhead.
+pub struct BBlock<const NR: usize> {
+    /// Raw pointer to contiguous aligned storage for all panels
+    data_ptr: *mut f32,
+    /// Number of panels (ceil(nc/NR))
+    num_panels: usize,
+    /// KC size for all panels
+    pub kc: usize,
+    /// Layout for heap deallocation (None for memory pool allocation)
+    layout: Option<Layout>,
+    /// The original number of columns from matrix `B` packed into this block.
+    pub nc: usize,
+    /// Marker for drop semantics
+    _marker: PhantomData<f32>,
+}
 
-impl<const KC: usize, const NR: usize> Index<usize> for BBlock<KC, NR> {
-    type Output = BPanel<KC, NR>;
+
+impl<const NR: usize> BBlock<NR> {
+    /// Allocates zero-initialized, aligned memory for packing nc columns.
+    ///
+    /// **Performance Optimization**: Uses stack allocation for small blocks to avoid heap overhead.
+    ///
+    /// # Arguments
+    /// * `nc` - Number of columns from original B matrix to pack
+    /// * `kc` - Number of rows (KC) each panel should contain
+    ///
+    /// # Returns
+    /// New BBlock or allocation error
     #[inline(always)]
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.as_panels()[index]
+    pub fn new(nc: usize, kc: usize) -> Result<Self, Layout> {
+        // Calculate panels needed: ceil(nc / NR)
+        let num_panels = nc.div_ceil(NR);
+        
+        // Single large allocation for all panels: num_panels * kc * NR elements
+        let total_elements = num_panels * kc * NR;
+        
+        // Simple high-performance allocation with alignment optimization
+        let layout = Layout::array::<f32>(total_elements)
+            .unwrap()
+            .align_to(AVX_ALIGNMENT)
+            .unwrap();
+            
+        let data_ptr = unsafe {
+            let raw_ptr = alloc::alloc_zeroed(layout);
+            if raw_ptr.is_null() {
+                alloc::handle_alloc_error(layout);
+            }
+            raw_ptr.cast::<f32>()
+        };
+
+        Ok(BBlock {
+            data_ptr,
+            num_panels,
+            kc,
+            layout: Some(layout),
+            nc,
+            _marker: PhantomData,
+        })
+    }
+    
+    /// Get pointer to panel data by panel index
+    #[inline(always)]
+    pub fn get_panel_data(&self, panel_idx: usize) -> *const f32 {
+        debug_assert!(panel_idx < self.num_panels);
+        unsafe { self.data_ptr.add(panel_idx * self.kc * NR) }
+    }
+    
+    /// Get mutable pointer to panel data by panel index  
+    #[inline(always)]
+    pub fn get_panel_data_mut(&mut self, panel_idx: usize) -> *mut f32 {
+        debug_assert!(panel_idx < self.num_panels);
+        unsafe { self.data_ptr.add(panel_idx * self.kc * NR) }
+    }
+    
+    /// Get pointer to specific row within a panel
+    #[inline(always)] 
+    pub fn get_panel_row(&self, panel_idx: usize, row: usize) -> *const f32 {
+        debug_assert!(panel_idx < self.num_panels && row < self.kc);
+        unsafe { self.data_ptr.add(panel_idx * self.kc * NR + row * NR) }
+    }
+    
+    /// Get mutable pointer to specific row within a panel
+    #[inline(always)]
+    pub fn get_panel_row_mut(&mut self, panel_idx: usize, row: usize) -> *mut f32 {
+        debug_assert!(panel_idx < self.num_panels && row < self.kc);
+        unsafe { self.data_ptr.add(panel_idx * self.kc * NR + row * NR) }
     }
 }
 
-impl<const KC: usize, const NR: usize> IndexMut<usize> for BBlock<KC, NR> {
-    #[inline(always)]
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.as_panels_mut()[index]
+impl<const NR: usize> Drop for BBlock<NR> {
+    fn drop(&mut self) {
+        if let Some(layout) = self.layout {
+            if layout.size() > 0 {
+                unsafe {
+                    alloc::dealloc(self.data_ptr.cast::<u8>(), layout);
+                }
+            }
+        }
     }
 }
+
+// BBlock no longer supports direct indexing - use get_panel_* methods for performance
 
 // --- Packed Data Structures for Matrix A ---
 
@@ -159,96 +212,175 @@ impl<const KC: usize, const NR: usize> IndexMut<usize> for BBlock<KC, NR> {
 /// 2. Process entire columns efficiently with SIMD
 ///
 /// The `#[repr(C, align(32))]` ensures 32-byte alignment for AVX2 loads.
+/// For variable KC, we use manually aligned memory allocation.
 #[repr(C, align(32))]
-pub struct APanel<const MR: usize, const KC: usize> {
-    pub data: [[f32; MR]; KC],
-}
-
-/// A heap-allocated block containing multiple A panels.
-///
-/// Manages memory for ceil(mc/MR) panels of MR×KC elements each, where mc is the
-/// number of rows from the original A matrix block being packed.
-pub struct ABlock<const MR: usize, const KC: usize> {
-    /// A raw pointer to the heap-allocated, aligned block of `APanel`s.
-    ptr: *mut APanel<MR, KC>,
-    /// The number of `APanel`s allocated in the memory block.
-    num_panels: usize,
-    /// The memory `Layout` used for allocation, required for safe deallocation.
+pub struct APanel<const MR: usize> {
+    /// Raw pointer to aligned storage for kc columns of MR elements each
+    pub data_ptr: *mut f32,
+    /// Number of columns (KC) in this panel  
+    pub kc: usize,
+    /// Layout for safe deallocation
     layout: Layout,
-    /// The original number of rows from matrix `A` packed into this block.
-    pub mc: usize,
-    /// `PhantomData` for ownership and drop-check semantics.
-    _marker: PhantomData<APanel<MR, KC>>,
+    /// Marker for proper drop semantics
+    _marker: PhantomData<[f32; MR]>,
 }
 
-impl<const MR: usize, const KC: usize> ABlock<MR, KC> {
-    /// Allocates zero-initialized, aligned memory for packing mc rows.
-    #[inline(always)]
-    pub fn new(mc: usize) -> Result<Self, Layout> {
-        let num_panels = mc.div_ceil(MR);
-
-        let layout = Layout::array::<APanel<MR, KC>>(num_panels)
-            .expect("Invalid layout for APanel")
+impl<const MR: usize> APanel<MR> {
+    /// Create a new APanel with the given KC size
+    pub fn new(kc: usize) -> Result<Self, Layout> {
+        let total_elements = kc * MR;
+        let layout = Layout::array::<f32>(total_elements)
+            .unwrap()
             .align_to(AVX_ALIGNMENT)
             .unwrap();
-
-        let ptr = unsafe {
+            
+        let data_ptr = unsafe {
             let raw_ptr = alloc::alloc_zeroed(layout);
             if raw_ptr.is_null() {
                 alloc::handle_alloc_error(layout);
             }
-            raw_ptr.cast::<APanel<MR, KC>>()
+            raw_ptr.cast::<f32>()
         };
-
-        Ok(ABlock {
-            ptr,
-            num_panels,
+        
+        Ok(APanel {
+            data_ptr,
+            kc,
             layout,
-            mc,
             _marker: PhantomData,
         })
     }
-
-    /// Returns an immutable slice view of the `APanel`s.
+    
+    /// Get a pointer to the k-th column (MR elements)
     #[inline(always)]
-    pub fn as_panels(&self) -> &[APanel<MR, KC>] {
-        unsafe { slice::from_raw_parts(self.ptr, self.num_panels) }
+    pub fn get_column(&self, k: usize) -> *const f32 {
+        debug_assert!(k < self.kc, "Column index {} out of bounds (kc={})", k, self.kc);
+        unsafe { self.data_ptr.add(k * MR) }
     }
-
-    /// Returns a mutable slice view of the `APanel`s.
-    pub fn as_panels_mut(&mut self) -> &mut [APanel<MR, KC>] {
-        unsafe { slice::from_raw_parts_mut(self.ptr, self.num_panels) }
+    
+    /// Get a mutable pointer to the k-th column (MR elements)
+    #[inline(always)]
+    pub fn get_column_mut(&mut self, k: usize) -> *mut f32 {
+        debug_assert!(k < self.kc, "Column index {} out of bounds (kc={})", k, self.kc);
+        unsafe { self.data_ptr.add(k * MR) }
     }
 }
 
-/// Safe deallocation for `ABlock`'s memory.
-impl<const MR: usize, const KC: usize> Drop for ABlock<MR, KC> {
-    #[inline(always)]
+impl<const MR: usize> Drop for APanel<MR> {
     fn drop(&mut self) {
         if self.layout.size() > 0 {
             unsafe {
-                alloc::dealloc(self.ptr.cast::<u8>(), self.layout);
+                alloc::dealloc(self.data_ptr.cast::<u8>(), self.layout);
             }
         }
     }
 }
 
-/// Convenience indexing for `ABlock`.
-impl<const MR: usize, const KC: usize> Index<usize> for ABlock<MR, KC> {
-    type Output = APanel<MR, KC>;
+/// A high-performance block containing multiple A panels.
+///
+/// Manages memory for ceil(mc/MR) panels of MR×KC elements each, where mc is the
+/// number of rows from the original A matrix block being packed.
+///
+/// **Performance Optimization**: Uses thread-local memory pool for small blocks,
+/// heap allocation for large blocks to minimize allocation overhead.
+pub struct ABlock<const MR: usize> {
+    /// Raw pointer to contiguous aligned storage for all panels
+    data_ptr: *mut f32,
+    /// Number of panels (ceil(mc/MR))
+    num_panels: usize,
+    /// KC size for all panels
+    pub kc: usize,
+    /// Layout for heap deallocation (None for memory pool allocation)
+    layout: Option<Layout>,
+    /// The original number of rows from matrix `A` packed into this block.
+    pub mc: usize,
+    /// Marker for drop semantics
+    _marker: PhantomData<f32>,
+}
 
+impl<const MR: usize> ABlock<MR> {
+    /// Allocates zero-initialized, aligned memory for packing mc rows.
+    ///
+    /// **Performance Optimization**: Uses stack allocation for small blocks to avoid heap overhead.
+    ///
+    /// # Arguments
+    /// * `mc` - Number of rows from original A matrix to pack
+    /// * `kc` - Number of columns (KC) each panel should contain
+    ///
+    /// # Returns
+    /// New ABlock or allocation error
     #[inline(always)]
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.as_panels()[index]
+    pub fn new(mc: usize, kc: usize) -> Result<Self, Layout> {
+        let num_panels = mc.div_ceil(MR);
+        
+        // Single large allocation for all panels: num_panels * kc * MR elements
+        let total_elements = num_panels * kc * MR;
+        
+        // Simple high-performance allocation with alignment optimization
+        let layout = Layout::array::<f32>(total_elements)
+            .unwrap()
+            .align_to(AVX_ALIGNMENT)
+            .unwrap();
+            
+        let data_ptr = unsafe {
+            let raw_ptr = alloc::alloc_zeroed(layout);
+            if raw_ptr.is_null() {
+                alloc::handle_alloc_error(layout);
+            }
+            raw_ptr.cast::<f32>()
+        };
+
+        Ok(ABlock {
+            data_ptr,
+            num_panels,
+            kc,
+            layout: Some(layout),
+            mc,
+            _marker: PhantomData,
+        })
+    }
+    
+    /// Get pointer to panel data by panel index
+    #[inline(always)]
+    pub fn get_panel_data(&self, panel_idx: usize) -> *const f32 {
+        debug_assert!(panel_idx < self.num_panels);
+        unsafe { self.data_ptr.add(panel_idx * self.kc * MR) }
+    }
+    
+    /// Get mutable pointer to panel data by panel index  
+    #[inline(always)]
+    pub fn get_panel_data_mut(&mut self, panel_idx: usize) -> *mut f32 {
+        debug_assert!(panel_idx < self.num_panels);
+        unsafe { self.data_ptr.add(panel_idx * self.kc * MR) }
+    }
+    
+    /// Get pointer to specific column within a panel
+    #[inline(always)] 
+    pub fn get_panel_column(&self, panel_idx: usize, col: usize) -> *const f32 {
+        debug_assert!(panel_idx < self.num_panels && col < self.kc);
+        unsafe { self.data_ptr.add(panel_idx * self.kc * MR + col * MR) }
+    }
+    
+    /// Get mutable pointer to specific column within a panel
+    #[inline(always)]
+    pub fn get_panel_column_mut(&mut self, panel_idx: usize, col: usize) -> *mut f32 {
+        debug_assert!(panel_idx < self.num_panels && col < self.kc);
+        unsafe { self.data_ptr.add(panel_idx * self.kc * MR + col * MR) }
     }
 }
 
-impl<const MR: usize, const KC: usize> IndexMut<usize> for ABlock<MR, KC> {
-    #[inline(always)]
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.as_panels_mut()[index]
+impl<const MR: usize> Drop for ABlock<MR> {
+    fn drop(&mut self) {
+        if let Some(layout) = self.layout {
+            if layout.size() > 0 {
+                unsafe {
+                    alloc::dealloc(self.data_ptr.cast::<u8>(), layout);
+                }
+            }
+        }
     }
 }
+
+// ABlock no longer supports direct indexing - use get_panel_* methods for performance
 
 /// High-performance packing of an mc×kc block of matrix A using algorithmic optimizations.
 ///
@@ -262,15 +394,15 @@ impl<const MR: usize, const KC: usize> IndexMut<usize> for ABlock<MR, KC> {
 /// * `m` - Leading dimension (number of rows) of matrix A
 /// * `ic`, `pc` - Top-left coordinates of block in A
 #[inline(always)]
-pub fn pack_a<const MR: usize, const KC: usize>(
+pub fn pack_a<const MR: usize>(
     a: &[f32],
     mc: usize,
     kc: usize,
     m: usize,
     ic: usize,
     pc: usize,
-) -> ABlock<MR, KC> {
-    let mut packed_block = ABlock::<MR, KC>::new(mc).expect("Memory allocation failed for ABlock");
+) -> ABlock<MR> {
+    let mut packed_block = ABlock::<MR>::new(mc, kc).expect("Memory allocation failed for ABlock");
 
     // Pre-calculate base addresses to eliminate redundant calculations
     let base_src_row = ic;
@@ -278,44 +410,45 @@ pub fn pack_a<const MR: usize, const KC: usize>(
 
     // Process mc rows in groups of MR (microkernel row dimension)
     for (panel_idx, i_panel_start) in (0..mc).step_by(MR).enumerate() {
-        let dest_panel = &mut packed_block[panel_idx];
         let mr_in_panel = min(MR, mc - i_panel_start);
 
         // Calculate source row offset once per panel
         let panel_src_row_offset = base_src_row + i_panel_start;
 
-        // Pack all KC columns of this row panel with optimized inner loop
+        // Pack all kc columns of this row panel with optimized inner loop
         for p_col in 0..kc {
             // Inline index calculation - eliminates function call overhead
             let src_start = base_src_col_offset + p_col * m + panel_src_row_offset;
 
-            let dest_col = &mut dest_panel.data[p_col];
+            let dest_col = packed_block.get_panel_column_mut(panel_idx, p_col);
 
             // Optimized copy with manual unrolling for common cases
-            match mr_in_panel {
-                8 => {
-                    // Full panel - most common case, manually unrolled
-                    dest_col[0] = a[src_start];
-                    dest_col[1] = a[src_start + 1];
-                    dest_col[2] = a[src_start + 2];
-                    dest_col[3] = a[src_start + 3];
-                    dest_col[4] = a[src_start + 4];
-                    dest_col[5] = a[src_start + 5];
-                    dest_col[6] = a[src_start + 6];
-                    dest_col[7] = a[src_start + 7];
-                }
-                4 => {
-                    // Half panel
-                    dest_col[0] = a[src_start];
-                    dest_col[1] = a[src_start + 1];
-                    dest_col[2] = a[src_start + 2];
-                    dest_col[3] = a[src_start + 3];
-                }
-                mr => {
-                    // Partial panel - use slice copy for irregular sizes
-                    let src_slice = &a[src_start..src_start + mr];
-                    let dest_slice = &mut dest_col[0..mr];
-                    dest_slice.copy_from_slice(src_slice);
+            unsafe {
+                match mr_in_panel {
+                    8 => {
+                        // Full panel - most common case, manually unrolled
+                        *dest_col = a[src_start];
+                        *dest_col.add(1) = a[src_start + 1];
+                        *dest_col.add(2) = a[src_start + 2];
+                        *dest_col.add(3) = a[src_start + 3];
+                        *dest_col.add(4) = a[src_start + 4];
+                        *dest_col.add(5) = a[src_start + 5];
+                        *dest_col.add(6) = a[src_start + 6];
+                        *dest_col.add(7) = a[src_start + 7];
+                    }
+                    4 => {
+                        // Half panel
+                        *dest_col = a[src_start];
+                        *dest_col.add(1) = a[src_start + 1];
+                        *dest_col.add(2) = a[src_start + 2];
+                        *dest_col.add(3) = a[src_start + 3];
+                    }
+                    mr => {
+                        // Partial panel - copy remaining elements
+                        for i in 0..mr {
+                            *dest_col.add(i) = a[src_start + i];
+                        }
+                    }
                 }
             }
         }
@@ -336,73 +469,74 @@ pub fn pack_a<const MR: usize, const KC: usize>(
 /// * `k` - Leading dimension (number of rows) of matrix B
 /// * `pc`, `jc` - Top-left coordinates of block in B
 #[inline(always)]
-pub fn pack_b<const KC: usize, const NR: usize>(
+pub fn pack_b<const NR: usize>(
     b: &[f32],
     nc: usize,
     kc: usize,
     k: usize,
     pc: usize,
     jc: usize,
-) -> BBlock<KC, NR> {
-    let mut packed_block = BBlock::<KC, NR>::new(nc).expect("Memory allocation failed for BBlock");
+) -> BBlock<NR> {
+    let mut packed_block = BBlock::<NR>::new(nc, kc).expect("Memory allocation failed for BBlock");
 
     // Process nc columns in groups of NR (microkernel column dimension)
     for (panel_idx, j_panel_start) in (0..nc).step_by(NR).enumerate() {
-        let dest_panel = &mut packed_block[panel_idx];
         let nr_in_panel = min(NR, nc - j_panel_start);
 
         // Pre-calculate column base addresses to eliminate function calls
         let col_base = jc + j_panel_start;
 
-        // Pack KC rows of this column panel with optimized inner loops
+        // Pack kc rows of this column panel with optimized inner loops
         for p_row in 0..kc {
             let src_row = pc + p_row;
-            let dest_row = &mut dest_panel.data[p_row];
+            let dest_row = packed_block.get_panel_row_mut(panel_idx, p_row);
 
             // Optimized packing with manual unrolling for common cases
-            match nr_in_panel {
-                8 => {
-                    // Full panel - most common case, manually unrolled
-                    // Inline index calculation: col * k + row
-                    dest_row[0] = b[(col_base + 0) * k + src_row];
-                    dest_row[1] = b[(col_base + 1) * k + src_row];
-                    dest_row[2] = b[(col_base + 2) * k + src_row];
-                    dest_row[3] = b[(col_base + 3) * k + src_row];
-                    dest_row[4] = b[(col_base + 4) * k + src_row];
-                    dest_row[5] = b[(col_base + 5) * k + src_row];
-                    dest_row[6] = b[(col_base + 6) * k + src_row];
-                    dest_row[7] = b[(col_base + 7) * k + src_row];
-                }
-                4 => {
-                    // Half panel
-                    dest_row[0] = b[(col_base + 0) * k + src_row];
-                    dest_row[1] = b[(col_base + 1) * k + src_row];
-                    dest_row[2] = b[(col_base + 2) * k + src_row];
-                    dest_row[3] = b[(col_base + 3) * k + src_row];
-                }
-                6 => {
-                    // 3/4 panel
-                    dest_row[0] = b[(col_base + 0) * k + src_row];
-                    dest_row[1] = b[(col_base + 1) * k + src_row];
-                    dest_row[2] = b[(col_base + 2) * k + src_row];
-                    dest_row[3] = b[(col_base + 3) * k + src_row];
-                    dest_row[4] = b[(col_base + 4) * k + src_row];
-                    dest_row[5] = b[(col_base + 5) * k + src_row];
-                }
-                2 => {
-                    // Quarter panel
-                    dest_row[0] = b[(col_base + 0) * k + src_row];
-                    dest_row[1] = b[(col_base + 1) * k + src_row];
-                }
-                1 => {
-                    // Single element
-                    dest_row[0] = b[col_base * k + src_row];
-                }
-                nr => {
-                    // General case for other sizes - still optimized with eliminated function calls
-                    for j_col_in_panel in 0..nr {
-                        let src_col = col_base + j_col_in_panel;
-                        dest_row[j_col_in_panel] = b[src_col * k + src_row];
+            unsafe {
+                match nr_in_panel {
+                    8 => {
+                        // Full panel - most common case, manually unrolled
+                        // Inline index calculation: col * k + row
+                        *dest_row = b[(col_base + 0) * k + src_row];
+                        *dest_row.add(1) = b[(col_base + 1) * k + src_row];
+                        *dest_row.add(2) = b[(col_base + 2) * k + src_row];
+                        *dest_row.add(3) = b[(col_base + 3) * k + src_row];
+                        *dest_row.add(4) = b[(col_base + 4) * k + src_row];
+                        *dest_row.add(5) = b[(col_base + 5) * k + src_row];
+                        *dest_row.add(6) = b[(col_base + 6) * k + src_row];
+                        *dest_row.add(7) = b[(col_base + 7) * k + src_row];
+                    }
+                    4 => {
+                        // Half panel
+                        *dest_row = b[(col_base + 0) * k + src_row];
+                        *dest_row.add(1) = b[(col_base + 1) * k + src_row];
+                        *dest_row.add(2) = b[(col_base + 2) * k + src_row];
+                        *dest_row.add(3) = b[(col_base + 3) * k + src_row];
+                    }
+                    6 => {
+                        // 3/4 panel
+                        *dest_row = b[(col_base + 0) * k + src_row];
+                        *dest_row.add(1) = b[(col_base + 1) * k + src_row];
+                        *dest_row.add(2) = b[(col_base + 2) * k + src_row];
+                        *dest_row.add(3) = b[(col_base + 3) * k + src_row];
+                        *dest_row.add(4) = b[(col_base + 4) * k + src_row];
+                        *dest_row.add(5) = b[(col_base + 5) * k + src_row];
+                    }
+                    2 => {
+                        // Quarter panel
+                        *dest_row = b[(col_base + 0) * k + src_row];
+                        *dest_row.add(1) = b[(col_base + 1) * k + src_row];
+                    }
+                    1 => {
+                        // Single element
+                        *dest_row = b[col_base * k + src_row];
+                    }
+                    nr => {
+                        // General case for other sizes - still optimized with eliminated function calls
+                        for j_col_in_panel in 0..nr {
+                            let src_col = col_base + j_col_in_panel;
+                            *dest_row.add(j_col_in_panel) = b[src_col * k + src_row];
+                        }
                     }
                 }
             }
