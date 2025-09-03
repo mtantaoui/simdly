@@ -52,7 +52,7 @@ pub fn display_matrix_column_major(m: usize, n: usize, ld: usize, a: &[f32]) {
 /// The memory alignment required for AVX2 SIMD instructions. AVX instructions operate
 /// on 256-bit (32-byte) registers, so aligning memory to 32-byte boundaries
 /// allows for the use of faster, aligned load/store instructions.
-/// 
+///
 /// Note: This example defines its own alignment constant for simplicity.
 /// In production code, consider using the library's AVX_ALIGNMENT constant.
 const ALIGNMENT: usize = 32;
@@ -594,19 +594,12 @@ unsafe fn raw_kernel(
     m: usize,
 ) {
     let mut c0 = _mm256_load_ps(c_micropanel);
-
     let mut c1 = _mm256_load_ps(c_micropanel.add(m));
-
     let mut c2 = _mm256_load_ps(c_micropanel.add(2 * m));
-
     let mut c3 = _mm256_load_ps(c_micropanel.add(3 * m));
-
     let mut c4 = _mm256_load_ps(c_micropanel.add(4 * m));
-
     let mut c5 = _mm256_load_ps(c_micropanel.add(5 * m));
-
     let mut c6 = _mm256_load_ps(c_micropanel.add(6 * m));
-
     let mut c7 = _mm256_load_ps(c_micropanel.add(7 * m));
 
     for k in 0..kc {
