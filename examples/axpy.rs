@@ -32,143 +32,104 @@ fn axpy_simd(alpha: f32, x: Vec<f32>, y: Vec<f32>) -> Vec<f32> {
     y.fma(alpha_vec, x)
 }
 
-/// Demonstrates the FMA signature and how it applies to AXPY operations.
-/// 
-/// Shows that both scalar and SIMD implementations produce identical results
-/// when computing y = alpha * x + y using different approaches.
-fn demo_fma_usage() {
-    println!("=== FMA Usage Demo with AXPY ===\n");
+fn main() {
+    println!("AXPY (A*X Plus Y) Example");
+    println!("========================\n");
 
+    // Example vectors
     let alpha = 2.5;
     let x = vec![1.0, 2.0, 3.0, 4.0];
-    let mut y_scalar = vec![0.5, 1.0, 1.5, 2.0];
-    let y_simd = vec![0.5, 1.0, 1.5, 2.0];
+    let y = vec![0.5, 1.0, 1.5, 2.0];
 
-    println!("AXPY: y = alpha * x + y");
     println!("alpha = {}", alpha);
     println!("x = {:?}", x);
-    println!("y (initial) = {:?}", y_simd);
+    println!("y = {:?}", y);
 
-    // Scalar version
-    axpy_scalar(alpha, &x, &mut y_scalar);
-    println!("\nScalar result: {:?}", y_scalar);
+    // Compute AXPY: alpha * x + y
+    let result = axpy_simd(alpha, x.clone(), y.clone());
 
-    // SIMD version using new FMA signature
-    let y_simd_result = axpy_simd(alpha, x.clone(), y_simd.clone());
-    println!("SIMD result:   {:?}", y_simd_result);
+    println!("\nResult (alpha * x + y):");
+    println!("result = {:?}", result);
 
-    // Verify they match
-    assert_eq!(y_scalar, y_simd_result);
-    println!("✓ Scalar and SIMD results match!");
-
-    // Show the computation step by step
-    println!("\nStep-by-step computation:");
+    // Show step-by-step computation
+    println!("\nStep-by-step:");
     for i in 0..x.len() {
-        println!(
-            "y[{}] = {} * {} + {} = {}",
-            i, alpha, x[i], y_simd[i], y_scalar[i]
-        );
+        println!("  {} * {} + {} = {}", alpha, x[i], y[i], result[i]);
     }
 
-    println!("\n✓ FMA signature demonstration completed!\n");
+    println!("\n✓ AXPY computation completed!");
 }
 
-/// Test FMA accumulation pattern
-fn test_fma_accumulation() {
-    println!("=== FMA Accumulation Pattern ===\n");
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let a = vec![2.0, 3.0];
-    let b = vec![0.5, 1.0];
-    let mut accumulator = vec![1.0, 2.0, 3.0, 4.0]; // 2x2 matrix: [[1,2], [3,4]]
+    #[test]
+    fn test_axpy_basic() {
+        let alpha = 2.0;
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![4.0, 5.0, 6.0];
 
-    println!("Computing outer product accumulation using FMA");
-    println!("Initial matrix (2x2):");
-    for i in 0..2 {
-        for j in 0..2 {
-            print!("{:4.1} ", accumulator[i * 2 + j]);
-        }
-        println!();
+        let result = axpy(alpha, x, y);
+        let expected = vec![6.0, 9.0, 12.0]; // 2*1+4, 2*2+5, 2*3+6
+
+        assert_eq!(result, expected);
     }
 
-    // Simulate outer product accumulation: result[i][j] += a[i] * b[j]
-    for i in 0..a.len() {
-        for j in 0..b.len() {
-            let idx = i * b.len() + j;
-            let old_value = accumulator[idx];
+    #[test]
+    fn test_axpy_zero_alpha() {
+        let alpha = 0.0;
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![4.0, 5.0, 6.0];
 
-            // New FMA usage: accumulator.fma(multiplier, multiplicand) = multiplier * multiplicand + accumulator
-            let a_scalar = vec![a[i]];
-            let b_scalar = vec![b[j]];
-            let acc_scalar = vec![old_value];
-            let result = acc_scalar.fma(a_scalar, b_scalar);
-            accumulator[idx] = result[0];
+        let result = axpy(alpha, x, y.clone());
 
-            println!(
-                "acc[{}][{}] = acc.fma(a[{}], b[{}]) = {} * {} + {} = {}",
-                i, j, i, j, a[i], b[j], old_value, accumulator[idx]
-            );
-        }
+        // When alpha is 0, result should be y
+        assert_eq!(result, y);
     }
 
-    println!("\nFinal accumulated matrix:");
-    for i in 0..2 {
-        for j in 0..2 {
-            print!("{:4.1} ", accumulator[i * 2 + j]);
-        }
-        println!();
+    #[test]
+    fn test_axpy_negative_values() {
+        let alpha = -1.5;
+        let x = vec![2.0, -1.0, 3.0];
+        let y = vec![1.0, 2.0, -1.0];
+
+        let result = axpy(alpha, x, y);
+        let expected = vec![-2.0, 3.5, -5.5]; // -1.5*2+1, -1.5*(-1)+2, -1.5*3+(-1)
+
+        assert_eq!(result, expected);
     }
 
-    // Verify manually:
-    // acc[0][0] = 2.0 * 0.5 + 1.0 = 2.0
-    // acc[0][1] = 2.0 * 1.0 + 2.0 = 4.0
-    // acc[1][0] = 3.0 * 0.5 + 3.0 = 4.5
-    // acc[1][1] = 3.0 * 1.0 + 4.0 = 7.0
-    let expected = vec![2.0, 4.0, 4.5, 7.0];
-    assert_eq!(accumulator, expected);
+    #[test]
+    fn test_axpy_empty_vectors() {
+        let alpha = 2.0;
+        let x: Vec<f32> = vec![];
+        let y: Vec<f32> = vec![];
 
-    println!("✓ FMA accumulation test passed!\n");
-}
+        let result = axpy(alpha, x, y);
 
-/// Test different FMA usage patterns
-fn test_fma_patterns() {
-    println!("=== FMA Usage Patterns ===\n");
+        assert!(result.is_empty());
+    }
 
-    // Note: We're using platform-agnostic SIMD operations
+    #[test]
+    fn test_axpy_single_element() {
+        let alpha = 3.0;
+        let x = vec![4.0];
+        let y = vec![1.0];
 
-    // Pattern 1: Standard FMA with vectors
-    println!("Pattern 1: Vector FMA");
-    let a = vec![1.0, 2.0, 3.0, 4.0];
-    let b = vec![2.0, 3.0, 4.0, 5.0];
-    let c = vec![0.5, 0.5, 0.5, 0.5];
+        let result = axpy(alpha, x, y);
+        let expected = vec![13.0]; // 3*4+1
 
-    let result1 = c.fma(a.clone(), b.clone());
-    println!("c.fma(a, b) = a * b + c = {:?}", result1);
+        assert_eq!(result, expected);
+    }
 
-    // Pattern 2: Broadcasting scalar
-    println!("\nPattern 2: Scalar broadcast");
-    let scalar = vec![2.0; 4];
-    let result2 = c.fma(scalar, a);
-    println!("c.fma(scalar, a) = scalar * a + c = {:?}", result2);
+    #[test]
+    #[should_panic(expected = "Vectors must have same length")]
+    fn test_axpy_mismatched_lengths() {
+        let alpha = 1.0;
+        let x = vec![1.0, 2.0];
+        let y = vec![1.0, 2.0, 3.0];
 
-    // Pattern 3: In-place accumulation simulation
-    println!("\nPattern 3: Accumulation simulation");
-    let mut acc = vec![10.0, 20.0, 30.0, 40.0];
-    let factor1 = vec![0.1, 0.2, 0.3, 0.4];
-    let factor2 = vec![5.0, 5.0, 5.0, 5.0];
-
-    println!("Before: acc = {:?}", acc);
-    acc = acc.fma(factor1, factor2);
-    println!("After acc.fma(f1, f2): {:?}", acc);
-
-    println!("✓ All FMA patterns tested successfully!\n");
-}
-
-fn main() {
-    println!("🧮 AXPY and FMA Demonstration\n");
-
-    demo_fma_usage();
-    test_fma_accumulation();
-    test_fma_patterns();
-
-    println!("✅ All AXPY and FMA tests completed successfully! 🎉");
+        axpy(alpha, x, y);
+    }
 }

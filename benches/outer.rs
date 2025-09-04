@@ -1,12 +1,29 @@
-//! Benchmarks for AVX2 SIMD outer product computation.
+//! Benchmarks for SIMD outer product computation.
 //!
 //! This benchmark suite compares the performance of the SIMD-optimized outer product
 //! implementation against scalar alternatives, ndarray, and faer across various input sizes and patterns.
+//!
+//! Architecture Support:
+//! - x86_64: Uses AVX2 SIMD instructions
+//! - AArch64: Uses NEON SIMD instructions  
+//! - Other architectures: Falls back to scalar implementation
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use faer::Mat;
 use ndarray::Array1;
+
+// Import the appropriate SIMD implementation based on target architecture
+#[cfg(target_arch = "x86_64")]
 use simdly::simd::avx2::outer::outer;
+
+#[cfg(target_arch = "aarch64")]
+use simdly::simd::neon::outer::outer;
+
+// Fallback for other architectures - use scalar implementation
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+fn outer(vec_a: &[f32], vec_b: &[f32]) -> Vec<f32> {
+    scalar_outer_product(vec_a, vec_b)
+}
 
 /// Scalar reference implementation for performance comparison.
 fn scalar_outer_product(vec_a: &[f32], vec_b: &[f32]) -> Vec<f32> {
@@ -54,7 +71,7 @@ fn bench_scaling_behavior(c: &mut Criterion) {
     let mut group = c.benchmark_group("scaling_behavior");
 
     // Square matrices of increasing size
-    let sizes = [8, 16, 32, 64, 128, 256, 512, 1024];
+    let sizes = [8, 9, 10, 11, 12, 16, 32, 64, 128, 256, 512, 1024, 1025];
 
     for size in sizes {
         let a: Vec<f32> = (1..=size).map(|i| i as f32 * 0.01).collect();

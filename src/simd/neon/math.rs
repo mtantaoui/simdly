@@ -2012,9 +2012,8 @@ mod tests {
 
             // Test exp(ln(x)) = x for positive x
             let ln_result = unsafe { vlnq_f32(create_f32x4(positive_vals)) };
-            let ln_vals = extract_f32x4(ln_result);
+
             let exp_ln_result = unsafe { vexpq_f32(ln_result) };
-            let exp_ln_vals = extract_f32x4(exp_ln_result);
 
             // Verify ln and exp are inverses
 

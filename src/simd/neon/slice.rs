@@ -2082,7 +2082,7 @@ fn simd_fma_block(a: *const f32, b: *const f32, c: *const f32, result: *mut f32)
     let b_simd = unsafe { F32x4::load(b, f32x4::LANE_COUNT) };
     let c_simd = unsafe { F32x4::load(c, f32x4::LANE_COUNT) };
     let fma_result = c_simd.fma(a_simd, b_simd); // c + a * b (c is addend, a and b are multiplied)
-    unsafe { fma_result.store_aligned_at(result) };
+    fma_result.store_at(result);
 }
 
 /// Processes a partial block (1-3 elements) using NEON SIMD FMA operations.

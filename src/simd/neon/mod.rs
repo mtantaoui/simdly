@@ -42,4 +42,6 @@ pub mod math;
 
 pub mod f32x4;
 
+pub mod outer;
+
 pub mod slice;
