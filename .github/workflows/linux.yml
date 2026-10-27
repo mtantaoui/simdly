@@ -103,13 +103,17 @@ jobs:
       - run: cargo build --target ${{ matrix.target }} --no-default-features
       - run: cargo build --target ${{ matrix.target }} --no-default-features --features alloc
 
-  # Keep in sync with `rust-version` in Cargo.toml.
+  # Keep in sync with `rust-version` in Cargo.toml. The version goes in
+  # `toolchain`, not the `@ref`: Dependabot treats `@1.89` as an action
+  # version and would "bump" the MSRV.
   msrv:
     name: MSRV (1.89)
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.89
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.89"
       - uses: Swatinem/rust-cache@v2
       - name: Check (scalar)
         run: cargo check --all-features
