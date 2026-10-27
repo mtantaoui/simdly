@@ -1,5 +1,9 @@
 # simdly
 
+[![Linux](https://github.com/mtantaoui/simdly/actions/workflows/linux.yml/badge.svg)](https://github.com/mtantaoui/simdly/actions/workflows/linux.yml)
+[![macOS](https://github.com/mtantaoui/simdly/actions/workflows/macos.yml/badge.svg)](https://github.com/mtantaoui/simdly/actions/workflows/macos.yml)
+[![Windows](https://github.com/mtantaoui/simdly/actions/workflows/windows.yml/badge.svg)](https://github.com/mtantaoui/simdly/actions/workflows/windows.yml)
+
 SIMD implementations of mathematical functions for Rust, with a documented
 worst-case ULP bound for every function.
 

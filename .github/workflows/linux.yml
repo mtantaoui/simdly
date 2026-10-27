@@ -1,0 +1,148 @@
+name: Linux
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  # One job per backend: lint and test with the backend actually compiled in.
+  # `SIMDLY_EXPECTED_BACKEND` makes the test suite fail if RUSTFLAGS did not
+  # select the intended backend (see `src/macros.rs`).
+  backend:
+    name: ${{ matrix.backend }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: scalar
+            os: ubuntu-26.04
+            rustflags: ""
+          - backend: avx2
+            os: ubuntu-26.04
+            rustflags: "-C target-cpu=x86-64-v3"
+          # GitHub-hosted runners have no AVX-512, so tests run under
+          # Intel SDE emulating Sapphire Rapids.
+          - backend: avx512
+            os: ubuntu-26.04
+            rustflags: "-C target-cpu=x86-64-v4"
+            sde: true
+          - backend: neon
+            os: ubuntu-26.04-arm
+            rustflags: ""
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
+      SIMDLY_EXPECTED_BACKEND: ${{ matrix.backend }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.backend }}
+      - name: Set up Intel SDE
+        if: matrix.sde
+        uses: petarpetrovt/setup-sde@v6.0
+      - name: Route cargo test through SDE
+        if: matrix.sde
+        run: echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=$SDE_PATH/sde64 -spr --" >> "$GITHUB_ENV"
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Clippy (no default features)
+        run: cargo clippy --all-targets --no-default-features -- -D warnings
+      - name: Test
+        run: cargo test --all-features
+      - name: Test (no default features)
+        run: cargo test --no-default-features
+
+  # The jobs below do not depend on the host OS, so they run once, here.
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  # Build for targets that have no `std` at all, so an accidental `std`
+  # dependency fails here rather than for a downstream user. The softfloat
+  # aarch64 target has NEON disabled, exercising the aarch64 scalar fallback.
+  no-std:
+    name: no_std (${{ matrix.target }})
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [thumbv7em-none-eabihf, aarch64-unknown-none-softfloat]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build --target ${{ matrix.target }} --no-default-features
+      - run: cargo build --target ${{ matrix.target }} --no-default-features --features alloc
+
+  # Keep in sync with `rust-version` in Cargo.toml.
+  msrv:
+    name: MSRV (1.89)
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.89
+      - uses: Swatinem/rust-cache@v2
+      - name: Check (scalar)
+        run: cargo check --all-features
+      - name: Check (avx2)
+        run: cargo check --all-features
+        env:
+          RUSTFLAGS: "-C target-cpu=x86-64-v3"
+      - name: Check (avx512)
+        run: cargo check --all-features
+        env:
+          RUSTFLAGS: "-C target-cpu=x86-64-v4"
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-26.04
+    env:
+      # Mirror docs.rs, which builds with AVX2 enabled (see Cargo.toml).
+      RUSTFLAGS: "-C target-feature=+avx2,+fma"
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --no-deps --all-features
+      - run: cargo doc --no-deps --all-features --document-private-items
+
+  # Builds the crate from the packaged `.crate` file, catching files missing
+  # from the `include` allow-list before a real publish does.
+  package:
+    name: Package
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo publish --dry-run

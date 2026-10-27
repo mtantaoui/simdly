@@ -1,0 +1,56 @@
+name: Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  # `SIMDLY_EXPECTED_BACKEND` makes the test suite fail if RUSTFLAGS did not
+  # select the intended backend (see `src/macros.rs`).
+  backend:
+    name: ${{ matrix.backend }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: avx2
+            os: windows-2025
+            rustflags: "-C target-cpu=x86-64-v3"
+          # NEON is enabled by default on aarch64-pc-windows-msvc.
+          - backend: neon
+            os: windows-11-arm
+            rustflags: ""
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
+      SIMDLY_EXPECTED_BACKEND: ${{ matrix.backend }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.backend }}
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Clippy (no default features)
+        run: cargo clippy --all-targets --no-default-features -- -D warnings
+      - name: Test
+        run: cargo test --all-features
+      - name: Test (no default features)
+        run: cargo test --no-default-features

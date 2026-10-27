@@ -91,4 +91,13 @@ mod tests {
     fn exactly_one_backend_is_selected() {
         assert!(["avx512", "avx2", "neon", "scalar"].contains(&super::BACKEND));
     }
+
+    /// CI sets `SIMDLY_EXPECTED_BACKEND` per job so that a mistyped
+    /// `RUSTFLAGS` cannot silently test the scalar fallback instead.
+    #[test]
+    fn backend_matches_ci_expectation() {
+        if let Some(expected) = option_env!("SIMDLY_EXPECTED_BACKEND") {
+            assert_eq!(super::BACKEND, expected);
+        }
+    }
 }
