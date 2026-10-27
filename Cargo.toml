@@ -1,0 +1,51 @@
+[package]
+name = "simdly"
+version = "0.1.0"
+edition = "2024"
+# 1.89 stabilised the AVX-512 intrinsics and `target_feature` on safe fns.
+rust-version = "1.89"
+authors = ["Mahdi Tantaoui <mohamedalmahdi.tantaoui@gmail.com>"]
+description = "SIMD implementations of mathematical functions for Rust (AVX2, AVX-512, NEON) with documented worst-case ULP bounds."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/mtantaoui/simdly"
+documentation = "https://docs.rs/simdly"
+readme = "README.md"
+keywords = ["simd", "math", "avx", "neon", "vector"]
+categories = ["mathematics", "hardware-support", "no-std"]
+# Allow-list: anything not named here (book/, .github/, tools) stays out of
+# the published package.
+include = [
+    "/src/**/*.rs",
+    "/Cargo.toml",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE-MIT",
+    "/LICENSE-APACHE",
+]
+
+[features]
+default = ["std"]
+# Runtime CPU feature detection (planned) needs `std`.
+std = ["alloc"]
+# `Vec`-returning APIs (`SliceMath`, `VecMath`, `SliceExt`, `VecExt`).
+alloc = []
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(docsrs)"] }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "warn"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+# docs.rs builds without target-feature flags, which would document the
+# scalar fallback only. Build for AVX2 so the SIMD backend is rendered.
+rustc-args = ["-C", "target-feature=+avx2,+fma"]
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
