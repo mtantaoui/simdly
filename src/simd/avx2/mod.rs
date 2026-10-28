@@ -1,1 +1,3 @@
-//! AVX2 + FMA register types (planned): `F32x8` (`__m256`) and `F64x4` (`__m256d`).
+//! AVX2 + FMA register types: `F32x8` (`__m256`); `F64x4` (`__m256d`) planned.
+
+pub(crate) mod f32x8;

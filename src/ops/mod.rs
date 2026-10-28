@@ -2,5 +2,5 @@
 //! horizontal reductions (`sum`, `product`, `min`, `max`).
 //!
 //! The public `SliceExt` / `VecExt` traits will be defined here. Arithmetic
-//! will be generic over the register types in `crate::simd`; only reductions
-//! will need per-ISA code.
+//! will be generic over the `SimdVector` trait in `crate::simd`; only
+//! reductions will need per-ISA code.
