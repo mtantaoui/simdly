@@ -17,9 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Slice drivers (`unary`, `binary` and their in-place variants): full
   registers plus one masked tail, generic over `SimdVector`.
 - `simdly::backend()` and `Backend`: report the backend in use.
-- `SliceExt` for `[f32]`: element-wise `add`, `sub`, `mul`, `div` (returning
+- `SliceExt` for `[f32]` and `[f64]`: element-wise `add`, `sub`, `mul`, `div` (returning
   a `Vec`, with `alloc`) and their in-place `_assign` variants; AVX2 and
   scalar backends.
-- `SliceExt` comparisons for `[f32]`, like NumPy's: `less`, `less_equal`,
+- `SliceExt` comparisons for `[f32]` and `[f64]`, like NumPy's: `less`, `less_equal`,
   `greater`, `greater_equal`, `equal`, `not_equal` and their `_scalar`
   variants, returning `Vec<bool>` (`alloc`); AVX2 and scalar backends.

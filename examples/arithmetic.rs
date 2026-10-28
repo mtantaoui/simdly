@@ -1,4 +1,4 @@
-//! Element-wise `+ - * /` on `Vec<f32>` with `SliceExt`.
+//! Element-wise `+ - * /` on `Vec<f32>` and `Vec<f64>` with `SliceExt`.
 //!
 //! ```sh
 //! cargo run --example arithmetic
@@ -23,4 +23,8 @@ fn main() {
     c.mul_assign(&b);
     c.sub_assign(&a);
     println!("\na * b - a, in place = {c:?}");
+
+    // `f64` works the same way.
+    let x = vec![0.1_f64, 0.2, 0.3];
+    println!("\nf64: {x:?} + {x:?} = {:?}", x.add(&x));
 }
