@@ -6,7 +6,9 @@
 //!
 //! AVX2 compares 32 elements per step (4 `f32` or 8 `f64` registers) and
 //! narrows the lane masks to bytes with saturating packs, so all 32 `bool`s
-//! are written with one store.
+//! are written with one store. AVX-512 compares into a bit mask, expands it to
+//! one 0/1 lane per element and narrows that to bytes in a masked store, which
+//! also handles the tail.
 
 use core::mem::MaybeUninit;
 
@@ -107,7 +109,7 @@ pub(crate) trait CmpElement: Compare<Mask = bool> {
 }
 
 macro_rules! cmp_element {
-    ($($T:ty => $avx2:ident),* $(,)?) => {
+    ($($T:ty => $avx512:ident, $avx2:ident);* $(;)?) => {
         $(
             impl CmpElement for $T {
                 #[inline]
@@ -115,6 +117,7 @@ macro_rules! cmp_element {
                     assert_eq!(a.len(), b.len(), "length mismatch");
                     assert_eq!(a.len(), out.len(), "length mismatch");
                     dispatch! {
+                        avx512 => x86::avx512_cmp::<x86::$avx512, Op>(a, b, out),
                         avx2 => x86::avx2_cmp::<x86::$avx2, Op>(a, b, out),
                         scalar => scalar_cmp::<Op, Self>(a, b, out),
                     }
@@ -124,6 +127,7 @@ macro_rules! cmp_element {
                 fn cmp_scalar_uninit<Op: CmpOp>(a: &[Self], b: Self, out: &mut [MaybeUninit<bool>]) {
                     assert_eq!(a.len(), out.len(), "length mismatch");
                     dispatch! {
+                        avx512 => x86::avx512_cmp_scalar::<x86::$avx512, Op>(a, b, out),
                         avx2 => x86::avx2_cmp_scalar::<x86::$avx2, Op>(a, b, out),
                         scalar => scalar_cmp_scalar::<Op, Self>(a, b, out),
                     }
@@ -133,7 +137,7 @@ macro_rules! cmp_element {
     };
 }
 
-cmp_element!(f32 => F32x8, f64 => F64x4);
+cmp_element!(f32 => F32x16, F32x8; f64 => F64x8, F64x4);
 
 fn scalar_cmp<Op: CmpOp, T: Compare<Mask = bool>>(a: &[T], b: &[T], out: &mut [MaybeUninit<bool>]) {
     for ((o, &x), &y) in out.iter_mut().zip(a).zip(b) {
@@ -154,7 +158,10 @@ fn scalar_cmp_scalar<Op: CmpOp, T: Compare<Mask = bool>>(
 cfg_x86! {
     mod x86 {
         use core::arch::x86_64::{
-            __m256i, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _CMP_NEQ_UQ,
+            __m256i, __mmask8, __mmask16, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ,
+            _CMP_LT_OQ, _CMP_NEQ_UQ, _mm512_cmp_pd_mask, _mm512_cmp_ps_mask,
+            _mm512_mask_cvtepi32_storeu_epi8, _mm512_mask_cvtepi64_storeu_epi8,
+            _mm512_maskz_set1_epi32, _mm512_maskz_set1_epi64,
             _mm256_and_si256, _mm256_castpd_si256, _mm256_castps_si256, _mm256_cmp_pd,
             _mm256_cmp_ps, _mm256_packs_epi16, _mm256_packs_epi32,
             _mm256_permutevar8x32_epi32, _mm256_set1_epi8, _mm256_setr_epi8,
@@ -165,7 +172,10 @@ cfg_x86! {
         use super::{CmpOp, Compare};
         use crate::simd::SimdVector;
         pub(super) use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
+        pub(super) use crate::simd::avx512::{f32x16::F32x16, f64x8::F64x8};
 
+        /// `impl Compare` for a register: AVX2 compares into a vector of
+        /// all-ones / zero lanes (cast to integers), AVX-512 into a bit mask.
         macro_rules! compare {
             ($V:ty, $cmp:ident, $cast:ident; $($method:ident: $pred:ident),* $(,)?) => {
                 impl Compare for $V {
@@ -173,9 +183,22 @@ cfg_x86! {
                     $(
                         #[inline(always)]
                         fn $method(self, rhs: Self) -> __m256i {
-                            // SAFETY: a register of this type exists, so AVX2 is
-                            // available.
+                            // SAFETY: a register of this type exists, so its ISA
+                            // is available.
                             unsafe { $cast($cmp::<{ $pred }>(self.raw(), rhs.raw())) }
+                        }
+                    )*
+                }
+            };
+            ($V:ty, $cmp:ident => $Mask:ty; $($method:ident: $pred:ident),* $(,)?) => {
+                impl Compare for $V {
+                    type Mask = $Mask;
+                    $(
+                        #[inline(always)]
+                        fn $method(self, rhs: Self) -> $Mask {
+                            // SAFETY: a register of this type exists, so its ISA
+                            // is available.
+                            unsafe { $cmp::<{ $pred }>(self.raw(), rhs.raw()) }
                         }
                     )*
                 }
@@ -185,10 +208,10 @@ cfg_x86! {
         // Ordered (`_OQ`): false if either side is NaN; `!=` is unordered
         // (`_UQ`): true if either side is NaN. Quiet: NaN raises no flag.
         macro_rules! compare_all {
-            ($($V:ty, $cmp:ident, $cast:ident);*) => {
+            ($([$($register:tt)*])*) => {
                 $(
                     compare!(
-                        $V, $cmp, $cast;
+                        $($register)*;
                         lt: _CMP_LT_OQ,
                         le: _CMP_LE_OQ,
                         gt: _CMP_GT_OQ,
@@ -200,7 +223,12 @@ cfg_x86! {
             };
         }
 
-        compare_all!(F32x8, _mm256_cmp_ps, _mm256_castps_si256; F64x4, _mm256_cmp_pd, _mm256_castpd_si256);
+        compare_all!(
+            [F32x8, _mm256_cmp_ps, _mm256_castps_si256]
+            [F64x4, _mm256_cmp_pd, _mm256_castpd_si256]
+            [F32x16, _mm512_cmp_ps_mask => __mmask16]
+            [F64x8, _mm512_cmp_pd_mask => __mmask8]
+        );
 
         /// Elements compared per step: one 32-byte store of `bool`s.
         const STEP: usize = 32;
@@ -387,6 +415,110 @@ cfg_x86! {
                 }
             }
         }
+
+        /// An AVX-512 register whose comparison bit mask can be written as
+        /// `bool` bytes.
+        pub(super) trait Bools: SimdVector + Compare<Mask = Self::Bits> {
+            /// `__mmask16` or `__mmask8`: one bit per lane.
+            type Bits: Copy;
+
+            /// Writes lane `i`'s bit of `mask` as a `bool` to `dst[i]`, for the
+            /// first `n <= LANES` lanes; later bytes are not touched.
+            ///
+            /// # Safety
+            ///
+            /// The CPU must support AVX-512F, and `dst` must be valid for `n`
+            /// writes.
+            unsafe fn store_bools(mask: Self::Bits, dst: *mut u8, n: usize);
+        }
+
+        macro_rules! bools {
+            ($($V:ty: $Bits:ty, $set1:ident, $store:ident);*) => {
+                $(
+                    impl Bools for $V {
+                        type Bits = $Bits;
+
+                        #[inline(always)]
+                        unsafe fn store_bools(mask: $Bits, dst: *mut u8, n: usize) {
+                            debug_assert!(n <= Self::LANES);
+                            // Lanes to write: all of them, or the first `n`.
+                            let first: $Bits = if n == Self::LANES { !0 } else { (1 << n) - 1 };
+                            // SAFETY: the caller guarantees AVX-512F, and that
+                            // `dst` is valid for the `n` bytes written; the
+                            // masked store writes no others. Lanes are 0 or 1,
+                            // valid `bool`s.
+                            unsafe { $store(dst.cast(), first, $set1(mask, 1)) }
+                        }
+                    }
+                )*
+            };
+        }
+
+        bools!(
+            F32x16: __mmask16, _mm512_maskz_set1_epi32, _mm512_mask_cvtepi32_storeu_epi8;
+            F64x8: __mmask8, _mm512_maskz_set1_epi64, _mm512_mask_cvtepi64_storeu_epi8
+        );
+
+        #[target_feature(enable = "avx512f")]
+        pub(super) fn avx512_cmp<V: Bools, Op: CmpOp>(
+            a: &[V::Scalar],
+            b: &[V::Scalar],
+            out: &mut [MaybeUninit<bool>],
+        ) {
+            // SAFETY: AVX-512F is enabled in this function, `V` is an AVX-512
+            // register type, and the caller checked that all three slices have
+            // the same length.
+            unsafe { cmp512::<V, Op, _>(a, b, out) }
+        }
+
+        #[target_feature(enable = "avx512f")]
+        pub(super) fn avx512_cmp_scalar<V: Bools, Op: CmpOp>(
+            a: &[V::Scalar],
+            b: V::Scalar,
+            out: &mut [MaybeUninit<bool>],
+        ) {
+            // SAFETY: AVX-512F is enabled in this function, `V` is an AVX-512
+            // register type, and the caller checked that `a` and `out` have
+            // the same length.
+            unsafe { cmp512::<V, Op, _>(a, Splat(V::splat(b)), out) }
+        }
+
+        /// `out[i] = Op(a[i], b[i])`, one register per step.
+        ///
+        /// # Safety
+        ///
+        /// The CPU must support AVX-512F, `out` must have `a.len()` elements
+        /// and `b` must be readable for `a.len()` elements.
+        #[inline(always)]
+        unsafe fn cmp512<V: Bools, Op: CmpOp, R: Rhs<V>>(
+            a: &[V::Scalar],
+            b: R,
+            out: &mut [MaybeUninit<bool>],
+        ) {
+            let (len, x, dst) = (a.len(), a.as_ptr(), out.as_mut_ptr().cast::<u8>());
+            let full = len - len % V::LANES;
+
+            let mut i = 0;
+            while i < full {
+                // SAFETY: the caller guarantees AVX-512F and the lengths, and
+                // `i + LANES <= len`.
+                unsafe {
+                    let mask = Op::apply(V::load(x.add(i)), b.get(i));
+                    V::store_bools(mask, dst.add(i), V::LANES);
+                }
+                i += V::LANES;
+            }
+
+            let tail = len - full;
+            if tail > 0 {
+                // SAFETY: the caller guarantees AVX-512F and the lengths; the
+                // loads read and the store writes only the `tail` lanes left.
+                unsafe {
+                    let mask = Op::apply(V::load_partial(x.add(full), tail), b.get_partial(full, tail));
+                    V::store_bools(mask, dst.add(full), tail);
+                }
+            }
+        }
     }
 }
 
@@ -431,48 +563,64 @@ mod tests {
         buf[..len].iter().map(|&b| b == 1).collect()
     }
 
-    /// Runs the AVX2 kernels directly, in case dispatch picks another backend.
-    /// `None` without AVX2.
-    trait Avx2: CmpElement {
-        fn avx2_cmp<Op: CmpOp>(a: &[Self], b: &[Self], len: usize) -> Option<Vec<bool>>;
-        fn avx2_cmp_scalar<Op: CmpOp>(a: &[Self], b: Self, len: usize) -> Option<Vec<bool>>;
+    /// Runs the SIMD kernels directly, on every backend this CPU supports,
+    /// whatever dispatch would pick: `(backend, result)` pairs.
+    trait Simd: CmpElement {
+        fn simd_cmp<Op: CmpOp>(a: &[Self], b: &[Self]) -> Vec<(&'static str, Vec<bool>)>;
+        fn simd_cmp_scalar<Op: CmpOp>(a: &[Self], b: Self) -> Vec<(&'static str, Vec<bool>)>;
     }
 
-    macro_rules! avx2 {
-        ($($T:ty => $V:ident),*) => {
+    macro_rules! simd {
+        ($($T:ty => $avx512:ident, $avx2:ident);*) => {
             $(
-                impl Avx2 for $T {
-                    fn avx2_cmp<Op: CmpOp>(a: &[Self], b: &[Self], len: usize) -> Option<Vec<bool>> {
+                impl Simd for $T {
+                    fn simd_cmp<Op: CmpOp>(a: &[Self], b: &[Self]) -> Vec<(&'static str, Vec<bool>)> {
+                        #[allow(unused_mut, reason = "empty on some targets")]
+                        let mut results = Vec::new();
                         cfg_x86!(if {
-                            crate::detect::has_avx2_fma().then(|| {
+                            if crate::detect::has_avx2_fma() {
                                 // SAFETY: AVX2 + FMA checked just above.
-                                run(len, |out| unsafe { x86::avx2_cmp::<x86::$V, Op>(a, b, out) })
-                            })
+                                let got = run(a.len(), |out| unsafe { x86::avx2_cmp::<x86::$avx2, Op>(a, b, out) });
+                                results.push(("avx2", got));
+                            }
+                            if crate::detect::has_avx512f() {
+                                // SAFETY: AVX-512F checked just above.
+                                let got = run(a.len(), |out| unsafe { x86::avx512_cmp::<x86::$avx512, Op>(a, b, out) });
+                                results.push(("avx512", got));
+                            }
                         } else {
-                            let _ = (a, b, len);
-                            None
-                        })
+                            let _ = (a, b);
+                        });
+                        results
                     }
 
-                    fn avx2_cmp_scalar<Op: CmpOp>(a: &[Self], b: Self, len: usize) -> Option<Vec<bool>> {
+                    fn simd_cmp_scalar<Op: CmpOp>(a: &[Self], b: Self) -> Vec<(&'static str, Vec<bool>)> {
+                        #[allow(unused_mut, reason = "empty on some targets")]
+                        let mut results = Vec::new();
                         cfg_x86!(if {
-                            crate::detect::has_avx2_fma().then(|| {
+                            if crate::detect::has_avx2_fma() {
                                 // SAFETY: AVX2 + FMA checked just above.
-                                run(len, |out| unsafe { x86::avx2_cmp_scalar::<x86::$V, Op>(a, b, out) })
-                            })
+                                let got = run(a.len(), |out| unsafe { x86::avx2_cmp_scalar::<x86::$avx2, Op>(a, b, out) });
+                                results.push(("avx2", got));
+                            }
+                            if crate::detect::has_avx512f() {
+                                // SAFETY: AVX-512F checked just above.
+                                let got = run(a.len(), |out| unsafe { x86::avx512_cmp_scalar::<x86::$avx512, Op>(a, b, out) });
+                                results.push(("avx512", got));
+                            }
                         } else {
-                            let _ = (a, b, len);
-                            None
-                        })
+                            let _ = (a, b);
+                        });
+                        results
                     }
                 }
             )*
         };
     }
 
-    avx2!(f32 => F32x8, f64 => F64x4);
+    simd!(f32 => F32x16, F32x8; f64 => F64x8, F64x4);
 
-    fn check<Op: CmpOp, T: TestFloat + Avx2>(name: &str) {
+    fn check<Op: CmpOp, T: TestFloat + Simd>(name: &str) {
         let name = std::format!("{name} {}", T::NAME);
         for len in 0..=MAX_LEN {
             let (a, b) = inputs::<T>(len);
@@ -482,8 +630,8 @@ mod tests {
             assert_eq!(got, want, "{name}, len {len}");
             let got = run(len, |out| scalar_cmp::<Op, T>(&a, &b, out));
             assert_eq!(got, want, "{name} scalar, len {len}");
-            if let Some(got) = T::avx2_cmp::<Op>(&a, &b, len) {
-                assert_eq!(got, want, "{name} avx2, len {len}");
+            for (backend, got) in T::simd_cmp::<Op>(&a, &b) {
+                assert_eq!(got, want, "{name} {backend}, len {len}");
             }
 
             for &s in &T::SPECIAL {
@@ -492,8 +640,8 @@ mod tests {
                 assert_eq!(got, want, "{name} vs {s:?}, len {len}");
                 let got = run(len, |out| scalar_cmp_scalar::<Op, T>(&a, s, out));
                 assert_eq!(got, want, "{name} scalar vs {s:?}, len {len}");
-                if let Some(got) = T::avx2_cmp_scalar::<Op>(&a, s, len) {
-                    assert_eq!(got, want, "{name} avx2 vs {s:?}, len {len}");
+                for (backend, got) in T::simd_cmp_scalar::<Op>(&a, s) {
+                    assert_eq!(got, want, "{name} {backend} vs {s:?}, len {len}");
                 }
             }
         }

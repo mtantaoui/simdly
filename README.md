@@ -7,9 +7,9 @@
 SIMD implementations of mathematical functions for Rust, with a documented
 worst-case ULP bound for every function.
 
-> **Status:** early development. Element-wise `+ - * /` and comparisons
-> (`less`, `equal`, …, like NumPy's) on `f32` and `f64` slices are implemented
-> (AVX2 and scalar), and math functions have started with `abs`.
+> **Status:** early development. Element-wise arithmetic, comparisons (like
+> NumPy's) and `abs` on `f32` and `f64` slices are implemented; see
+> [Implementation status](#implementation-status).
 
 ```rust
 use simdly::SliceExt;
@@ -23,6 +23,36 @@ use simdly::SliceMath;
 
 let d = a.sub(&b).abs();  // [3.0, 3.0, 3.0]
 ```
+
+## Implementation status
+
+For `f32` and `f64`. ✅ implemented, 🚧 planned. An operation without a SIMD
+backend still works everywhere: it runs on the next one available (AVX2, then
+scalar).
+
+| Operation                                      | AVX-512 | AVX2 | NEON | scalar |
+|------------------------------------------------|---------|------|------|--------|
+| Arithmetic: `add` `sub` `mul` `div`, `_assign` | ✅      | ✅   | 🚧   | ✅     |
+| Comparisons: `less` … `not_equal`, `_scalar`   | ✅      | ✅   | 🚧   | ✅     |
+| `abs`                                          | ✅      | ✅   | 🚧   | ✅     |
+| `acos`                                         | 🚧      | 🚧   | 🚧   | 🚧     |
+| `asin`                                         | 🚧      | 🚧   | 🚧   | 🚧     |
+| `atan`                                         | 🚧      | 🚧   | 🚧   | 🚧     |
+| `atan2`                                        | 🚧      | 🚧   | 🚧   | 🚧     |
+| `cbrt`                                         | 🚧      | 🚧   | 🚧   | 🚧     |
+| `floor`                                        | 🚧      | 🚧   | 🚧   | 🚧     |
+| `exp`                                          | 🚧      | 🚧   | 🚧   | 🚧     |
+| `fmod`                                         | 🚧      | 🚧   | 🚧   | 🚧     |
+| `ln`                                           | 🚧      | 🚧   | 🚧   | 🚧     |
+| `hypot`                                        | 🚧      | 🚧   | 🚧   | 🚧     |
+| `pow`                                          | 🚧      | 🚧   | 🚧   | 🚧     |
+| `sin`                                          | 🚧      | 🚧   | 🚧   | 🚧     |
+| `cos`                                          | 🚧      | 🚧   | 🚧   | 🚧     |
+| `tan`                                          | 🚧      | 🚧   | 🚧   | 🚧     |
+| `sqrt`                                         | 🚧      | 🚧   | 🚧   | 🚧     |
+| `ceil`                                         | 🚧      | 🚧   | 🚧   | 🚧     |
+| `hypot3`                                       | 🚧      | 🚧   | 🚧   | 🚧     |
+| `hypot4`                                       | 🚧      | 🚧   | 🚧   | 🚧     |
 
 ## Supported targets
 

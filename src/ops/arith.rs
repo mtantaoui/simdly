@@ -61,10 +61,18 @@ pub(crate) trait ArithElement: Arith + Sized {
     ///
     /// If `a` and `b` have different lengths.
     fn binary_in_place<Op: BinaryOp>(a: &mut [Self], b: &[Self]);
+
+    /// `Op(a, b)` on every backend this CPU supports, scalar included,
+    /// whatever dispatch would pick: `(backend, result)` pairs.
+    #[cfg(test)]
+    fn every_backend<Op: BinaryOp>(
+        a: &[Self],
+        b: &[Self],
+    ) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)>;
 }
 
 macro_rules! arith_element {
-    ($($T:ty => $avx2:ident),* $(,)?) => {
+    ($($T:ty => $avx512:ident, $avx2:ident);* $(;)?) => {
         $(
             impl ArithElement for $T {
                 #[cfg(any(feature = "alloc", test))]
@@ -77,6 +85,7 @@ macro_rules! arith_element {
                     assert_eq!(a.len(), b.len(), "length mismatch");
                     assert_eq!(a.len(), out.len(), "length mismatch");
                     dispatch! {
+                        avx512 => x86::avx512_binary_uninit::<x86::$avx512, Op>(a, b, out),
                         avx2 => x86::avx2_binary_uninit::<x86::$avx2, Op>(a, b, out),
                         scalar => scalar_binary_uninit::<Op, Self>(a, b, out),
                     }
@@ -86,16 +95,43 @@ macro_rules! arith_element {
                 fn binary_in_place<Op: BinaryOp>(a: &mut [Self], b: &[Self]) {
                     assert_eq!(a.len(), b.len(), "length mismatch");
                     dispatch! {
+                        avx512 => x86::avx512_binary_in_place::<x86::$avx512, Op>(a, b),
                         avx2 => x86::avx2_binary_in_place::<x86::$avx2, Op>(a, b),
                         scalar => scalar_binary_in_place::<Op, Self>(a, b),
                     }
+                }
+
+                #[cfg(test)]
+                fn every_backend<Op: BinaryOp>(
+                    a: &[Self],
+                    b: &[Self],
+                ) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)> {
+                    let mut x = a.to_vec();
+                    scalar_binary_in_place::<Op, Self>(&mut x, b);
+                    #[allow(unused_mut, reason = "only scalar on some targets")]
+                    let mut results = std::vec![("scalar", x)];
+                    cfg_x86!(if {
+                        if crate::detect::has_avx2_fma() {
+                            let mut x = a.to_vec();
+                            // SAFETY: AVX2 + FMA checked just above.
+                            unsafe { x86::avx2_binary_in_place::<x86::$avx2, Op>(&mut x, b) };
+                            results.push(("avx2", x));
+                        }
+                        if crate::detect::has_avx512f() {
+                            let mut x = a.to_vec();
+                            // SAFETY: AVX-512F checked just above.
+                            unsafe { x86::avx512_binary_in_place::<x86::$avx512, Op>(&mut x, b) };
+                            results.push(("avx512", x));
+                        }
+                    } else {});
+                    results
                 }
             }
         )*
     };
 }
 
-arith_element!(f32 => F32x8, f64 => F64x4);
+arith_element!(f32 => F32x16, F32x8; f64 => F64x8, F64x4);
 
 #[cfg(any(feature = "alloc", test))]
 fn scalar_binary_uninit<Op: BinaryOp, T: Arith>(a: &[T], b: &[T], out: &mut [MaybeUninit<T>]) {
@@ -116,6 +152,7 @@ cfg_x86! {
         use crate::math::driver;
         use crate::simd::SimdVector;
         pub(super) use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
+        pub(super) use crate::simd::avx512::{f32x16::F32x16, f64x8::F64x8};
 
         #[cfg(any(feature = "alloc", test))]
         #[target_feature(enable = "avx2,fma")]
@@ -138,6 +175,28 @@ cfg_x86! {
             // AVX2 register type.
             unsafe { driver::binary_in_place::<V>(a, b, Op::apply) }
         }
+
+        #[cfg(any(feature = "alloc", test))]
+        #[target_feature(enable = "avx512f")]
+        pub(super) fn avx512_binary_uninit<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &[V::Scalar],
+            b: &[V::Scalar],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: AVX-512F is enabled in this function, and `V` is an
+            // AVX-512 register type.
+            unsafe { driver::binary_uninit::<V>(a, b, out, Op::apply) }
+        }
+
+        #[target_feature(enable = "avx512f")]
+        pub(super) fn avx512_binary_in_place<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &mut [V::Scalar],
+            b: &[V::Scalar],
+        ) {
+            // SAFETY: AVX-512F is enabled in this function, and `V` is an
+            // AVX-512 register type.
+            unsafe { driver::binary_in_place::<V>(a, b, Op::apply) }
+        }
     }
 }
 
@@ -147,7 +206,8 @@ mod tests {
     use crate::testing::{TestFloat, assert_same};
     use std::vec::Vec;
 
-    /// Lengths covering empty, tail-only, exact multiples and full + tail.
+    /// Lengths covering empty, tail-only, exact multiples and full + tail, for
+    /// up to 16 lanes.
     const MAX_LEN: usize = 40;
 
     /// Finite values mixed with signed zeros, infinities, NaN and subnormals,
@@ -185,42 +245,15 @@ mod tests {
             T::binary_in_place::<Op>(&mut x, &b);
             assert_same(&x, &want, &std::format!("{name} in place, len {len}"));
 
-            let mut x = a.clone();
-            scalar_binary_in_place::<Op, T>(&mut x, &b);
-            assert_same(&x, &want, &std::format!("{name} scalar, len {len}"));
+            for (backend, x) in T::every_backend::<Op>(&a, &b) {
+                assert_same(&x, &want, &std::format!("{name} {backend}, len {len}"));
+            }
         }
-    }
-
-    /// The AVX2 kernels directly, in case dispatch picks another backend.
-    fn check_avx2<Op: BinaryOp>(name: &str) {
-        cfg_x86!(if {
-            if !crate::detect::has_avx2_fma() {
-                return;
-            }
-            for len in 0..=MAX_LEN {
-                let (a, b) = inputs::<f32>(len);
-                let mut x = a.clone();
-                // SAFETY: AVX2 + FMA checked above.
-                unsafe { x86::avx2_binary_in_place::<x86::F32x8, Op>(&mut x, &b) };
-                let want = reference::<Op, f32>(&a, &b);
-                assert_same(&x, &want, &std::format!("{name} avx2 f32, len {len}"));
-
-                let (a, b) = inputs::<f64>(len);
-                let mut x = a.clone();
-                // SAFETY: AVX2 + FMA checked above.
-                unsafe { x86::avx2_binary_in_place::<x86::F64x4, Op>(&mut x, &b) };
-                let want = reference::<Op, f64>(&a, &b);
-                assert_same(&x, &want, &std::format!("{name} avx2 f64, len {len}"));
-            }
-        } else {
-            let _ = name;
-        })
     }
 
     fn check_all<Op: BinaryOp>(name: &str) {
         check::<Op, f32>(name);
         check::<Op, f64>(name);
-        check_avx2::<Op>(name);
     }
 
     #[test]
