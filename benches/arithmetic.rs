@@ -9,6 +9,9 @@ use divan::{Bencher, black_box};
 use simdly::SliceExt;
 
 fn main() {
+    // The first call detects CPU features; keep that one-off cost out of the
+    // first benchmark's calibration.
+    simdly::backend();
     divan::main();
 }
 

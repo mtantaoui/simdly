@@ -1,8 +1,10 @@
-//! Element-wise arithmetic on slices, through [`SliceExt`].
+//! Element-wise arithmetic and comparisons on slices, through [`SliceExt`].
 //!
 //! Horizontal reductions (`sum`, `product`, `min`, `max`) are planned.
 
 mod arith;
+#[cfg(feature = "alloc")]
+mod cmp;
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
@@ -10,14 +12,16 @@ use alloc::vec::Vec;
 #[cfg(feature = "alloc")]
 use arith::BinaryOp;
 use arith::{AddOp, DivOp, MulOp, SubOp};
+#[cfg(feature = "alloc")]
+use cmp::{CmpOp, EqOp, GeOp, GtOp, LeOp, LtOp, NeOp};
 
 mod sealed {
     pub trait Sealed {}
     impl Sealed for [f32] {}
 }
 
-/// Element-wise arithmetic on slices, using the fastest backend available
-/// (see [`backend`](crate::backend)).
+/// Element-wise arithmetic and comparisons on slices, using the fastest
+/// backend available (see [`backend`](crate::backend)).
 ///
 /// Implemented for `[f32]`, so it also applies to `Vec<f32>`, arrays and
 /// anything else that dereferences to a slice. Results are identical to the
@@ -25,6 +29,10 @@ mod sealed {
 ///
 /// The `_assign` methods work in place, so they need no allocator; the others
 /// return a new `Vec` and need the `alloc` feature.
+///
+/// Comparisons follow NumPy (`numpy.less`, …) and Rust's operators: any
+/// comparison with NaN is `false`, except `not_equal`, which is `true`, and
+/// `-0.0 == 0.0`. The `_scalar` variants compare every element with one value.
 ///
 /// ```
 /// use simdly::SliceExt;
@@ -36,7 +44,8 @@ mod sealed {
 ///
 /// # Panics
 ///
-/// Every method panics if `self` and `rhs` have different lengths.
+/// Every method taking a slice `rhs` panics if it and `self` have different
+/// lengths.
 pub trait SliceExt<T>: sealed::Sealed {
     /// `self[i] + rhs[i]`.
     ///
@@ -72,6 +81,62 @@ pub trait SliceExt<T>: sealed::Sealed {
 
     /// `self[i] /= rhs[i]`.
     fn div_assign(&mut self, rhs: &[T]);
+
+    /// `self[i] < rhs[i]`.
+    ///
+    /// ```
+    /// use simdly::SliceExt;
+    ///
+    /// let a = [1.0_f32, 5.0, f32::NAN, 2.0];
+    /// assert_eq!(a.less(&[2.0, 3.0, 1.0, 2.0]), [true, false, false, false]);
+    /// assert_eq!(a.less_scalar(2.0), [true, false, false, false]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn less(&self, rhs: &[T]) -> Vec<bool>;
+
+    /// `self[i] <= rhs[i]`.
+    #[cfg(feature = "alloc")]
+    fn less_equal(&self, rhs: &[T]) -> Vec<bool>;
+
+    /// `self[i] > rhs[i]`.
+    #[cfg(feature = "alloc")]
+    fn greater(&self, rhs: &[T]) -> Vec<bool>;
+
+    /// `self[i] >= rhs[i]`.
+    #[cfg(feature = "alloc")]
+    fn greater_equal(&self, rhs: &[T]) -> Vec<bool>;
+
+    /// `self[i] == rhs[i]`.
+    #[cfg(feature = "alloc")]
+    fn equal(&self, rhs: &[T]) -> Vec<bool>;
+
+    /// `self[i] != rhs[i]`; `true` if either is NaN.
+    #[cfg(feature = "alloc")]
+    fn not_equal(&self, rhs: &[T]) -> Vec<bool>;
+
+    /// `self[i] < rhs`.
+    #[cfg(feature = "alloc")]
+    fn less_scalar(&self, rhs: T) -> Vec<bool>;
+
+    /// `self[i] <= rhs`.
+    #[cfg(feature = "alloc")]
+    fn less_equal_scalar(&self, rhs: T) -> Vec<bool>;
+
+    /// `self[i] > rhs`.
+    #[cfg(feature = "alloc")]
+    fn greater_scalar(&self, rhs: T) -> Vec<bool>;
+
+    /// `self[i] >= rhs`.
+    #[cfg(feature = "alloc")]
+    fn greater_equal_scalar(&self, rhs: T) -> Vec<bool>;
+
+    /// `self[i] == rhs`.
+    #[cfg(feature = "alloc")]
+    fn equal_scalar(&self, rhs: T) -> Vec<bool>;
+
+    /// `self[i] != rhs`; `true` if either is NaN.
+    #[cfg(feature = "alloc")]
+    fn not_equal_scalar(&self, rhs: T) -> Vec<bool>;
 }
 
 impl SliceExt<f32> for [f32] {
@@ -122,6 +187,78 @@ impl SliceExt<f32> for [f32] {
         check_lengths(self.len(), rhs.len());
         arith::binary_in_place::<DivOp>(self, rhs);
     }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn less(&self, rhs: &[f32]) -> Vec<bool> {
+        cmp_to_vec::<LtOp>(self, rhs)
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn less_equal(&self, rhs: &[f32]) -> Vec<bool> {
+        cmp_to_vec::<LeOp>(self, rhs)
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn greater(&self, rhs: &[f32]) -> Vec<bool> {
+        cmp_to_vec::<GtOp>(self, rhs)
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn greater_equal(&self, rhs: &[f32]) -> Vec<bool> {
+        cmp_to_vec::<GeOp>(self, rhs)
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn equal(&self, rhs: &[f32]) -> Vec<bool> {
+        cmp_to_vec::<EqOp>(self, rhs)
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn not_equal(&self, rhs: &[f32]) -> Vec<bool> {
+        cmp_to_vec::<NeOp>(self, rhs)
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn less_scalar(&self, rhs: f32) -> Vec<bool> {
+        cmp_scalar_to_vec::<LtOp>(self, rhs)
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn less_equal_scalar(&self, rhs: f32) -> Vec<bool> {
+        cmp_scalar_to_vec::<LeOp>(self, rhs)
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn greater_scalar(&self, rhs: f32) -> Vec<bool> {
+        cmp_scalar_to_vec::<GtOp>(self, rhs)
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn greater_equal_scalar(&self, rhs: f32) -> Vec<bool> {
+        cmp_scalar_to_vec::<GeOp>(self, rhs)
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn equal_scalar(&self, rhs: f32) -> Vec<bool> {
+        cmp_scalar_to_vec::<EqOp>(self, rhs)
+    }
+
+    #[cfg(feature = "alloc")]
+    #[inline]
+    fn not_equal_scalar(&self, rhs: f32) -> Vec<bool> {
+        cmp_scalar_to_vec::<NeOp>(self, rhs)
+    }
 }
 
 #[cfg(feature = "alloc")]
@@ -130,6 +267,25 @@ fn binary_to_vec<Op: BinaryOp>(a: &[f32], b: &[f32]) -> Vec<f32> {
     let mut out = Vec::with_capacity(a.len());
     arith::binary_uninit::<Op>(a, b, &mut out.spare_capacity_mut()[..a.len()]);
     // SAFETY: `binary_uninit` initialised the first `a.len()` elements.
+    unsafe { out.set_len(a.len()) };
+    out
+}
+
+#[cfg(feature = "alloc")]
+fn cmp_to_vec<Op: CmpOp>(a: &[f32], b: &[f32]) -> Vec<bool> {
+    check_lengths(a.len(), b.len());
+    let mut out = Vec::with_capacity(a.len());
+    cmp::cmp_uninit::<Op>(a, b, &mut out.spare_capacity_mut()[..a.len()]);
+    // SAFETY: `cmp_uninit` initialised the first `a.len()` elements.
+    unsafe { out.set_len(a.len()) };
+    out
+}
+
+#[cfg(feature = "alloc")]
+fn cmp_scalar_to_vec<Op: CmpOp>(a: &[f32], b: f32) -> Vec<bool> {
+    let mut out = Vec::with_capacity(a.len());
+    cmp::cmp_scalar_uninit::<Op>(a, b, &mut out.spare_capacity_mut()[..a.len()]);
+    // SAFETY: `cmp_scalar_uninit` initialised the first `a.len()` elements.
     unsafe { out.set_len(a.len()) };
     out
 }
@@ -155,6 +311,8 @@ mod tests {
         assert!(panics(&mut || c.add_assign(&b)));
         #[cfg(feature = "alloc")]
         assert!(panics(&mut || drop(a.div(&b))));
+        #[cfg(feature = "alloc")]
+        assert!(panics(&mut || drop(a.less(&b))));
     }
 
     #[test]

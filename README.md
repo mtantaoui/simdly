@@ -7,15 +7,17 @@
 SIMD implementations of mathematical functions for Rust, with a documented
 worst-case ULP bound for every function.
 
-> **Status:** early development. Element-wise `+ - * /` on `f32` slices are
-> implemented (AVX2 and scalar); math functions are next.
+> **Status:** early development. Element-wise `+ - * /` and comparisons
+> (`less`, `equal`, …, like NumPy's) on `f32` slices are implemented (AVX2 and
+> scalar); math functions are next.
 
 ```rust
 use simdly::SliceExt;
 
 let a = vec![1.0_f32, 2.0, 3.0];
 let b = vec![4.0_f32, 5.0, 6.0];
-let c = a.add(&b);  // [5.0, 7.0, 9.0]
+let c = a.add(&b);   // [5.0, 7.0, 9.0]
+let m = a.less(&b);  // [true, true, true]
 ```
 
 ## Supported targets
