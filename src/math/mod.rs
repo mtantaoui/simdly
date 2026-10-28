@@ -73,7 +73,7 @@ pub(crate) trait MathElement: Math + Sized {
 }
 
 macro_rules! math_element {
-    ($($T:ty => $avx2:ident),* $(,)?) => {
+    ($($T:ty => $avx512:ident, $avx2:ident);* $(;)?) => {
         $(
             impl MathElement for $T {
                 #[cfg(any(feature = "alloc", test))]
@@ -81,6 +81,7 @@ macro_rules! math_element {
                 fn unary_uninit<F: UnaryOp>(x: &[Self], out: &mut [MaybeUninit<Self>]) {
                     assert_eq!(x.len(), out.len(), "length mismatch");
                     dispatch! {
+                        avx512 => x86::avx512_unary_uninit::<x86::$avx512, F>(x, out),
                         avx2 => x86::avx2_unary_uninit::<x86::$avx2, F>(x, out),
                         scalar => scalar_unary_uninit::<F, Self>(x, out),
                     }
@@ -89,6 +90,7 @@ macro_rules! math_element {
                 #[inline]
                 fn unary_in_place<F: UnaryOp>(x: &mut [Self]) {
                     dispatch! {
+                        avx512 => x86::avx512_unary_in_place::<x86::$avx512, F>(x),
                         avx2 => x86::avx2_unary_in_place::<x86::$avx2, F>(x),
                         scalar => scalar_unary_in_place::<F, Self>(x),
                     }
@@ -109,6 +111,12 @@ macro_rules! math_element {
                             unsafe { x86::avx2_unary_in_place::<x86::$avx2, F>(&mut y) };
                             results.push(("avx2", y));
                         }
+                        if crate::detect::has_avx512f() {
+                            let mut y = x.to_vec();
+                            // SAFETY: AVX-512F checked just above.
+                            unsafe { x86::avx512_unary_in_place::<x86::$avx512, F>(&mut y) };
+                            results.push(("avx512", y));
+                        }
                     } else {});
                     results
                 }
@@ -117,7 +125,7 @@ macro_rules! math_element {
     };
 }
 
-math_element!(f32 => F32x8, f64 => F64x4);
+math_element!(f32 => F32x16, F32x8; f64 => F64x8, F64x4);
 
 #[cfg(any(feature = "alloc", test))]
 fn scalar_unary_uninit<F: UnaryOp, T: Math>(x: &[T], out: &mut [MaybeUninit<T>]) {
@@ -137,6 +145,7 @@ cfg_x86! {
         use super::{Math, UnaryOp, driver};
         use crate::simd::SimdVector;
         pub(super) use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
+        pub(super) use crate::simd::avx512::{f32x16::F32x16, f64x8::F64x8};
 
         #[cfg(any(feature = "alloc", test))]
         #[target_feature(enable = "avx2,fma")]
@@ -153,6 +162,24 @@ cfg_x86! {
         pub(super) fn avx2_unary_in_place<V: SimdVector + Math, F: UnaryOp>(x: &mut [V::Scalar]) {
             // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
             // AVX2 register type.
+            unsafe { driver::unary_in_place::<V>(x, F::apply) }
+        }
+
+        #[cfg(any(feature = "alloc", test))]
+        #[target_feature(enable = "avx512f")]
+        pub(super) fn avx512_unary_uninit<V: SimdVector + Math, F: UnaryOp>(
+            x: &[V::Scalar],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: AVX-512F is enabled in this function, and `V` is an
+            // AVX-512 register type.
+            unsafe { driver::unary_uninit::<V>(x, out, F::apply) }
+        }
+
+        #[target_feature(enable = "avx512f")]
+        pub(super) fn avx512_unary_in_place<V: SimdVector + Math, F: UnaryOp>(x: &mut [V::Scalar]) {
+            // SAFETY: AVX-512F is enabled in this function, and `V` is an
+            // AVX-512 register type.
             unsafe { driver::unary_in_place::<V>(x, F::apply) }
         }
     }

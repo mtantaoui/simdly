@@ -25,4 +25,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `greater`, `greater_equal`, `equal`, `not_equal` and their `_scalar`
   variants, returning `Vec<bool>` (`alloc`); AVX2 and scalar backends.
 - `SliceMath` for `[f32]` and `[f64]`, starting with `abs` (returning a
-  `Vec`, with `alloc`) and `abs_in_place`; AVX2 and scalar backends.
+  `Vec`, with `alloc`) and `abs_in_place`; AVX-512, AVX2 and scalar backends.
