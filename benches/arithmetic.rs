@@ -5,15 +5,11 @@
 //! cargo bench --bench arithmetic
 //! ```
 
-use divan::{Bencher, black_box};
-use simdly::SliceExt;
+use std::hint::black_box;
+use std::time::Duration;
 
-fn main() {
-    // The first call detects CPU features; keep that one-off cost out of the
-    // first benchmark's calibration.
-    simdly::backend();
-    divan::main();
-}
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use simdly::SliceExt;
 
 const LENS: &[usize] = &[64, 4_096, 262_144, 4_194_304];
 
@@ -23,63 +19,92 @@ fn inputs(len: usize) -> (Vec<f32>, Vec<f32>) {
     (a, b)
 }
 
+/// `simdly(a, b)` vs `a.iter().zip(b).map(op).collect()`.
+fn out_of_place(
+    c: &mut Criterion,
+    name: &str,
+    simdly: impl Fn(&[f32], &[f32]) -> Vec<f32>,
+    op: impl Fn(f32, f32) -> f32 + Copy,
+) {
+    let mut group = c.benchmark_group(name);
+    for &len in LENS {
+        let (a, b) = inputs(len);
+        group.throughput(Throughput::Elements(len as u64));
+        group.bench_function(BenchmarkId::new("simdly", len), |bench| {
+            bench.iter(|| simdly(black_box(&a), black_box(&b)))
+        });
+        group.bench_function(BenchmarkId::new("scalar", len), |bench| {
+            bench.iter(|| {
+                black_box(&a)
+                    .iter()
+                    .zip(black_box(&b))
+                    .map(|(&x, &y)| op(x, y))
+                    .collect::<Vec<f32>>()
+            })
+        });
+    }
+    group.finish();
+}
+
+/// `simdly(a, b)` vs `for (x, y) in a.zip(b) { *x = op(*x, y) }`.
+///
 /// `b` is all ones so that repeating `a op= b` keeps `a` finite and normal:
 /// drifting into subnormals would slow both sides down and skew the result.
-fn inputs_in_place(len: usize) -> (Vec<f32>, Vec<f32>) {
-    (inputs(len).0, vec![1.0; len])
+fn in_place(
+    c: &mut Criterion,
+    name: &str,
+    simdly: impl Fn(&mut [f32], &[f32]),
+    op: impl Fn(f32, f32) -> f32 + Copy,
+) {
+    let mut group = c.benchmark_group(name);
+    for &len in LENS {
+        let (mut a, b) = (inputs(len).0, vec![1.0_f32; len]);
+        group.throughput(Throughput::Elements(len as u64));
+        group.bench_function(BenchmarkId::new("simdly", len), |bench| {
+            bench.iter(|| simdly(black_box(&mut a), black_box(&b)))
+        });
+        group.bench_function(BenchmarkId::new("scalar", len), |bench| {
+            bench.iter(|| {
+                for (x, &y) in black_box(&mut a).iter_mut().zip(black_box(&b)) {
+                    *x = op(*x, y);
+                }
+            })
+        });
+    }
+    group.finish();
 }
 
-macro_rules! bench_op {
-    ($name:ident, $assign:ident, $op:tt, $op_assign:tt) => {
-        mod $name {
-            use super::*;
-
-            #[divan::bench(args = LENS)]
-            fn simdly(bencher: Bencher, len: usize) {
-                let (a, b) = inputs(len);
-                bencher
-                    .counter(divan::counter::ItemsCount::new(len))
-                    .bench_local(|| black_box(&a).$name(black_box(&b)));
-            }
-
-            #[divan::bench(args = LENS)]
-            fn scalar(bencher: Bencher, len: usize) {
-                let (a, b) = inputs(len);
-                bencher
-                    .counter(divan::counter::ItemsCount::new(len))
-                    .bench_local(|| {
-                        black_box(&a)
-                            .iter()
-                            .zip(black_box(&b))
-                            .map(|(x, y)| x $op y)
-                            .collect::<Vec<f32>>()
-                    });
-            }
-
-            #[divan::bench(args = LENS)]
-            fn simdly_in_place(bencher: Bencher, len: usize) {
-                let (mut a, b) = inputs_in_place(len);
-                bencher
-                    .counter(divan::counter::ItemsCount::new(len))
-                    .bench_local(|| black_box(&mut a).$assign(black_box(&b)));
-            }
-
-            #[divan::bench(args = LENS)]
-            fn scalar_in_place(bencher: Bencher, len: usize) {
-                let (mut a, b) = inputs_in_place(len);
-                bencher
-                    .counter(divan::counter::ItemsCount::new(len))
-                    .bench_local(|| {
-                        for (x, y) in black_box(&mut a).iter_mut().zip(black_box(&b)) {
-                            *x $op_assign *y;
-                        }
-                    });
-            }
-        }
-    };
+fn add(c: &mut Criterion) {
+    out_of_place(c, "add", |a, b| a.add(b), |x, y| x + y);
+    in_place(c, "add_assign", |a, b| a.add_assign(b), |x, y| x + y);
 }
 
-bench_op!(add, add_assign, +, +=);
-bench_op!(sub, sub_assign, -, -=);
-bench_op!(mul, mul_assign, *, *=);
-bench_op!(div, div_assign, /, /=);
+fn sub(c: &mut Criterion) {
+    out_of_place(c, "sub", |a, b| a.sub(b), |x, y| x - y);
+    in_place(c, "sub_assign", |a, b| a.sub_assign(b), |x, y| x - y);
+}
+
+fn mul(c: &mut Criterion) {
+    out_of_place(c, "mul", |a, b| a.mul(b), |x, y| x * y);
+    in_place(c, "mul_assign", |a, b| a.mul_assign(b), |x, y| x * y);
+}
+
+fn div(c: &mut Criterion) {
+    out_of_place(c, "div", |a, b| a.div(b), |x, y| x / y);
+    in_place(c, "div_assign", |a, b| a.div_assign(b), |x, y| x / y);
+}
+
+/// Shorter than criterion's defaults, which would take ~15 minutes here.
+fn config() -> Criterion {
+    Criterion::default()
+        .warm_up_time(Duration::from_secs(1))
+        .measurement_time(Duration::from_secs(3))
+        .sample_size(50)
+}
+
+criterion_group! {
+    name = benches;
+    config = config();
+    targets = add, sub, mul, div
+}
+criterion_main!(benches);

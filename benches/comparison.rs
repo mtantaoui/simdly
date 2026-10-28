@@ -5,17 +5,16 @@
 //! cargo bench --bench comparison
 //! ```
 
-use divan::{Bencher, black_box};
+use std::hint::black_box;
+use std::time::Duration;
+
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use simdly::SliceExt;
 
-fn main() {
-    // The first call detects CPU features; keep that one-off cost out of the
-    // first benchmark's calibration.
-    simdly::backend();
-    divan::main();
-}
-
 const LENS: &[usize] = &[64, 4_096, 262_144, 4_194_304];
+
+/// The value `_scalar` comparisons use; it falls inside the inputs' range.
+const RHS: f32 = 8.0;
 
 /// Values on both sides of `b`, so the results are not all equal.
 fn inputs(len: usize) -> (Vec<f32>, Vec<f32>) {
@@ -24,54 +23,85 @@ fn inputs(len: usize) -> (Vec<f32>, Vec<f32>) {
     (a, b)
 }
 
-macro_rules! bench_cmp {
-    ($name:ident, $scalar_name:ident, $op:tt) => {
-        mod $name {
-            use super::*;
+/// `simdly(a, b)` vs `a.iter().zip(b).map(op).collect()`, then the `_scalar`
+/// form against one value.
+fn compare(
+    c: &mut Criterion,
+    name: &str,
+    simdly: impl Fn(&[f32], &[f32]) -> Vec<bool>,
+    simdly_scalar: impl Fn(&[f32], f32) -> Vec<bool>,
+    op: impl Fn(f32, f32) -> bool + Copy,
+) {
+    let mut group = c.benchmark_group(name);
+    for &len in LENS {
+        let (a, b) = inputs(len);
+        group.throughput(Throughput::Elements(len as u64));
+        group.bench_function(BenchmarkId::new("simdly", len), |bench| {
+            bench.iter(|| simdly(black_box(&a), black_box(&b)))
+        });
+        group.bench_function(BenchmarkId::new("scalar", len), |bench| {
+            bench.iter(|| {
+                black_box(&a)
+                    .iter()
+                    .zip(black_box(&b))
+                    .map(|(&x, &y)| op(x, y))
+                    .collect::<Vec<bool>>()
+            })
+        });
+    }
+    group.finish();
 
-            #[divan::bench(args = LENS)]
-            fn simdly(bencher: Bencher, len: usize) {
-                let (a, b) = inputs(len);
-                bencher
-                    .counter(divan::counter::ItemsCount::new(len))
-                    .bench_local(|| black_box(&a).$name(black_box(&b)));
-            }
-
-            #[divan::bench(args = LENS)]
-            fn scalar(bencher: Bencher, len: usize) {
-                let (a, b) = inputs(len);
-                bencher
-                    .counter(divan::counter::ItemsCount::new(len))
-                    .bench_local(|| {
-                        black_box(&a)
-                            .iter()
-                            .zip(black_box(&b))
-                            .map(|(x, y)| x $op y)
-                            .collect::<Vec<bool>>()
-                    });
-            }
-
-            #[divan::bench(args = LENS)]
-            fn simdly_scalar_rhs(bencher: Bencher, len: usize) {
-                let (a, _) = inputs(len);
-                bencher
-                    .counter(divan::counter::ItemsCount::new(len))
-                    .bench_local(|| black_box(&a).$scalar_name(black_box(8.0)));
-            }
-
-            #[divan::bench(args = LENS)]
-            fn scalar_scalar_rhs(bencher: Bencher, len: usize) {
-                let (a, _) = inputs(len);
-                bencher
-                    .counter(divan::counter::ItemsCount::new(len))
-                    .bench_local(|| {
-                        let s = black_box(8.0_f32);
-                        black_box(&a).iter().map(|x| *x $op s).collect::<Vec<bool>>()
-                    });
-            }
-        }
-    };
+    let mut group = c.benchmark_group(format!("{name}_scalar"));
+    for &len in LENS {
+        let (a, _) = inputs(len);
+        group.throughput(Throughput::Elements(len as u64));
+        group.bench_function(BenchmarkId::new("simdly", len), |bench| {
+            bench.iter(|| simdly_scalar(black_box(&a), black_box(RHS)))
+        });
+        group.bench_function(BenchmarkId::new("scalar", len), |bench| {
+            bench.iter(|| {
+                let s = black_box(RHS);
+                black_box(&a)
+                    .iter()
+                    .map(|&x| op(x, s))
+                    .collect::<Vec<bool>>()
+            })
+        });
+    }
+    group.finish();
 }
 
-bench_cmp!(less, less_scalar, <);
-bench_cmp!(equal, equal_scalar, ==);
+fn less(c: &mut Criterion) {
+    compare(
+        c,
+        "less",
+        |a, b| a.less(b),
+        |a, s| a.less_scalar(s),
+        |x, y| x < y,
+    );
+}
+
+fn equal(c: &mut Criterion) {
+    compare(
+        c,
+        "equal",
+        |a, b| a.equal(b),
+        |a, s| a.equal_scalar(s),
+        |x, y| x == y,
+    );
+}
+
+/// Shorter than criterion's defaults, which would take ~8 minutes here.
+fn config() -> Criterion {
+    Criterion::default()
+        .warm_up_time(Duration::from_secs(1))
+        .measurement_time(Duration::from_secs(3))
+        .sample_size(50)
+}
+
+criterion_group! {
+    name = benches;
+    config = config();
+    targets = less, equal
+}
+criterion_main!(benches);

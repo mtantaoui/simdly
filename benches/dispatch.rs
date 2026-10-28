@@ -4,12 +4,14 @@
 //! cargo bench --bench dispatch
 //! ```
 
-fn main() {
-    divan::main();
-}
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
 
 /// Feature detection (cached by `std`) plus the fastest-first checks.
-#[divan::bench(sample_size = 10_000)]
-fn backend() -> simdly::Backend {
-    simdly::backend()
+fn backend(c: &mut Criterion) {
+    c.bench_function("backend", |b| b.iter(|| black_box(simdly::backend())));
 }
+
+criterion_group!(benches, backend);
+criterion_main!(benches);

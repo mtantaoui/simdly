@@ -14,7 +14,8 @@ cargo build --target thumbv7em-none-eabihf --no-default-features    # cross-comp
 ```
 
 `cargo run --example backend` prints the backend in use, and `cargo bench`
-runs the benchmarks.
+runs the benchmarks (criterion; HTML reports in
+`target/criterion/report/index.html`).
 
 Set `SIMDLY_REQUIRE_BACKENDS=avx2,avx512` to make the tests fail, instead of
 skip, when a backend is missing (CI does this).
