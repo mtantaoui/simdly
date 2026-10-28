@@ -28,7 +28,7 @@ cargo test
 
 | Path                 | Contents                                                   |
 |----------------------|------------------------------------------------------------|
-| `src/macros.rs`      | `cfg_x86!` / `cfg_neon!` / `cfg_simd!` — architecture selection |
+| `src/macros.rs`      | `cfg_x86!` / `cfg_neon!` / `cfg_simd!` — architecture selection; `dispatch!` |
 | `src/detect.rs`      | CPU feature detection (`has_avx2_fma`, …) and `backend()`  |
 | `src/simd/<isa>/`    | Register types (`F32x8`, …) implementing `SimdVector`      |
 | `src/math/<fn>/`     | One folder per function: `mod.rs` (docs), `consts.rs`, one file per ISA |
@@ -41,6 +41,8 @@ cargo test
 - **Backend selection**: never write an architecture or target-feature `cfg`
   by hand; use the macros in `src/macros.rs` and the checks in
   `src/detect.rs`.
+- **Entry points**: each public function calls its backends through
+  `dispatch!`; backend functions are safe `#[target_feature]` functions.
 - **Constants**: port verbatim from musl libc / fdlibm as
   `f64::from_bits(0x...)`, citing the source file in a comment.
 - **Accuracy**: every function documents a worst-case ULP bound and has a

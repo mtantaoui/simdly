@@ -17,6 +17,7 @@ pub(crate) enum Backend {
 
 impl Backend {
     /// Whether this backend can run here.
+    #[inline(always)]
     pub(crate) fn is_available(self) -> bool {
         match self {
             Self::Scalar => true,
@@ -27,12 +28,14 @@ impl Backend {
     }
 }
 
-/// The fastest available backend.
+/// The backend `dispatch!` selects: the fastest available one.
 pub(crate) fn backend() -> Backend {
-    [Backend::Avx512, Backend::Avx2, Backend::Neon]
-        .into_iter()
-        .find(|b| b.is_available())
-        .unwrap_or(Backend::Scalar)
+    dispatch! {
+        avx512 => Backend::Avx512,
+        avx2 => Backend::Avx2,
+        neon => Backend::Neon,
+        scalar => Backend::Scalar,
+    }
 }
 
 cfg_x86! {
@@ -70,6 +73,49 @@ mod tests {
     #[test]
     fn selected_backend_is_available() {
         assert!(backend().is_available());
+    }
+
+    cfg_x86! {
+        #[target_feature(enable = "avx512f")]
+        fn on_avx512() -> Backend {
+            Backend::Avx512
+        }
+
+        #[target_feature(enable = "avx2,fma")]
+        fn on_avx2() -> Backend {
+            Backend::Avx2
+        }
+    }
+
+    cfg_neon! {
+        fn on_neon() -> Backend {
+            Backend::Neon
+        }
+    }
+
+    #[test]
+    fn dispatch_calls_the_selected_backend() {
+        let got = dispatch! {
+            avx512 => on_avx512(),
+            avx2 => on_avx2(),
+            neon => on_neon(),
+            scalar => Backend::Scalar,
+        };
+        assert_eq!(got, backend());
+    }
+
+    #[test]
+    fn dispatch_skips_missing_arms() {
+        let got = dispatch! {
+            avx2 => on_avx2(),
+            scalar => Backend::Scalar,
+        };
+        let want = if Backend::Avx2.is_available() {
+            Backend::Avx2
+        } else {
+            Backend::Scalar
+        };
+        assert_eq!(got, want);
     }
 
     /// CI lists the backends each job must exercise, e.g. `avx2,avx512`, so
