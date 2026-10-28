@@ -15,4 +15,6 @@
 //! The public `SliceMath` / `VecMath` traits will be defined here, with
 //! [`driver`] supplying the chunk + tail loop shared by every function.
 
-mod driver;
+cfg_simd! {
+    mod driver;
+}
