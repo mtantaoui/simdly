@@ -51,12 +51,21 @@ name = "comparison"
 harness = false
 required-features = ["alloc"]
 
+[[bench]]
+name = "math"
+harness = false
+required-features = ["alloc"]
+
 [[example]]
 name = "arithmetic"
 required-features = ["alloc"]
 
 [[example]]
 name = "comparison"
+required-features = ["alloc"]
+
+[[example]]
+name = "math"
 required-features = ["alloc"]
 
 [lints.rust]

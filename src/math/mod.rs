@@ -1,6 +1,6 @@
-//! Element-wise mathematical functions.
+//! Element-wise mathematical functions, through [`SliceMath`].
 //!
-//! Each function lives in its own folder:
+//! A function needing ISA-specific kernels gets its own folder:
 //!
 //! ```text
 //! math/exp/
@@ -12,9 +12,212 @@
 //! └── scalar.rs
 //! ```
 //!
-//! The public `SliceMath` / `VecMath` traits will be defined here, with
-//! [`driver`] supplying the chunk + tail loop shared by every function.
+//! A simple one, like [`abs`], is one file. Either way it implements a
+//! lane-level trait (`Abs`, …) for every lane type (`f32`, `f64` and the SIMD
+//! registers), and a zero-sized [`UnaryOp`] names it, so every
+//! `(function, element, backend)` triple compiles to its own inlined loop
+//! over the [`driver`].
+
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+#[cfg(any(feature = "alloc", test))]
+use core::mem::MaybeUninit;
+
+mod abs;
 
 cfg_simd! {
     pub(crate) mod driver;
+}
+
+use abs::Abs;
+
+/// A lane type with every math function: a float or a SIMD register of
+/// floats.
+pub(crate) trait Math: Abs {}
+
+impl<T: Abs> Math for T {}
+
+/// An element-wise math function.
+pub(crate) trait UnaryOp {
+    /// Applies the function lane-wise.
+    fn apply<V: Math>(v: V) -> V;
+}
+
+/// `|x|`.
+pub(crate) struct AbsOp;
+
+impl UnaryOp for AbsOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.abs()
+    }
+}
+
+/// An element type with math kernels: `f32` or `f64`.
+pub(crate) trait MathElement: Math + Sized {
+    /// `out[i] = F(x[i])`; on return all of `out` is initialised.
+    ///
+    /// # Panics
+    ///
+    /// If `x` and `out` have different lengths.
+    #[cfg(any(feature = "alloc", test))]
+    fn unary_uninit<F: UnaryOp>(x: &[Self], out: &mut [MaybeUninit<Self>]);
+
+    /// `x[i] = F(x[i])`.
+    fn unary_in_place<F: UnaryOp>(x: &mut [Self]);
+
+    /// `F(x)` on every backend this CPU supports, scalar included, whatever
+    /// dispatch would pick: `(backend, result)` pairs.
+    #[cfg(test)]
+    fn every_backend<F: UnaryOp>(x: &[Self]) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)>;
+}
+
+macro_rules! math_element {
+    ($($T:ty => $avx2:ident),* $(,)?) => {
+        $(
+            impl MathElement for $T {
+                #[cfg(any(feature = "alloc", test))]
+                #[inline]
+                fn unary_uninit<F: UnaryOp>(x: &[Self], out: &mut [MaybeUninit<Self>]) {
+                    assert_eq!(x.len(), out.len(), "length mismatch");
+                    dispatch! {
+                        avx2 => x86::avx2_unary_uninit::<x86::$avx2, F>(x, out),
+                        scalar => scalar_unary_uninit::<F, Self>(x, out),
+                    }
+                }
+
+                #[inline]
+                fn unary_in_place<F: UnaryOp>(x: &mut [Self]) {
+                    dispatch! {
+                        avx2 => x86::avx2_unary_in_place::<x86::$avx2, F>(x),
+                        scalar => scalar_unary_in_place::<F, Self>(x),
+                    }
+                }
+
+                #[cfg(test)]
+                fn every_backend<F: UnaryOp>(
+                    x: &[Self],
+                ) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)> {
+                    let mut y = x.to_vec();
+                    scalar_unary_in_place::<F, Self>(&mut y);
+                    #[allow(unused_mut, reason = "only scalar on some targets")]
+                    let mut results = std::vec![("scalar", y)];
+                    cfg_x86!(if {
+                        if crate::detect::has_avx2_fma() {
+                            let mut y = x.to_vec();
+                            // SAFETY: AVX2 + FMA checked just above.
+                            unsafe { x86::avx2_unary_in_place::<x86::$avx2, F>(&mut y) };
+                            results.push(("avx2", y));
+                        }
+                    } else {});
+                    results
+                }
+            }
+        )*
+    };
+}
+
+math_element!(f32 => F32x8, f64 => F64x4);
+
+#[cfg(any(feature = "alloc", test))]
+fn scalar_unary_uninit<F: UnaryOp, T: Math>(x: &[T], out: &mut [MaybeUninit<T>]) {
+    for (o, &v) in out.iter_mut().zip(x) {
+        o.write(F::apply(v));
+    }
+}
+
+fn scalar_unary_in_place<F: UnaryOp, T: Math>(x: &mut [T]) {
+    for v in x {
+        *v = F::apply(*v);
+    }
+}
+
+cfg_x86! {
+    mod x86 {
+        use super::{Math, UnaryOp, driver};
+        use crate::simd::SimdVector;
+        pub(super) use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
+
+        #[cfg(any(feature = "alloc", test))]
+        #[target_feature(enable = "avx2,fma")]
+        pub(super) fn avx2_unary_uninit<V: SimdVector + Math, F: UnaryOp>(
+            x: &[V::Scalar],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
+            // AVX2 register type.
+            unsafe { driver::unary_uninit::<V>(x, out, F::apply) }
+        }
+
+        #[target_feature(enable = "avx2,fma")]
+        pub(super) fn avx2_unary_in_place<V: SimdVector + Math, F: UnaryOp>(x: &mut [V::Scalar]) {
+            // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
+            // AVX2 register type.
+            unsafe { driver::unary_in_place::<V>(x, F::apply) }
+        }
+    }
+}
+
+/// Element-wise math functions on slices, using the fastest backend
+/// available (see [`backend`](crate::backend)).
+///
+/// Implemented for `[f32]` and `[f64]`, so it also applies to `Vec`s, arrays
+/// and anything else that dereferences to a slice. Every function documents
+/// its error bound against the correctly rounded result.
+///
+/// The `_in_place` methods need no allocator; the others return a new `Vec`
+/// and need the `alloc` feature.
+///
+/// ```
+/// use simdly::SliceMath;
+///
+/// let mut a = [-1.5_f32, 0.0, 2.0];
+/// a.abs_in_place();
+/// assert_eq!(a, [1.5, 0.0, 2.0]);
+/// ```
+pub trait SliceMath<T>: crate::ops::sealed::Sealed {
+    /// `|self[i]|`. Exact: it only clears the sign bit, so `-0.0` becomes
+    /// `0.0` and NaN stays NaN.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![-1.0_f64, 2.0, -0.0];
+    /// assert_eq!(a.abs(), [1.0, 2.0, 0.0]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn abs(&self) -> Vec<T>;
+
+    /// `self[i] = |self[i]|`.
+    fn abs_in_place(&mut self);
+}
+
+macro_rules! impl_slice_math {
+    ($($T:ty),*) => {
+        $(
+            impl SliceMath<$T> for [$T] {
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn abs(&self) -> Vec<$T> {
+                    unary_to_vec::<AbsOp, _>(self)
+                }
+
+                #[inline]
+                fn abs_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<AbsOp>(self);
+                }
+            }
+        )*
+    };
+}
+
+impl_slice_math!(f32, f64);
+
+#[cfg(feature = "alloc")]
+fn unary_to_vec<F: UnaryOp, T: MathElement>(x: &[T]) -> Vec<T> {
+    let mut out = Vec::with_capacity(x.len());
+    T::unary_uninit::<F>(x, &mut out.spare_capacity_mut()[..x.len()]);
+    // SAFETY: `unary_uninit` initialised the first `x.len()` elements.
+    unsafe { out.set_len(x.len()) };
+    out
 }

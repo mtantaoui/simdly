@@ -9,7 +9,7 @@ worst-case ULP bound for every function.
 
 > **Status:** early development. Element-wise `+ - * /` and comparisons
 > (`less`, `equal`, …, like NumPy's) on `f32` and `f64` slices are implemented
-> (AVX2 and scalar); math functions are next.
+> (AVX2 and scalar), and math functions have started with `abs`.
 
 ```rust
 use simdly::SliceExt;
@@ -18,6 +18,10 @@ let a = vec![1.0_f32, 2.0, 3.0];
 let b = vec![4.0_f32, 5.0, 6.0];
 let c = a.add(&b);   // [5.0, 7.0, 9.0]
 let m = a.less(&b);  // [true, true, true]
+
+use simdly::SliceMath;
+
+let d = a.sub(&b).abs();  // [3.0, 3.0, 3.0]
 ```
 
 ## Supported targets

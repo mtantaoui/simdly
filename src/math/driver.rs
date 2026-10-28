@@ -40,6 +40,28 @@ pub(crate) unsafe fn unary<S: SimdVector>(
     unsafe { drive(x.len(), [x.as_ptr()], out.as_mut_ptr(), |[a]| op(a)) }
 }
 
+/// [`unary`] into uninitialised memory: on return all of `out` is
+/// initialised.
+///
+/// # Safety
+///
+/// The CPU must support `S`'s ISA.
+///
+/// # Panics
+///
+/// If `x` and `out` have different lengths.
+#[inline(always)]
+pub(crate) unsafe fn unary_uninit<S: SimdVector>(
+    x: &[S::Scalar],
+    out: &mut [MaybeUninit<S::Scalar>],
+    op: impl Fn(S) -> S,
+) {
+    assert_eq!(x.len(), out.len(), "length mismatch");
+    // SAFETY: the caller guarantees the ISA; both slices hold `x.len()`
+    // elements, and `MaybeUninit<T>` has the layout of `T`.
+    unsafe { drive(x.len(), [x.as_ptr()], out.as_mut_ptr().cast(), |[a]| op(a)) }
+}
+
 /// `x[i] = op(x[i])`.
 ///
 /// # Safety

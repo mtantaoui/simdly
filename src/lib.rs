@@ -14,7 +14,8 @@
 //! ```
 //!
 //! With the `alloc` feature (on by default), [`SliceExt::add`] and friends
-//! return a new `Vec` instead.
+//! return a new `Vec` instead. Math functions are in [`SliceMath`]
+//! ([`abs`](SliceMath::abs), …).
 //!
 //! ## Backends
 //!
@@ -54,6 +55,7 @@ mod math;
 mod ops;
 
 pub use detect::{Backend, backend};
+pub use math::SliceMath;
 pub use ops::SliceExt;
 
 cfg_simd! {

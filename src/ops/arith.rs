@@ -144,7 +144,7 @@ cfg_x86! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ops::testing::{TestFloat, assert_same};
+    use crate::testing::{TestFloat, assert_same};
     use std::vec::Vec;
 
     /// Lengths covering empty, tail-only, exact multiples and full + tail.

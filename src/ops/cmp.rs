@@ -393,7 +393,7 @@ cfg_x86! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ops::testing::TestFloat;
+    use crate::testing::TestFloat;
     use std::vec::Vec;
 
     /// Covers empty, tail-only, one full 32-element step, and steps + tail.
