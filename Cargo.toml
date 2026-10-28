@@ -27,7 +27,7 @@ include = [
 default = ["std"]
 # Runtime CPU feature detection needs `std`.
 std = ["alloc"]
-# `Vec`-returning APIs (planned: `SliceMath`, `VecMath`, `SliceExt`, `VecExt`).
+# `Vec`-returning APIs (`SliceExt::add`, …).
 alloc = []
 
 [dependencies]
@@ -40,6 +40,15 @@ divan = "0.1.21"
 [[bench]]
 name = "dispatch"
 harness = false
+
+[[bench]]
+name = "arithmetic"
+harness = false
+required-features = ["alloc"]
+
+[[example]]
+name = "arithmetic"
+required-features = ["alloc"]
 
 [lints.rust]
 missing_docs = "warn"

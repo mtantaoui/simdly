@@ -15,6 +15,8 @@
 
 #![allow(dead_code, reason = "used by the math and ops functions once they land")]
 
+use core::mem::MaybeUninit;
+
 use crate::simd::SimdVector;
 
 /// `out[i] = op(x[i])`.
@@ -73,6 +75,34 @@ pub(crate) unsafe fn binary<S: SimdVector>(
     // elements.
     unsafe {
         drive(a.len(), [a.as_ptr(), b.as_ptr()], out.as_mut_ptr(), |[a, b]| {
+            op(a, b)
+        })
+    }
+}
+
+/// [`binary`] into uninitialised memory: on return all of `out` is
+/// initialised.
+///
+/// # Safety
+///
+/// The CPU must support `S`'s ISA.
+///
+/// # Panics
+///
+/// If `a`, `b` and `out` do not all have the same length.
+#[inline(always)]
+pub(crate) unsafe fn binary_uninit<S: SimdVector>(
+    a: &[S::Scalar],
+    b: &[S::Scalar],
+    out: &mut [MaybeUninit<S::Scalar>],
+    op: impl Fn(S, S) -> S,
+) {
+    assert_eq!(a.len(), b.len(), "length mismatch");
+    assert_eq!(a.len(), out.len(), "length mismatch");
+    // SAFETY: the caller guarantees the ISA; all three slices hold `a.len()`
+    // elements, and `MaybeUninit<T>` has the layout of `T`.
+    unsafe {
+        drive(a.len(), [a.as_ptr(), b.as_ptr()], out.as_mut_ptr().cast(), |[a, b]| {
             op(a, b)
         })
     }
@@ -221,6 +251,26 @@ mod tests {
                 assert!(same(&got_b[..len], &want_b), "binary_in_place, len {len}");
                 assert_untouched_past(&got_u, len);
                 assert_untouched_past(&got_b, len);
+            }
+        }
+
+        #[test]
+        fn binary_uninit_matches_binary() {
+            if !has_avx2_fma() {
+                return;
+            }
+            for len in lengths() {
+                let (a, b) = (input(len, 1.0), input(len, -3.0));
+                let mut want = std::vec![0.0; len];
+                let mut got = Vec::with_capacity(len);
+                // SAFETY: AVX2 + FMA checked above.
+                unsafe {
+                    binary::<F32x8>(&a, &b, &mut want, |a, b| a - b);
+                    binary_uninit::<F32x8>(&a, &b, &mut got.spare_capacity_mut()[..len], |a, b| a - b);
+                }
+                // SAFETY: `binary_uninit` initialised the first `len` elements.
+                unsafe { got.set_len(len) };
+                assert_eq!(got, want, "len {len}");
             }
         }
 

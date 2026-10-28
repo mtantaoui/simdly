@@ -16,5 +16,5 @@
 //! [`driver`] supplying the chunk + tail loop shared by every function.
 
 cfg_simd! {
-    mod driver;
+    pub(crate) mod driver;
 }

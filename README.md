@@ -7,7 +7,16 @@
 SIMD implementations of mathematical functions for Rust, with a documented
 worst-case ULP bound for every function.
 
-> **Status:** early development — no functions are implemented yet.
+> **Status:** early development. Element-wise `+ - * /` on `f32` slices are
+> implemented (AVX2 and scalar); math functions are next.
+
+```rust
+use simdly::SliceExt;
+
+let a = vec![1.0_f32, 2.0, 3.0];
+let b = vec![4.0_f32, 5.0, 6.0];
+let c = a.add(&b);  // [5.0, 7.0, 9.0]
+```
 
 ## Supported targets
 
@@ -34,7 +43,7 @@ RUSTFLAGS="-C target-feature=+avx2,+fma" cargo build --release
 | Feature | Default | Enables                                         |
 |---------|---------|-------------------------------------------------|
 | `std`   | yes     | runtime CPU detection; implies `alloc`          |
-| `alloc` | via `std` | `Vec`-returning slice APIs (planned)          |
+| `alloc` | via `std` | `Vec`-returning slice APIs (`SliceExt::add`, …) |
 
 With `default-features = false` the crate is `no_std`.
 
