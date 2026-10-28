@@ -12,13 +12,13 @@
 //! | `aarch64`    | NEON            | 4           | 2           |
 //! | any          | scalar fallback | 1           | 1           |
 //!
-//! The backend is selected at compile time from `target-feature` flags. On
-//! `x86_64`, build with `RUSTFLAGS="-C target-feature=+avx2,+fma"` (or
-//! `-C target-cpu=native`) to get a SIMD backend.
+//! On `x86_64` the fastest backend the CPU supports is detected at runtime, so
+//! no flags are needed. On `aarch64` NEON is always used. Without `std`, only
+//! backends enabled at compile time (`-C target-feature=+avx2,+fma`) are used.
 //!
 //! ## Cargo features
 //!
-//! - `std` *(default)* — runtime CPU detection (planned); implies `alloc`.
+//! - `std` *(default)* — runtime CPU detection; implies `alloc`.
 //! - `alloc` — `Vec`-returning slice APIs (planned).
 //!
 //! Without default features the crate is `no_std`.
@@ -35,9 +35,13 @@ extern crate std;
 #[macro_use]
 mod macros;
 
+mod detect;
 mod math;
 mod ops;
-mod simd;
+
+cfg_simd! {
+    mod simd;
+}
 
 #[cfg(test)]
 mod testing;

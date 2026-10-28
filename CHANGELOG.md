@@ -11,3 +11,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Crate scaffolding: backend selection macros, module layout for the
   register layer (`simd`), math functions (`math`) and arithmetic (`ops`).
+- Runtime backend detection on `x86_64` with `std`: no `RUSTFLAGS` needed.

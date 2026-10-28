@@ -18,8 +18,12 @@ worst-case ULP bound for every function.
 | `aarch64`    | NEON            | 4           | 2           |
 | any          | scalar fallback | 1           | 1           |
 
-The backend is currently selected at compile time from `target-feature`
-flags. On `x86_64`, enable AVX2 with:
+No flags are needed: on `x86_64` the fastest backend the CPU supports is
+detected at runtime, and cross-compiling works as usual. On `aarch64` NEON is
+always used.
+
+Without the `std` feature, runtime detection is unavailable and only
+backends enabled at compile time are used, e.g. on `x86_64`:
 
 ```sh
 RUSTFLAGS="-C target-feature=+avx2,+fma" cargo build --release
@@ -29,7 +33,7 @@ RUSTFLAGS="-C target-feature=+avx2,+fma" cargo build --release
 
 | Feature | Default | Enables                                         |
 |---------|---------|-------------------------------------------------|
-| `std`   | yes     | runtime CPU detection (planned); implies `alloc` |
+| `std`   | yes     | runtime CPU detection; implies `alloc`          |
 | `alloc` | via `std` | `Vec`-returning slice APIs (planned)          |
 
 With `default-features = false` the crate is `no_std`.

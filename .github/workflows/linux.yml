@@ -19,34 +19,44 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # One job per backend: lint and test with the backend actually compiled in.
-  # `SIMDLY_EXPECTED_BACKEND` makes the test suite fail if RUSTFLAGS did not
-  # select the intended backend (see `src/macros.rs`).
+  # `SIMDLY_REQUIRE_BACKENDS` makes the test suite fail if a listed backend is
+  # not available, so backend tests cannot pass by skipping (see
+  # `src/detect.rs`). With `std` backends are detected at runtime; without it
+  # only target features enabled at compile time count.
   backend:
-    name: ${{ matrix.backend }} (${{ matrix.os }})
+    name: ${{ matrix.name }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - backend: scalar
+          # No flags: what a user gets by default.
+          - name: dispatch
             os: ubuntu-26.04
             rustflags: ""
-          - backend: avx2
+            require: scalar,avx2
+            require-no-std: scalar
+          # GitHub-hosted runners are not guaranteed to have AVX-512, so this
+          # runs under Intel SDE emulating Sapphire Rapids.
+          - name: dispatch-sde
+            os: ubuntu-26.04
+            rustflags: ""
+            require: avx2,avx512
+            require-no-std: scalar
+            sde: true
+          # AVX2 enabled at compile time, the only way to get it without `std`.
+          - name: static-avx2
             os: ubuntu-26.04
             rustflags: "-C target-cpu=x86-64-v3"
-          # GitHub-hosted runners are not guaranteed to have AVX-512, so
-          # tests run under Intel SDE emulating Sapphire Rapids.
-          - backend: avx512
-            os: ubuntu-26.04
-            rustflags: "-C target-cpu=x86-64-v4"
-            sde: true
-          - backend: neon
+            require: avx2
+            require-no-std: avx2
+          - name: neon
             os: ubuntu-26.04-arm
             rustflags: ""
+            require: neon
+            require-no-std: neon
     env:
       RUSTFLAGS: ${{ matrix.rustflags }}
-      SIMDLY_EXPECTED_BACKEND: ${{ matrix.backend }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -54,7 +64,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.backend }}
+          key: ${{ matrix.name }}
       - name: Set up Intel SDE
         if: matrix.sde
         uses: petarpetrovt/setup-sde@v6.0
@@ -67,8 +77,12 @@ jobs:
         run: cargo clippy --all-targets --no-default-features -- -D warnings
       - name: Test
         run: cargo test --all-features
+        env:
+          SIMDLY_REQUIRE_BACKENDS: ${{ matrix.require }}
       - name: Test (no default features)
         run: cargo test --no-default-features
+        env:
+          SIMDLY_REQUIRE_BACKENDS: ${{ matrix.require-no-std }}
 
   # The jobs below do not depend on the host OS, so they run once, here.
 
@@ -84,14 +98,15 @@ jobs:
 
   # Build for targets that have no `std` at all, so an accidental `std`
   # dependency fails here rather than for a downstream user. The softfloat
-  # aarch64 target has NEON disabled, exercising the aarch64 scalar fallback.
+  # aarch64 target has NEON disabled, exercising the aarch64 scalar fallback;
+  # x86_64-unknown-none is soft-float, exercising the x86_64 one.
   no-std:
     name: no_std (${{ matrix.target }})
     runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
-        target: [thumbv7em-none-eabihf, aarch64-unknown-none-softfloat]
+        target: [thumbv7em-none-eabihf, aarch64-unknown-none-softfloat, x86_64-unknown-none]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -115,23 +130,13 @@ jobs:
         with:
           toolchain: "1.89"
       - uses: Swatinem/rust-cache@v2
-      - name: Check (scalar)
-        run: cargo check --all-features
-      - name: Check (avx2)
-        run: cargo check --all-features
-        env:
-          RUSTFLAGS: "-C target-cpu=x86-64-v3"
-      - name: Check (avx512)
-        run: cargo check --all-features
-        env:
-          RUSTFLAGS: "-C target-cpu=x86-64-v4"
+      - run: cargo check --all-features
+      - run: cargo check --no-default-features
 
   docs:
     name: Docs
     runs-on: ubuntu-26.04
     env:
-      # Mirror docs.rs, which builds with AVX2 enabled (see Cargo.toml).
-      RUSTFLAGS: "-C target-feature=+avx2,+fma"
       RUSTDOCFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v7

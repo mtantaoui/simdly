@@ -25,7 +25,7 @@ include = [
 
 [features]
 default = ["std"]
-# Runtime CPU feature detection (planned) needs `std`.
+# Runtime CPU feature detection needs `std`.
 std = ["alloc"]
 # `Vec`-returning APIs (planned: `SliceMath`, `VecMath`, `SliceExt`, `VecExt`).
 alloc = []
@@ -45,7 +45,4 @@ undocumented_unsafe_blocks = "warn"
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
-# docs.rs builds without target-feature flags, which would document the
-# scalar fallback only. Build for AVX2 so the SIMD backend is rendered.
-rustc-args = ["-C", "target-feature=+avx2,+fma"]
 targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]

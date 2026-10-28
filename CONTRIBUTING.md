@@ -2,17 +2,19 @@
 
 ## Development setup
 
+No flags are needed: with `std`, every backend your CPU supports is
+detected at runtime and tested. Without `std`, only compile-time target
+features count:
+
 ```sh
-# x86_64 (AVX2 backend)
-RUSTFLAGS="-C target-feature=+avx2,+fma" cargo test
-
-# aarch64 (NEON is on by default)
-cargo test
-
-# scalar fallback / no_std
-cargo test
-cargo build --no-default-features
+cargo test                                                          # runtime detection
+cargo test --no-default-features                                    # no_std: scalar on x86_64
+RUSTFLAGS="-C target-cpu=x86-64-v3" cargo test --no-default-features  # no_std with AVX2
+cargo build --target thumbv7em-none-eabihf --no-default-features    # cross-compile
 ```
+
+Set `SIMDLY_REQUIRE_BACKENDS=avx2,avx512` to make the tests fail, instead of
+skip, when a backend is missing (CI does this).
 
 Before pushing:
 
@@ -26,7 +28,8 @@ cargo test
 
 | Path                 | Contents                                                   |
 |----------------------|------------------------------------------------------------|
-| `src/macros.rs`      | `cfg_avx2!` / `cfg_avx512!` / `cfg_neon!` / `cfg_scalar!` — the only place backend conditions are written |
+| `src/macros.rs`      | `cfg_x86!` / `cfg_neon!` / `cfg_simd!` — architecture selection |
+| `src/detect.rs`      | CPU feature detection (`has_avx2_fma`, …) and `backend()`  |
 | `src/simd/<isa>/`    | Register types (`F32x8`, …)                                |
 | `src/math/<fn>/`     | One folder per function: `mod.rs` (docs), `consts.rs`, one file per ISA |
 | `src/math/driver.rs` | Chunk + tail loops shared by every function                |
@@ -35,8 +38,9 @@ cargo test
 
 ## Conventions
 
-- **Backend selection**: never write a `#[cfg(target_feature = ...)]`
-  backend predicate by hand; use the macros in `src/macros.rs`.
+- **Backend selection**: never write an architecture or target-feature `cfg`
+  by hand; use the macros in `src/macros.rs` and the checks in
+  `src/detect.rs`.
 - **Constants**: port verbatim from musl libc / fdlibm as
   `f64::from_bits(0x...)`, citing the source file in a comment.
 - **Accuracy**: every function documents a worst-case ULP bound and has a

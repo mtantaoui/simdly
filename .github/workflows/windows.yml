@@ -19,25 +19,26 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # `SIMDLY_EXPECTED_BACKEND` makes the test suite fail if RUSTFLAGS did not
-  # select the intended backend (see `src/macros.rs`).
+  # `SIMDLY_REQUIRE_BACKENDS` makes the test suite fail if a listed backend is
+  # not available, so backend tests cannot pass by skipping (see
+  # `src/detect.rs`). With `std` backends are detected at runtime; without it
+  # only target features enabled at compile time count.
   backend:
-    name: ${{ matrix.backend }} (${{ matrix.os }})
+    name: ${{ matrix.name }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - backend: avx2
+          # No flags: what a user gets by default.
+          - name: dispatch
             os: windows-2025
-            rustflags: "-C target-cpu=x86-64-v3"
+            require: scalar,avx2
+            require-no-std: scalar
           # NEON is enabled by default on aarch64-pc-windows-msvc.
-          - backend: neon
+          - name: neon
             os: windows-11-arm
-            rustflags: ""
-    env:
-      RUSTFLAGS: ${{ matrix.rustflags }}
-      SIMDLY_EXPECTED_BACKEND: ${{ matrix.backend }}
+            require: neon
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -45,12 +46,16 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.backend }}
+          key: ${{ matrix.name }}
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Clippy (no default features)
         run: cargo clippy --all-targets --no-default-features -- -D warnings
       - name: Test
         run: cargo test --all-features
+        env:
+          SIMDLY_REQUIRE_BACKENDS: ${{ matrix.require }}
       - name: Test (no default features)
         run: cargo test --no-default-features
+        env:
+          SIMDLY_REQUIRE_BACKENDS: ${{ matrix.require-no-std || matrix.require }}
