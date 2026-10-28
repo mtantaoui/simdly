@@ -4,21 +4,36 @@
 //! by `std`); features enabled at compile time fold to `true`, so the check
 //! disappears. Without `std`, only compile-time target features count.
 
-#![allow(dead_code, reason = "used by the dispatchers once functions land")]
+use core::fmt;
 
 /// A SIMD backend, or the scalar fallback.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Backend {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Backend {
+    /// Portable scalar code, available everywhere.
     Scalar,
+    /// `x86_64` AVX2 + FMA.
     Avx2,
+    /// `x86_64` AVX-512F.
     Avx512,
+    /// `aarch64` NEON.
     Neon,
 }
 
 impl Backend {
-    /// Whether this backend can run here.
+    /// Lower-case name, e.g. `"avx2"`.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Scalar => "scalar",
+            Self::Avx2 => "avx2",
+            Self::Avx512 => "avx512",
+            Self::Neon => "neon",
+        }
+    }
+
+    /// Whether this backend can run on this CPU.
     #[inline(always)]
-    pub(crate) fn is_available(self) -> bool {
+    pub fn is_available(self) -> bool {
         match self {
             Self::Scalar => true,
             Self::Avx2 => cfg_x86!(if { has_avx2_fma() } else { false }),
@@ -28,8 +43,18 @@ impl Backend {
     }
 }
 
-/// The backend `dispatch!` selects: the fastest available one.
-pub(crate) fn backend() -> Backend {
+impl fmt::Display for Backend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// The backend simdly uses on this CPU: the fastest available one.
+///
+/// ```
+/// println!("simdly runs on {}", simdly::backend());
+/// ```
+pub fn backend() -> Backend {
     dispatch! {
         avx512 => Backend::Avx512,
         avx2 => Backend::Avx2,

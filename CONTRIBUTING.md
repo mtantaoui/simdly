@@ -13,6 +13,9 @@ RUSTFLAGS="-C target-cpu=x86-64-v3" cargo test --no-default-features  # no_std w
 cargo build --target thumbv7em-none-eabihf --no-default-features    # cross-compile
 ```
 
+`cargo run --example backend` prints the backend in use, and `cargo bench`
+runs the benchmarks.
+
 Set `SIMDLY_REQUIRE_BACKENDS=avx2,avx512` to make the tests fail, instead of
 skip, when a backend is missing (CI does this).
 
@@ -35,6 +38,8 @@ cargo test
 | `src/math/driver.rs` | Chunk + tail loops shared by every function                |
 | `src/ops/`           | Element-wise arithmetic and reductions                     |
 | `src/testing/`       | Test-only helpers (ULP distance, sweep generators)         |
+| `examples/`          | One runnable example per public operation                  |
+| `benches/`           | One benchmark per public operation, vs a plain scalar loop |
 
 ## Conventions
 

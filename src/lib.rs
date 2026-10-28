@@ -13,8 +13,9 @@
 //! | any          | scalar fallback | 1           | 1           |
 //!
 //! On `x86_64` the fastest backend the CPU supports is detected at runtime, so
-//! no flags are needed. On `aarch64` NEON is always used. Without `std`, only
-//! backends enabled at compile time (`-C target-feature=+avx2,+fma`) are used.
+//! no flags are needed. On `aarch64` NEON is always used. [`backend()`]
+//! reports the one in use. Without `std`, only backends enabled at compile
+//! time (`-C target-feature=+avx2,+fma`) are used.
 //!
 //! ## Cargo features
 //!
@@ -38,6 +39,8 @@ mod macros;
 mod detect;
 mod math;
 mod ops;
+
+pub use detect::{Backend, backend};
 
 cfg_simd! {
     mod simd;

@@ -20,7 +20,7 @@ worst-case ULP bound for every function.
 
 No flags are needed: on `x86_64` the fastest backend the CPU supports is
 detected at runtime, and cross-compiling works as usual. On `aarch64` NEON is
-always used.
+always used. `simdly::backend()` reports the one in use.
 
 Without the `std` feature, runtime detection is unavailable and only
 backends enabled at compile time are used, e.g. on `x86_64`:

@@ -33,6 +33,13 @@ alloc = []
 [dependencies]
 
 [dev-dependencies]
+divan = "0.1.21"
+
+# One benchmark per public operation, against the plain scalar loop a user
+# would write instead.
+[[bench]]
+name = "dispatch"
+harness = false
 
 [lints.rust]
 missing_docs = "warn"

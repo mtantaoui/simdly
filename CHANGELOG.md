@@ -16,3 +16,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dispatch!`: calls the fastest available backend.
 - Slice drivers (`unary`, `binary` and their in-place variants): full
   registers plus one masked tail, generic over `SimdVector`.
+- `simdly::backend()` and `Backend`: report the backend in use.
