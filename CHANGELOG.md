@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Crate scaffolding: backend selection macros, module layout for the
   register layer (`simd`), math functions (`math`) and arithmetic (`ops`).
-- `SimdVector` register trait and the AVX2 `F32x8` register type.
+- `SimdVector` register trait and the AVX2 `F32x8` and `F64x4` register types.
 - Runtime backend detection on `x86_64` with `std`: no `RUSTFLAGS` needed.
 - `dispatch!`: calls the fastest available backend.
 - Slice drivers (`unary`, `binary` and their in-place variants): full
