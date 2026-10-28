@@ -27,7 +27,7 @@ cargo test
 | Path                 | Contents                                                   |
 |----------------------|------------------------------------------------------------|
 | `src/macros.rs`      | `cfg_avx2!` / `cfg_avx512!` / `cfg_neon!` / `cfg_scalar!` — the only place backend conditions are written |
-| `src/simd/<isa>/`    | Register types (`F32x8`, …) and their `Load` / `Store` impls |
+| `src/simd/<isa>/`    | Register types (`F32x8`, …)                                |
 | `src/math/<fn>/`     | One folder per function: `mod.rs` (docs), `consts.rs`, one file per ISA |
 | `src/math/driver.rs` | Chunk + tail loops shared by every function                |
 | `src/ops/`           | Element-wise arithmetic and reductions                     |

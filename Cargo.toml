@@ -2,7 +2,7 @@
 name = "simdly"
 version = "0.1.0"
 edition = "2024"
-# 1.89 stabilised the AVX-512 intrinsics and `target_feature` on safe fns.
+# 1.89 stabilised the AVX-512 intrinsics.
 rust-version = "1.89"
 authors = ["Mahdi Tantaoui <mohamedalmahdi.tantaoui@gmail.com>"]
 description = "SIMD implementations of mathematical functions for Rust (AVX2, AVX-512, NEON) with documented worst-case ULP bounds."
@@ -27,7 +27,7 @@ include = [
 default = ["std"]
 # Runtime CPU feature detection (planned) needs `std`.
 std = ["alloc"]
-# `Vec`-returning APIs (`SliceMath`, `VecMath`, `SliceExt`, `VecExt`).
+# `Vec`-returning APIs (planned: `SliceMath`, `VecMath`, `SliceExt`, `VecExt`).
 alloc = []
 
 [dependencies]

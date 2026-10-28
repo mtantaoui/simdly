@@ -19,7 +19,7 @@
 //! ## Cargo features
 //!
 //! - `std` *(default)* — runtime CPU detection (planned); implies `alloc`.
-//! - `alloc` — `Vec`-returning slice APIs.
+//! - `alloc` — `Vec`-returning slice APIs (planned).
 //!
 //! Without default features the crate is `no_std`.
 

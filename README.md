@@ -30,7 +30,7 @@ RUSTFLAGS="-C target-feature=+avx2,+fma" cargo build --release
 | Feature | Default | Enables                                         |
 |---------|---------|-------------------------------------------------|
 | `std`   | yes     | runtime CPU detection (planned); implies `alloc` |
-| `alloc` | via `std` | `Vec`-returning slice APIs                    |
+| `alloc` | via `std` | `Vec`-returning slice APIs (planned)          |
 
 With `default-features = false` the crate is `no_std`.
 
