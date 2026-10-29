@@ -4,11 +4,11 @@
 //! for every lane type (`f32`, `f64` and the SIMD registers). Comparisons with
 //! NaN are false, except `!=`, which is true, as with Rust's operators.
 //!
-//! AVX2 compares 32 elements per step (4 `f32` or 8 `f64` registers) and
-//! narrows the lane masks to bytes with saturating packs, so all 32 `bool`s
-//! are written with one store. AVX-512 compares into a bit mask, expands it to
-//! one 0/1 lane per element and narrows that to bytes in a masked store, which
-//! also handles the tail.
+//! AVX2 and NEON compare into all-ones / zero lanes and narrow several
+//! registers' masks to one register of `bool` bytes, written with one store:
+//! 32 elements per step on AVX2, 16 on NEON. AVX-512 compares into a bit mask,
+//! expands it to one 0/1 lane per element and narrows that to bytes in a
+//! masked store, which also handles the tail.
 
 use core::mem::MaybeUninit;
 
@@ -109,7 +109,7 @@ pub(crate) trait CmpElement: Compare<Mask = bool> {
 }
 
 macro_rules! cmp_element {
-    ($($T:ty => $avx512:ident, $avx2:ident);* $(;)?) => {
+    ($($T:ty => $avx512:ident, $avx2:ident, $neon:ident);* $(;)?) => {
         $(
             impl CmpElement for $T {
                 #[inline]
@@ -119,6 +119,7 @@ macro_rules! cmp_element {
                     dispatch! {
                         avx512 => x86::avx512_cmp::<x86::$avx512, Op>(a, b, out),
                         avx2 => x86::avx2_cmp::<x86::$avx2, Op>(a, b, out),
+                        neon => neon::cmp::<neon::$neon, Op>(a, b, out),
                         scalar => scalar_cmp::<Op, Self>(a, b, out),
                     }
                 }
@@ -129,6 +130,7 @@ macro_rules! cmp_element {
                     dispatch! {
                         avx512 => x86::avx512_cmp_scalar::<x86::$avx512, Op>(a, b, out),
                         avx2 => x86::avx2_cmp_scalar::<x86::$avx2, Op>(a, b, out),
+                        neon => neon::cmp_scalar::<neon::$neon, Op>(a, b, out),
                         scalar => scalar_cmp_scalar::<Op, Self>(a, b, out),
                     }
                 }
@@ -137,7 +139,7 @@ macro_rules! cmp_element {
     };
 }
 
-cmp_element!(f32 => F32x16, F32x8; f64 => F64x8, F64x4);
+cmp_element!(f32 => F32x16, F32x8, F32x4; f64 => F64x8, F64x4, F64x2);
 
 fn scalar_cmp<Op: CmpOp, T: Compare<Mask = bool>>(a: &[T], b: &[T], out: &mut [MaybeUninit<bool>]) {
     for ((o, &x), &y) in out.iter_mut().zip(a).zip(b) {
@@ -155,6 +157,138 @@ fn scalar_cmp_scalar<Op: CmpOp, T: Compare<Mask = bool>>(
     }
 }
 
+cfg_simd! {
+    use crate::simd::SimdVector;
+
+    /// A register whose comparison masks narrow to `bool` bytes: AVX2 and
+    /// NEON, whose masks are all-ones / zero lanes.
+    trait Pack: SimdVector + Compare {
+        /// Elements per step: `STEP / LANES` registers, at most [`MAX_STEP`].
+        const STEP: usize;
+
+        /// A register of `STEP` bytes.
+        type Bytes: Copy;
+
+        /// Narrows the masks of `STEP / LANES` registers, `mask(0)`,
+        /// `mask(1)`, ..., to `STEP` `bool` bytes (0 or 1), in order.
+        ///
+        /// # Safety
+        ///
+        /// The CPU must support the register's ISA.
+        unsafe fn pack(mask: impl FnMut(usize) -> Self::Mask) -> Self::Bytes;
+
+        /// Stores the `STEP` bytes.
+        ///
+        /// # Safety
+        ///
+        /// The CPU must support the register's ISA, and `dst` must be valid
+        /// for `STEP` writes.
+        unsafe fn store_bytes(bytes: Self::Bytes, dst: *mut u8);
+    }
+
+    /// The largest [`Pack::STEP`]: the tail buffer's size.
+    const MAX_STEP: usize = 32;
+
+    /// The right-hand side: a slice, or one value broadcast to every lane.
+    trait Rhs<V: SimdVector>: Copy {
+        /// # Safety
+        ///
+        /// The CPU must support `V`'s ISA, and `i + LANES` elements must be
+        /// readable.
+        unsafe fn get(self, i: usize) -> V;
+
+        /// # Safety
+        ///
+        /// The CPU must support `V`'s ISA, `n < LANES`, and `i + n` elements
+        /// must be readable.
+        unsafe fn get_partial(self, i: usize, n: usize) -> V;
+    }
+
+    impl<V: SimdVector> Rhs<V> for &[V::Scalar] {
+        #[inline(always)]
+        unsafe fn get(self, i: usize) -> V {
+            // SAFETY: guaranteed by the caller.
+            unsafe { V::load(self.as_ptr().add(i)) }
+        }
+
+        #[inline(always)]
+        unsafe fn get_partial(self, i: usize, n: usize) -> V {
+            // SAFETY: guaranteed by the caller.
+            unsafe { V::load_partial(self.as_ptr().add(i), n) }
+        }
+    }
+
+    /// One value in every lane.
+    #[derive(Clone, Copy)]
+    struct Splat<V>(V);
+
+    impl<V: SimdVector> Rhs<V> for Splat<V> {
+        #[inline(always)]
+        unsafe fn get(self, _: usize) -> V {
+            self.0
+        }
+
+        #[inline(always)]
+        unsafe fn get_partial(self, _: usize, _: usize) -> V {
+            self.0
+        }
+    }
+
+    /// `out[i] = Op(a[i], b[i])`, `STEP` elements per step.
+    ///
+    /// # Safety
+    ///
+    /// The CPU must support `V`'s ISA, `out` must have `a.len()` elements and
+    /// `b` must be readable for `a.len()` elements.
+    #[inline(always)]
+    unsafe fn cmp_packed<V: Pack, Op: CmpOp, R: Rhs<V>>(
+        a: &[V::Scalar],
+        b: R,
+        out: &mut [MaybeUninit<bool>],
+    ) {
+        const { assert!(V::STEP <= MAX_STEP) };
+        let (len, x, dst) = (a.len(), a.as_ptr(), out.as_mut_ptr().cast::<u8>());
+        let full = len - len % V::STEP;
+
+        let mut i = 0;
+        while i < full {
+            // SAFETY: the caller guarantees the ISA and the lengths, and
+            // `i + STEP <= len`.
+            unsafe {
+                let bools = V::pack(|k| {
+                    let j = i + k * V::LANES;
+                    Op::apply(V::load(x.add(j)), b.get(j))
+                });
+                V::store_bytes(bools, dst.add(i));
+            }
+            i += V::STEP;
+        }
+
+        let tail = len - full;
+        if tail > 0 {
+            let mut buf = [0_u8; MAX_STEP];
+            // SAFETY: the caller guarantees the ISA and the lengths, and
+            // `buf` holds `STEP` bytes. Each register reads only the lanes left
+            // in `a` and `b`; registers past the end are zero, and their
+            // results are not copied. `pack` produces only 0 and 1, which are
+            // valid `bool`s.
+            unsafe {
+                let bools = V::pack(|k| {
+                    let j = full + k * V::LANES;
+                    let (va, vb) = match tail.saturating_sub(k * V::LANES) {
+                        0 => (V::zero(), V::zero()),
+                        n if n >= V::LANES => (V::load(x.add(j)), b.get(j)),
+                        n => (V::load_partial(x.add(j), n), b.get_partial(j, n)),
+                    };
+                    Op::apply(va, vb)
+                });
+                V::store_bytes(bools, buf.as_mut_ptr());
+                core::ptr::copy_nonoverlapping(buf.as_ptr(), dst.add(full), tail);
+            }
+        }
+    }
+}
+
 cfg_x86! {
     mod x86 {
         use core::arch::x86_64::{
@@ -169,7 +303,7 @@ cfg_x86! {
         };
         use core::mem::MaybeUninit;
 
-        use super::{CmpOp, Compare};
+        use super::{CmpOp, Compare, Pack, Rhs, Splat, cmp_packed};
         use crate::simd::SimdVector;
         pub(super) use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
         pub(super) use crate::simd::avx512::{f32x16::F32x16, f64x8::F64x8};
@@ -230,29 +364,28 @@ cfg_x86! {
             [F64x8, _mm512_cmp_pd_mask => __mmask8]
         );
 
-        /// Elements compared per step: one 32-byte store of `bool`s.
-        const STEP: usize = 32;
-
-        /// An AVX2 register whose comparison masks narrow to `bool` bytes.
-        pub(super) trait Pack: SimdVector + Compare<Mask = __m256i> {
-            /// Narrows the masks of `STEP / LANES` registers, `mask(0)`,
-            /// `mask(1)`, ..., to `STEP` `bool` bytes, in order.
-            ///
-            /// # Safety
-            ///
-            /// The CPU must support AVX2.
-            unsafe fn pack(mask: impl FnMut(usize) -> __m256i) -> __m256i;
-        }
-
+        /// One 32-byte store of `bool`s per step.
         impl Pack for F32x8 {
+            const STEP: usize = 32;
+            type Bytes = __m256i;
+
             #[inline(always)]
             unsafe fn pack(mask: impl FnMut(usize) -> __m256i) -> __m256i {
                 // SAFETY: the caller guarantees AVX2.
                 unsafe { _mm256_and_si256(narrow(core::array::from_fn(mask)), _mm256_set1_epi8(1)) }
             }
+
+            #[inline(always)]
+            unsafe fn store_bytes(bytes: __m256i, dst: *mut u8) {
+                // SAFETY: guaranteed by the caller.
+                unsafe { _mm256_storeu_si256(dst.cast(), bytes) }
+            }
         }
 
         impl Pack for F64x4 {
+            const STEP: usize = 32;
+            type Bytes = __m256i;
+
             #[inline(always)]
             unsafe fn pack(mut mask: impl FnMut(usize) -> __m256i) -> __m256i {
                 // SAFETY: the caller guarantees AVX2.
@@ -271,6 +404,12 @@ cfg_x86! {
                     let p = _mm256_shuffle_epi8(narrow(m), order);
                     _mm256_and_si256(p, _mm256_set1_epi8(1))
                 }
+            }
+
+            #[inline(always)]
+            unsafe fn store_bytes(bytes: __m256i, dst: *mut u8) {
+                // SAFETY: guaranteed by the caller.
+                unsafe { _mm256_storeu_si256(dst.cast(), bytes) }
             }
         }
 
@@ -295,51 +434,6 @@ cfg_x86! {
             }
         }
 
-        /// The right-hand side: a slice, or one value broadcast to every lane.
-        trait Rhs<V: SimdVector>: Copy {
-            /// # Safety
-            ///
-            /// The CPU must support AVX2, and `i + LANES` elements must be
-            /// readable.
-            unsafe fn get(self, i: usize) -> V;
-
-            /// # Safety
-            ///
-            /// The CPU must support AVX2, `n < LANES`, and `i + n` elements
-            /// must be readable.
-            unsafe fn get_partial(self, i: usize, n: usize) -> V;
-        }
-
-        impl<V: SimdVector> Rhs<V> for &[V::Scalar] {
-            #[inline(always)]
-            unsafe fn get(self, i: usize) -> V {
-                // SAFETY: guaranteed by the caller.
-                unsafe { V::load(self.as_ptr().add(i)) }
-            }
-
-            #[inline(always)]
-            unsafe fn get_partial(self, i: usize, n: usize) -> V {
-                // SAFETY: guaranteed by the caller.
-                unsafe { V::load_partial(self.as_ptr().add(i), n) }
-            }
-        }
-
-        /// One value in every lane.
-        #[derive(Clone, Copy)]
-        struct Splat<V>(V);
-
-        impl<V: SimdVector> Rhs<V> for Splat<V> {
-            #[inline(always)]
-            unsafe fn get(self, _: usize) -> V {
-                self.0
-            }
-
-            #[inline(always)]
-            unsafe fn get_partial(self, _: usize, _: usize) -> V {
-                self.0
-            }
-        }
-
         #[target_feature(enable = "avx2,fma")]
         pub(super) fn avx2_cmp<V: Pack, Op: CmpOp>(
             a: &[V::Scalar],
@@ -349,7 +443,7 @@ cfg_x86! {
             // SAFETY: AVX2 + FMA are enabled in this function, `V` is an AVX2
             // register type, and the caller checked that all three slices have
             // the same length.
-            unsafe { cmp::<V, Op, _>(a, b, out) }
+            unsafe { cmp_packed::<V, Op, _>(a, b, out) }
         }
 
         #[target_feature(enable = "avx2,fma")]
@@ -361,59 +455,7 @@ cfg_x86! {
             // SAFETY: AVX2 + FMA are enabled in this function, `V` is an AVX2
             // register type, and the caller checked that `a` and `out` have
             // the same length.
-            unsafe { cmp::<V, Op, _>(a, Splat(V::splat(b)), out) }
-        }
-
-        /// `out[i] = Op(a[i], b[i])`, `STEP` elements per step.
-        ///
-        /// # Safety
-        ///
-        /// The CPU must support AVX2 + FMA, `out` must have `a.len()` elements
-        /// and `b` must be readable for `a.len()` elements.
-        #[inline(always)]
-        unsafe fn cmp<V: Pack, Op: CmpOp, R: Rhs<V>>(
-            a: &[V::Scalar],
-            b: R,
-            out: &mut [MaybeUninit<bool>],
-        ) {
-            let (len, x, dst) = (a.len(), a.as_ptr(), out.as_mut_ptr().cast::<u8>());
-            let full = len - len % STEP;
-
-            let mut i = 0;
-            while i < full {
-                // SAFETY: the caller guarantees AVX2 + FMA and the lengths, and
-                // `i + STEP <= len`.
-                unsafe {
-                    let bools = V::pack(|k| {
-                        let j = i + k * V::LANES;
-                        Op::apply(V::load(x.add(j)), b.get(j))
-                    });
-                    _mm256_storeu_si256(dst.add(i).cast(), bools);
-                }
-                i += STEP;
-            }
-
-            let tail = len - full;
-            if tail > 0 {
-                let mut buf = [0_u8; STEP];
-                // SAFETY: the caller guarantees AVX2 + FMA and the lengths. Each
-                // register reads only the lanes left in `a` and `b`; registers
-                // past the end are zero, and their results are not copied.
-                // `pack` produces only 0 and 1, which are valid `bool`s.
-                unsafe {
-                    let bools = V::pack(|k| {
-                        let j = full + k * V::LANES;
-                        let (va, vb) = match tail.saturating_sub(k * V::LANES) {
-                            0 => (V::zero(), V::zero()),
-                            n if n >= V::LANES => (V::load(x.add(j)), b.get(j)),
-                            n => (V::load_partial(x.add(j), n), b.get_partial(j, n)),
-                        };
-                        Op::apply(va, vb)
-                    });
-                    _mm256_storeu_si256(buf.as_mut_ptr().cast(), bools);
-                    core::ptr::copy_nonoverlapping(buf.as_ptr(), dst.add(full), tail);
-                }
-            }
+            unsafe { cmp_packed::<V, Op, _>(a, Splat(V::splat(b)), out) }
         }
 
         /// An AVX-512 register whose comparison bit mask can be written as
@@ -522,13 +564,156 @@ cfg_x86! {
     }
 }
 
+cfg_neon! {
+    mod neon {
+        use core::arch::aarch64::{
+            uint8x16_t, uint32x4_t, uint64x2_t, vandq_u8, vceqq_f32, vceqq_f64, vcgeq_f32,
+            vcgeq_f64, vcgtq_f32, vcgtq_f64, vcleq_f32, vcleq_f64, vcltq_f32, vcltq_f64,
+            vdupq_n_u8, vmvnq_u32, vreinterpretq_u8_u16, vreinterpretq_u16_u32,
+            vreinterpretq_u32_u64, vreinterpretq_u64_u32, vst1q_u8, vuzp1q_u8, vuzp1q_u16,
+            vuzp1q_u32,
+        };
+        use core::mem::MaybeUninit;
+
+        use super::{CmpOp, Compare, Pack, Splat, cmp_packed};
+        pub(super) use crate::simd::neon::{f32x4::F32x4, f64x2::F64x2};
+
+        /// `impl Compare` for a register: all-ones / zero lanes. NEON's
+        /// comparisons are ordered (false if either side is NaN); `!=` is
+        /// the negation of `==`, so true if either side is NaN.
+        macro_rules! compare {
+            ($V:ty: $Mask:ty, $not:ident; $($method:ident: $cmp:ident),* $(,)?) => {
+                impl Compare for $V {
+                    type Mask = $Mask;
+                    $(
+                        #[inline(always)]
+                        fn $method(self, rhs: Self) -> $Mask {
+                            // SAFETY: NEON is enabled at compile time.
+                            unsafe { $cmp(self.raw(), rhs.raw()) }
+                        }
+                    )*
+
+                    #[inline(always)]
+                    fn ne(self, rhs: Self) -> $Mask {
+                        $not(self.eq(rhs))
+                    }
+                }
+            };
+        }
+
+        compare!(F32x4: uint32x4_t, not32;
+            lt: vcltq_f32, le: vcleq_f32, gt: vcgtq_f32, ge: vcgeq_f32, eq: vceqq_f32);
+        compare!(F64x2: uint64x2_t, not64;
+            lt: vcltq_f64, le: vcleq_f64, gt: vcgtq_f64, ge: vcgeq_f64, eq: vceqq_f64);
+
+        #[inline(always)]
+        fn not32(m: uint32x4_t) -> uint32x4_t {
+            // SAFETY: NEON is enabled at compile time.
+            unsafe { vmvnq_u32(m) }
+        }
+
+        #[inline(always)]
+        fn not64(m: uint64x2_t) -> uint64x2_t {
+            // SAFETY: NEON is enabled at compile time.
+            unsafe { vreinterpretq_u64_u32(vmvnq_u32(vreinterpretq_u32_u64(m))) }
+        }
+
+        /// Narrows four registers of 32-bit lane masks to 16 bytes (0xFF or
+        /// 0), in order.
+        #[inline(always)]
+        fn narrow(m: [uint32x4_t; 4]) -> uint8x16_t {
+            // SAFETY: NEON is enabled at compile time.
+            unsafe {
+                // `uzp1` keeps the even (low) half of every lane: for an
+                // all-ones / zero lane, the same mask at half the width.
+                let lo = vuzp1q_u16(vreinterpretq_u16_u32(m[0]), vreinterpretq_u16_u32(m[1]));
+                let hi = vuzp1q_u16(vreinterpretq_u16_u32(m[2]), vreinterpretq_u16_u32(m[3]));
+                vuzp1q_u8(vreinterpretq_u8_u16(lo), vreinterpretq_u8_u16(hi))
+            }
+        }
+
+        /// 0xFF / 0 bytes to `bool`s.
+        #[inline(always)]
+        fn to_bools(bytes: uint8x16_t) -> uint8x16_t {
+            // SAFETY: NEON is enabled at compile time.
+            unsafe { vandq_u8(bytes, vdupq_n_u8(1)) }
+        }
+
+        /// One 16-byte store of `bool`s per step.
+        impl Pack for F32x4 {
+            const STEP: usize = 16;
+            type Bytes = uint8x16_t;
+
+            #[inline(always)]
+            unsafe fn pack(mask: impl FnMut(usize) -> uint32x4_t) -> uint8x16_t {
+                to_bools(narrow(core::array::from_fn(mask)))
+            }
+
+            #[inline(always)]
+            unsafe fn store_bytes(bytes: uint8x16_t, dst: *mut u8) {
+                // SAFETY: guaranteed by the caller.
+                unsafe { vst1q_u8(dst, bytes) }
+            }
+        }
+
+        impl Pack for F64x2 {
+            const STEP: usize = 16;
+            type Bytes = uint8x16_t;
+
+            #[inline(always)]
+            unsafe fn pack(mut mask: impl FnMut(usize) -> uint64x2_t) -> uint8x16_t {
+                // A 64-bit lane mask narrows to 32 bits like `narrow`'s first
+                // step: register `j` holds elements 4j .. 4j + 4, in order.
+                let m = core::array::from_fn(|j| {
+                    let (lo, hi) = (mask(2 * j), mask(2 * j + 1));
+                    // SAFETY: NEON is enabled at compile time.
+                    unsafe { vuzp1q_u32(vreinterpretq_u32_u64(lo), vreinterpretq_u32_u64(hi)) }
+                });
+                to_bools(narrow(m))
+            }
+
+            #[inline(always)]
+            unsafe fn store_bytes(bytes: uint8x16_t, dst: *mut u8) {
+                // SAFETY: guaranteed by the caller.
+                unsafe { vst1q_u8(dst, bytes) }
+            }
+        }
+
+        #[inline]
+        pub(super) fn cmp<V: Pack, Op: CmpOp>(
+            a: &[V::Scalar],
+            b: &[V::Scalar],
+            out: &mut [MaybeUninit<bool>],
+        ) {
+            assert_eq!(a.len(), b.len(), "length mismatch");
+            assert_eq!(a.len(), out.len(), "length mismatch");
+            // SAFETY: NEON is enabled at compile time, `V` is a NEON register
+            // type, and all three slices have the same length.
+            unsafe { cmp_packed::<V, Op, _>(a, b, out) }
+        }
+
+        #[inline]
+        pub(super) fn cmp_scalar<V: Pack, Op: CmpOp>(
+            a: &[V::Scalar],
+            b: V::Scalar,
+            out: &mut [MaybeUninit<bool>],
+        ) {
+            assert_eq!(a.len(), out.len(), "length mismatch");
+            // SAFETY: NEON is enabled at compile time, `V` is a NEON register
+            // type, and `a` and `out` have the same length.
+            unsafe { cmp_packed::<V, Op, _>(a, Splat(V::splat(b)), out) }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::testing::TestFloat;
     use std::vec::Vec;
 
-    /// Covers empty, tail-only, one full 32-element step, and steps + tail.
+    /// Covers empty, tail-only, one full step (16 or 32 elements), and
+    /// several steps plus a tail.
     const MAX_LEN: usize = 100;
 
     /// Mixed values where `a[i] == b[i]` regularly, plus signed zeros,
@@ -571,7 +756,7 @@ mod tests {
     }
 
     macro_rules! simd {
-        ($($T:ty => $avx512:ident, $avx2:ident);*) => {
+        ($($T:ty => $avx512:ident, $avx2:ident, $neon:ident);*) => {
             $(
                 impl Simd for $T {
                     fn simd_cmp<Op: CmpOp>(a: &[Self], b: &[Self]) -> Vec<(&'static str, Vec<bool>)> {
@@ -588,9 +773,11 @@ mod tests {
                                 let got = run(a.len(), |out| unsafe { x86::avx512_cmp::<x86::$avx512, Op>(a, b, out) });
                                 results.push(("avx512", got));
                             }
-                        } else {
-                            let _ = (a, b);
-                        });
+                        } else {});
+                        cfg_neon!(if {
+                            results.push(("neon", run(a.len(), |out| neon::cmp::<neon::$neon, Op>(a, b, out))));
+                        } else {});
+                        let _ = (a, b);
                         results
                     }
 
@@ -608,9 +795,11 @@ mod tests {
                                 let got = run(a.len(), |out| unsafe { x86::avx512_cmp_scalar::<x86::$avx512, Op>(a, b, out) });
                                 results.push(("avx512", got));
                             }
-                        } else {
-                            let _ = (a, b);
-                        });
+                        } else {});
+                        cfg_neon!(if {
+                            results.push(("neon", run(a.len(), |out| neon::cmp_scalar::<neon::$neon, Op>(a, b, out))));
+                        } else {});
+                        let _ = (a, b);
                         results
                     }
                 }
@@ -618,7 +807,7 @@ mod tests {
         };
     }
 
-    simd!(f32 => F32x16, F32x8; f64 => F64x8, F64x4);
+    simd!(f32 => F32x16, F32x8, F32x4; f64 => F64x8, F64x4, F64x2);
 
     fn check<Op: CmpOp, T: TestFloat + Simd>(name: &str) {
         let name = std::format!("{name} {}", T::NAME);

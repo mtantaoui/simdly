@@ -72,7 +72,7 @@ pub(crate) trait ArithElement: Arith + Sized {
 }
 
 macro_rules! arith_element {
-    ($($T:ty => $avx512:ident, $avx2:ident);* $(;)?) => {
+    ($($T:ty => $avx512:ident, $avx2:ident, $neon:ident);* $(;)?) => {
         $(
             impl ArithElement for $T {
                 #[cfg(any(feature = "alloc", test))]
@@ -87,6 +87,7 @@ macro_rules! arith_element {
                     dispatch! {
                         avx512 => x86::avx512_binary_uninit::<x86::$avx512, Op>(a, b, out),
                         avx2 => x86::avx2_binary_uninit::<x86::$avx2, Op>(a, b, out),
+                        neon => neon::binary_uninit::<neon::$neon, Op>(a, b, out),
                         scalar => scalar_binary_uninit::<Op, Self>(a, b, out),
                     }
                 }
@@ -97,6 +98,7 @@ macro_rules! arith_element {
                     dispatch! {
                         avx512 => x86::avx512_binary_in_place::<x86::$avx512, Op>(a, b),
                         avx2 => x86::avx2_binary_in_place::<x86::$avx2, Op>(a, b),
+                        neon => neon::binary_in_place::<neon::$neon, Op>(a, b),
                         scalar => scalar_binary_in_place::<Op, Self>(a, b),
                     }
                 }
@@ -124,6 +126,11 @@ macro_rules! arith_element {
                             results.push(("avx512", x));
                         }
                     } else {});
+                    cfg_neon!(if {
+                        let mut x = a.to_vec();
+                        neon::binary_in_place::<neon::$neon, Op>(&mut x, b);
+                        results.push(("neon", x));
+                    } else {});
                     results
                 }
             }
@@ -131,7 +138,7 @@ macro_rules! arith_element {
     };
 }
 
-arith_element!(f32 => F32x16, F32x8; f64 => F64x8, F64x4);
+arith_element!(f32 => F32x16, F32x8, F32x4; f64 => F64x8, F64x4, F64x2);
 
 #[cfg(any(feature = "alloc", test))]
 fn scalar_binary_uninit<Op: BinaryOp, T: Arith>(a: &[T], b: &[T], out: &mut [MaybeUninit<T>]) {
@@ -195,6 +202,37 @@ cfg_x86! {
         ) {
             // SAFETY: AVX-512F is enabled in this function, and `V` is an
             // AVX-512 register type.
+            unsafe { driver::binary_in_place::<V>(a, b, Op::apply) }
+        }
+    }
+}
+
+cfg_neon! {
+    mod neon {
+        use super::{Arith, BinaryOp};
+        use crate::math::driver;
+        use crate::simd::SimdVector;
+        pub(super) use crate::simd::neon::{f32x4::F32x4, f64x2::F64x2};
+
+        #[cfg(any(feature = "alloc", test))]
+        #[inline]
+        pub(super) fn binary_uninit<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &[V::Scalar],
+            b: &[V::Scalar],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: NEON is enabled at compile time, and `V` is a NEON
+            // register type.
+            unsafe { driver::binary_uninit::<V>(a, b, out, Op::apply) }
+        }
+
+        #[inline]
+        pub(super) fn binary_in_place<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &mut [V::Scalar],
+            b: &[V::Scalar],
+        ) {
+            // SAFETY: NEON is enabled at compile time, and `V` is a NEON
+            // register type.
             unsafe { driver::binary_in_place::<V>(a, b, Op::apply) }
         }
     }

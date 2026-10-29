@@ -20,10 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `simdly::backend()` and `Backend`: report the backend in use.
 - `SliceExt` for `[f32]` and `[f64]`: element-wise `add`, `sub`, `mul`, `div` (returning
   a `Vec`, with `alloc`) and their in-place `_assign` variants; AVX-512,
-  AVX2 and scalar backends.
+  AVX2, NEON and scalar backends.
 - `SliceExt` comparisons for `[f32]` and `[f64]`, like NumPy's: `less`, `less_equal`,
   `greater`, `greater_equal`, `equal`, `not_equal` and their `_scalar`
-  variants, returning `Vec<bool>` (`alloc`); AVX-512, AVX2 and scalar
+  variants, returning `Vec<bool>` (`alloc`); AVX-512, AVX2, NEON and scalar
   backends.
 - `SliceMath` for `[f32]` and `[f64]`, starting with `abs` (returning a
   `Vec`, with `alloc`) and `abs_in_place`; AVX-512, AVX2 and scalar backends.

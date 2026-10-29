@@ -32,8 +32,8 @@ scalar).
 
 | Operation                                      | AVX-512 | AVX2 | NEON | scalar |
 |------------------------------------------------|---------|------|------|--------|
-| Arithmetic: `add` `sub` `mul` `div`, `_assign` | ✅      | ✅   | 🚧   | ✅     |
-| Comparisons: `less` … `not_equal`, `_scalar`   | ✅      | ✅   | 🚧   | ✅     |
+| Arithmetic: `add` `sub` `mul` `div`, `_assign` | ✅      | ✅   | ✅   | ✅     |
+| Comparisons: `less` … `not_equal`, `_scalar`   | ✅      | ✅   | ✅   | ✅     |
 | `abs`                                          | ✅      | ✅   | 🚧   | ✅     |
 | `acos`                                         | 🚧      | 🚧   | 🚧   | 🚧     |
 | `asin`                                         | 🚧      | 🚧   | 🚧   | 🚧     |
