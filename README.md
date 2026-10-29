@@ -8,7 +8,7 @@ SIMD implementations of mathematical functions for Rust, with a documented
 worst-case ULP bound for every function.
 
 > **Status:** early development. Element-wise arithmetic, comparisons (like
-> NumPy's), `abs`, `sqrt`, `acos`, `asin` and `atan` on `f32` and `f64` slices are implemented; see
+> NumPy's), `abs`, `sqrt`, `acos`, `asin`, `atan` and `atan2` on `f32` and `f64` slices are implemented; see
 > [Implementation status](#implementation-status).
 
 ```rust
@@ -38,7 +38,7 @@ scalar).
 | `acos`                                         | ✅      | ✅   | ✅   | ✅     |
 | `asin`                                         | ✅      | ✅   | ✅   | ✅     |
 | `atan`                                         | ✅      | ✅   | ✅   | ✅     |
-| `atan2`                                        | 🚧      | 🚧   | 🚧   | 🚧     |
+| `atan2`                                        | ✅      | ✅   | ✅   | ✅     |
 | `cbrt`                                         | 🚧      | 🚧   | 🚧   | 🚧     |
 | `floor`                                        | 🚧      | 🚧   | 🚧   | 🚧     |
 | `exp`                                          | 🚧      | 🚧   | 🚧   | 🚧     |

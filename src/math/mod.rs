@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -18,6 +18,7 @@ mod abs;
 mod acos;
 mod asin;
 mod atan;
+mod atan2;
 mod float;
 mod sqrt;
 
@@ -29,14 +30,15 @@ use abs::Abs;
 use acos::Acos;
 use asin::Asin;
 use atan::Atan;
+use atan2::Atan2;
 use float::Float;
 use sqrt::Sqrt;
 
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
-pub(crate) trait Math: Float + Acos + Asin + Atan {}
+pub(crate) trait Math: Float + Acos + Asin + Atan + Atan2 {}
 
-impl<T: Float + Acos + Asin + Atan> Math for T {}
+impl<T: Float + Acos + Asin + Atan + Atan2> Math for T {}
 
 /// An element-wise math function.
 pub(crate) trait UnaryOp {
@@ -44,11 +46,28 @@ pub(crate) trait UnaryOp {
     fn apply<V: Math>(v: V) -> V;
 }
 
+/// An element-wise math function of two arguments, `f(y, x)`.
+pub(crate) trait BinaryOp {
+    /// Applies the function lane-wise.
+    fn apply<V: Math>(y: V, x: V) -> V;
+}
+
 cfg_simd! {
     impl<F: UnaryOp, V: Math> driver::UnaryFn<V> for F {
         #[inline(always)]
         fn call(x: V) -> V {
             F::apply(x)
+        }
+    }
+
+    /// A [`BinaryOp`] as a driver operation. A wrapper, as the arithmetic
+    /// operations already implement `BinaryFn` for every type of theirs.
+    pub(crate) struct Binary<F>(core::marker::PhantomData<F>);
+
+    impl<F: BinaryOp, V: Math> driver::BinaryFn<V> for Binary<F> {
+        #[inline(always)]
+        fn call(y: V, x: V) -> V {
+            F::apply(y, x)
         }
     }
 }
@@ -93,6 +112,16 @@ impl UnaryOp for AtanOp {
     }
 }
 
+/// `atan2(y, x)`.
+pub(crate) struct Atan2Op;
+
+impl BinaryOp for Atan2Op {
+    #[inline(always)]
+    fn apply<V: Math>(y: V, x: V) -> V {
+        y.atan2(x)
+    }
+}
+
 /// `√x`.
 pub(crate) struct SqrtOp;
 
@@ -120,6 +149,28 @@ pub(crate) trait MathElement: Math + Sized {
     /// dispatch would pick: `(backend, result)` pairs.
     #[cfg(test)]
     fn every_backend<F: UnaryOp>(x: &[Self]) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)>;
+
+    /// `out[i] = F(y[i], x[i])`; on return all of `out` is initialised.
+    ///
+    /// # Panics
+    ///
+    /// If `y`, `x` and `out` do not all have the same length.
+    #[cfg(any(feature = "alloc", test))]
+    fn binary_uninit<F: BinaryOp>(y: &[Self], x: &[Self], out: &mut [MaybeUninit<Self>]);
+
+    /// `y[i] = F(y[i], x[i])`.
+    ///
+    /// # Panics
+    ///
+    /// If `y` and `x` have different lengths.
+    fn binary_in_place<F: BinaryOp>(y: &mut [Self], x: &[Self]);
+
+    /// [`every_backend`](Self::every_backend) for a [`BinaryOp`].
+    #[cfg(test)]
+    fn every_backend_binary<F: BinaryOp>(
+        y: &[Self],
+        x: &[Self],
+    ) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)>;
 }
 
 macro_rules! math_element {
@@ -177,6 +228,61 @@ macro_rules! math_element {
                     } else {});
                     results
                 }
+
+                #[cfg(any(feature = "alloc", test))]
+                #[inline]
+                fn binary_uninit<F: BinaryOp>(y: &[Self], x: &[Self], out: &mut [MaybeUninit<Self>]) {
+                    assert_eq!(y.len(), x.len(), "length mismatch");
+                    assert_eq!(y.len(), out.len(), "length mismatch");
+                    dispatch! {
+                        avx512 => x86::avx512_binary_uninit::<x86::$avx512, F>(y, x, out),
+                        avx2 => x86::avx2_binary_uninit::<x86::$avx2, F>(y, x, out),
+                        neon => neon::binary_uninit::<neon::$neon, F>(y, x, out),
+                        scalar => scalar_binary_uninit::<F, Self>(y, x, out),
+                    }
+                }
+
+                #[inline]
+                fn binary_in_place<F: BinaryOp>(y: &mut [Self], x: &[Self]) {
+                    assert_eq!(y.len(), x.len(), "length mismatch");
+                    dispatch! {
+                        avx512 => x86::avx512_binary_in_place::<x86::$avx512, F>(y, x),
+                        avx2 => x86::avx2_binary_in_place::<x86::$avx2, F>(y, x),
+                        neon => neon::binary_in_place::<neon::$neon, F>(y, x),
+                        scalar => scalar_binary_in_place::<F, Self>(y, x),
+                    }
+                }
+
+                #[cfg(test)]
+                fn every_backend_binary<F: BinaryOp>(
+                    y: &[Self],
+                    x: &[Self],
+                ) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)> {
+                    let mut r = y.to_vec();
+                    scalar_binary_in_place::<F, Self>(&mut r, x);
+                    #[allow(unused_mut, reason = "only scalar on some targets")]
+                    let mut results = std::vec![("scalar", r)];
+                    cfg_x86!(if {
+                        if crate::detect::has_avx2_fma() {
+                            let mut r = y.to_vec();
+                            // SAFETY: AVX2 + FMA checked just above.
+                            unsafe { x86::avx2_binary_in_place::<x86::$avx2, F>(&mut r, x) };
+                            results.push(("avx2", r));
+                        }
+                        if crate::detect::has_avx512f() {
+                            let mut r = y.to_vec();
+                            // SAFETY: AVX-512F checked just above.
+                            unsafe { x86::avx512_binary_in_place::<x86::$avx512, F>(&mut r, x) };
+                            results.push(("avx512", r));
+                        }
+                    } else {});
+                    cfg_neon!(if {
+                        let mut r = y.to_vec();
+                        neon::binary_in_place::<neon::$neon, F>(&mut r, x);
+                        results.push(("neon", r));
+                    } else {});
+                    results
+                }
             }
         )*
     };
@@ -197,9 +303,22 @@ fn scalar_unary_in_place<F: UnaryOp, T: Math>(x: &mut [T]) {
     }
 }
 
+#[cfg(any(feature = "alloc", test))]
+fn scalar_binary_uninit<F: BinaryOp, T: Math>(y: &[T], x: &[T], out: &mut [MaybeUninit<T>]) {
+    for ((o, &a), &b) in out.iter_mut().zip(y).zip(x) {
+        o.write(F::apply(a, b));
+    }
+}
+
+fn scalar_binary_in_place<F: BinaryOp, T: Math>(y: &mut [T], x: &[T]) {
+    for (a, &b) in y.iter_mut().zip(x) {
+        *a = F::apply(*a, b);
+    }
+}
+
 cfg_x86! {
     mod x86 {
-        use super::{Math, UnaryOp, driver};
+        use super::{Binary, BinaryOp, Math, UnaryOp, driver};
         use crate::simd::SimdVector;
         pub(super) use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
         pub(super) use crate::simd::avx512::{f32x16::F32x16, f64x8::F64x8};
@@ -239,12 +358,56 @@ cfg_x86! {
             // AVX-512 register type.
             unsafe { driver::unary_in_place::<V, F>(x) }
         }
+
+        #[cfg(any(feature = "alloc", test))]
+        #[target_feature(enable = "avx2,fma")]
+        pub(super) fn avx2_binary_uninit<V: SimdVector + Math, F: BinaryOp>(
+            y: &[V::Scalar],
+            x: &[V::Scalar],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
+            // AVX2 register type.
+            unsafe { driver::binary_uninit::<V, Binary<F>>(y, x, out) }
+        }
+
+        #[target_feature(enable = "avx2,fma")]
+        pub(super) fn avx2_binary_in_place<V: SimdVector + Math, F: BinaryOp>(
+            y: &mut [V::Scalar],
+            x: &[V::Scalar],
+        ) {
+            // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
+            // AVX2 register type.
+            unsafe { driver::binary_in_place::<V, Binary<F>>(y, x) }
+        }
+
+        #[cfg(any(feature = "alloc", test))]
+        #[target_feature(enable = "avx512f")]
+        pub(super) fn avx512_binary_uninit<V: SimdVector + Math, F: BinaryOp>(
+            y: &[V::Scalar],
+            x: &[V::Scalar],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: AVX-512F is enabled in this function, and `V` is an
+            // AVX-512 register type.
+            unsafe { driver::binary_uninit::<V, Binary<F>>(y, x, out) }
+        }
+
+        #[target_feature(enable = "avx512f")]
+        pub(super) fn avx512_binary_in_place<V: SimdVector + Math, F: BinaryOp>(
+            y: &mut [V::Scalar],
+            x: &[V::Scalar],
+        ) {
+            // SAFETY: AVX-512F is enabled in this function, and `V` is an
+            // AVX-512 register type.
+            unsafe { driver::binary_in_place::<V, Binary<F>>(y, x) }
+        }
     }
 }
 
 cfg_neon! {
     mod neon {
-        use super::{Math, UnaryOp, driver};
+        use super::{Binary, BinaryOp, Math, UnaryOp, driver};
         use crate::simd::SimdVector;
         pub(super) use crate::simd::neon::{f32x4::F32x4, f64x2::F64x2};
 
@@ -264,6 +427,28 @@ cfg_neon! {
             // SAFETY: NEON is enabled at compile time, and `V` is a NEON
             // register type.
             unsafe { driver::unary_in_place::<V, F>(x) }
+        }
+
+        #[cfg(any(feature = "alloc", test))]
+        #[inline]
+        pub(super) fn binary_uninit<V: SimdVector + Math, F: BinaryOp>(
+            y: &[V::Scalar],
+            x: &[V::Scalar],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: NEON is enabled at compile time, and `V` is a NEON
+            // register type.
+            unsafe { driver::binary_uninit::<V, Binary<F>>(y, x, out) }
+        }
+
+        #[inline]
+        pub(super) fn binary_in_place<V: SimdVector + Math, F: BinaryOp>(
+            y: &mut [V::Scalar],
+            x: &[V::Scalar],
+        ) {
+            // SAFETY: NEON is enabled at compile time, and `V` is a NEON
+            // register type.
+            unsafe { driver::binary_in_place::<V, Binary<F>>(y, x) }
         }
     }
 }
@@ -345,6 +530,32 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = atan(self[i])`.
     fn atan_in_place(&mut self);
 
+    /// `atan2(self[i], x[i])`: the angle of the point `(x[i], self[i])`, in
+    /// `[−π, π]`, as `f32::atan2`. Error ≤ 1 ULP; signed zeros and
+    /// infinities follow C99 (`atan2(±0, −0) = ±π`, `atan2(±∞, ±∞) = ±π/4`
+    /// or `±3π/4`, …).
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let y = vec![1.0_f64, 1.0, -1.0];
+    /// let x = vec![1.0_f64, -1.0, 0.0];
+    /// assert_eq!(y.atan2(&x), [core::f64::consts::FRAC_PI_4, 3.0 * core::f64::consts::FRAC_PI_4, -core::f64::consts::FRAC_PI_2]);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `self` and `x` have different lengths.
+    #[cfg(feature = "alloc")]
+    fn atan2(&self, x: &[T]) -> Vec<T>;
+
+    /// `self[i] = atan2(self[i], x[i])`.
+    ///
+    /// # Panics
+    ///
+    /// If `self` and `x` have different lengths.
+    fn atan2_in_place(&mut self, x: &[T]);
+
     /// `√self[i]`, correctly rounded (0 ULP) on every backend. `√-0.0` is
     /// `-0.0`; negative values and NaN give NaN.
     ///
@@ -413,6 +624,17 @@ macro_rules! impl_slice_math {
 
                 #[cfg(feature = "alloc")]
                 #[inline]
+                fn atan2(&self, x: &[$T]) -> Vec<$T> {
+                    binary_to_vec::<Atan2Op, _>(self, x)
+                }
+
+                #[inline]
+                fn atan2_in_place(&mut self, x: &[$T]) {
+                    <$T as MathElement>::binary_in_place::<Atan2Op>(self, x);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
                 fn sqrt(&self) -> Vec<$T> {
                     unary_to_vec::<SqrtOp, _>(self)
                 }
@@ -434,5 +656,14 @@ fn unary_to_vec<F: UnaryOp, T: MathElement>(x: &[T]) -> Vec<T> {
     T::unary_uninit::<F>(x, &mut out.spare_capacity_mut()[..x.len()]);
     // SAFETY: `unary_uninit` initialised the first `x.len()` elements.
     unsafe { out.set_len(x.len()) };
+    out
+}
+
+#[cfg(feature = "alloc")]
+fn binary_to_vec<F: BinaryOp, T: MathElement>(y: &[T], x: &[T]) -> Vec<T> {
+    let mut out = Vec::with_capacity(y.len());
+    T::binary_uninit::<F>(y, x, &mut out.spare_capacity_mut()[..y.len()]);
+    // SAFETY: `binary_uninit` initialised the first `y.len()` elements.
+    unsafe { out.set_len(y.len()) };
     out
 }

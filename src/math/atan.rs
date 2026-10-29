@@ -37,13 +37,13 @@ pub(crate) trait Atan {
 
 /// `c` in every lane of `x`'s type.
 #[inline(always)]
-fn k<V: Float>(x: V, c: f32) -> V {
+pub(super) fn k<V: Float>(x: V, c: f32) -> V {
     x.constant(V::Elem::from_f32(c))
 }
 
 /// Every `c[i]` in every lane of `x`'s type: a loop, not a closure.
 #[inline(always)]
-fn ks<V: Float, const N: usize>(x: V, c: [V::Elem; N]) -> [V; N] {
+pub(super) fn ks<V: Float, const N: usize>(x: V, c: [V::Elem; N]) -> [V; N] {
     let mut out = [x; N];
     let mut i = 0;
     while i < N {
@@ -56,7 +56,7 @@ fn ks<V: Float, const N: usize>(x: V, c: [V::Elem; N]) -> [V; N] {
 /// Per lane, the entry of `c` for the first `m[i]` that is true, else the
 /// last one.
 #[inline(always)]
-fn pick<V: Float>(m: [V::Mask; 4], c: [V; 5]) -> V {
+pub(super) fn pick<V: Float>(m: [V::Mask; 4], c: [V; 5]) -> V {
     V::select(
         m[0],
         c[0],

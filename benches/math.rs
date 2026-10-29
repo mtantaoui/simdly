@@ -151,6 +151,47 @@ fn atan(c: &mut Criterion) {
     group.finish();
 }
 
+/// `y.atan2(&x)` vs `y.iter().zip(x).map(|(y, x)| y.atan2(x))`, over all
+/// four quadrants.
+fn atan2_vs_scalar<T: Float>(
+    group: &mut Group,
+    simdly: impl Fn(&[T], &[T]) -> Vec<T>,
+    f: impl Fn(T, T) -> T,
+) {
+    for &len in LENS {
+        let (y, x) = (
+            signed::<T>(len),
+            (0..len)
+                .map(|i| T::from_f64((i as f64 * 0.73).cos() * 30.0))
+                .collect::<Vec<T>>(),
+        );
+        group.throughput(Throughput::Elements(len as u64));
+        group.bench_function(
+            BenchmarkId::new(format!("simdly/{}", T::NAME), len),
+            |bench| bench.iter(|| simdly(black_box(&y), black_box(&x))),
+        );
+        group.bench_function(
+            BenchmarkId::new(format!("scalar/{}", T::NAME), len),
+            |bench| {
+                bench.iter(|| {
+                    black_box(&y)
+                        .iter()
+                        .zip(black_box(&x))
+                        .map(|(&a, &b)| f(a, b))
+                        .collect::<Vec<T>>()
+                })
+            },
+        );
+    }
+}
+
+fn atan2(c: &mut Criterion) {
+    let mut group = c.benchmark_group("atan2");
+    atan2_vs_scalar::<f32>(&mut group, |y, x| y.atan2(x), f32::atan2);
+    atan2_vs_scalar::<f64>(&mut group, |y, x| y.atan2(x), f64::atan2);
+    group.finish();
+}
+
 fn sqrt(c: &mut Criterion) {
     let mut group = c.benchmark_group("sqrt");
     out_of_place::<f32>(&mut group, positive, |x| x.sqrt(), f32::sqrt);
@@ -174,6 +215,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, asin, atan, sqrt
+    targets = abs, acos, asin, atan, atan2, sqrt
 }
 criterion_main!(benches);

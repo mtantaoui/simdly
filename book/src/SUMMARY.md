@@ -12,6 +12,7 @@
 - [Arc cosine `acos`](./functions/acos.md)
 - [Arc sine `asin`](./functions/asin.md)
 - [Arc tangent `atan`](./functions/atan.md)
+- [Two-argument arc tangent `atan2`](./functions/atan2.md)
 
 # Benchmarks
 
