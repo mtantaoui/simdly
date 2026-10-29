@@ -28,3 +28,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SliceMath` for `[f32]` and `[f64]`, starting with `abs` (returning a
   `Vec`, with `alloc`) and `abs_in_place`; AVX-512, AVX2, NEON and scalar
   backends.
+- `SliceMath::sqrt` and `sqrt_in_place`, correctly rounded on every backend;
+  without `std`, the scalar fallback computes it exactly with integers.

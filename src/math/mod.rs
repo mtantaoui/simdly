@@ -12,7 +12,7 @@
 //! └── scalar.rs
 //! ```
 //!
-//! A simple one, like [`abs`], is one file. Either way it implements a
+//! A simple one, like [`abs`] or [`sqrt`], is one file. Either way it implements a
 //! lane-level trait (`Abs`, …) for every lane type (`f32`, `f64` and the SIMD
 //! registers), and a zero-sized [`UnaryOp`] names it, so every
 //! `(function, element, backend)` triple compiles to its own inlined loop
@@ -24,18 +24,20 @@ use alloc::vec::Vec;
 use core::mem::MaybeUninit;
 
 mod abs;
+mod sqrt;
 
 cfg_simd! {
     pub(crate) mod driver;
 }
 
 use abs::Abs;
+use sqrt::Sqrt;
 
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
-pub(crate) trait Math: Abs {}
+pub(crate) trait Math: Abs + Sqrt {}
 
-impl<T: Abs> Math for T {}
+impl<T: Abs + Sqrt> Math for T {}
 
 /// An element-wise math function.
 pub(crate) trait UnaryOp {
@@ -50,6 +52,16 @@ impl UnaryOp for AbsOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.abs()
+    }
+}
+
+/// `√x`.
+pub(crate) struct SqrtOp;
+
+impl UnaryOp for SqrtOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.sqrt()
     }
 }
 
@@ -250,6 +262,23 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
 
     /// `self[i] = |self[i]|`.
     fn abs_in_place(&mut self);
+
+    /// `√self[i]`, correctly rounded (0 ULP) on every backend. `√-0.0` is
+    /// `-0.0`; negative values and NaN give NaN.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![4.0_f32, 2.0, -1.0];
+    /// let r = a.sqrt();
+    /// assert_eq!(r[..2], [2.0, 2.0_f32.sqrt()]);
+    /// assert!(r[2].is_nan());
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn sqrt(&self) -> Vec<T>;
+
+    /// `self[i] = √self[i]`.
+    fn sqrt_in_place(&mut self);
 }
 
 macro_rules! impl_slice_math {
@@ -265,6 +294,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn abs_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<AbsOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn sqrt(&self) -> Vec<$T> {
+                    unary_to_vec::<SqrtOp, _>(self)
+                }
+
+                #[inline]
+                fn sqrt_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<SqrtOp>(self);
                 }
             }
         )*

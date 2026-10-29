@@ -38,16 +38,30 @@ impl Float for f64 {
 }
 
 /// Both signs, so `abs` changes half of them.
-fn input<T: Float>(len: usize) -> Vec<T> {
+fn signed<T: Float>(len: usize) -> Vec<T> {
     (0..len)
         .map(|i| T::from_f64(i as f64 * 0.37 - 50.0))
         .collect()
 }
 
+/// Positive, so `sqrt` gives no NaN.
+fn positive<T: Float>(len: usize) -> Vec<T> {
+    (0..len)
+        .map(|i| T::from_f64(i as f64 * 0.37 + 1.0))
+        .collect()
+}
+
+type Input<T> = fn(usize) -> Vec<T>;
+
 /// `simdly(x)` vs `x.iter().map(f).collect()`.
-fn out_of_place<T: Float>(group: &mut Group, simdly: impl Fn(&[T]) -> Vec<T>, f: impl Fn(T) -> T) {
+fn out_of_place<T: Float>(
+    group: &mut Group,
+    input: Input<T>,
+    simdly: impl Fn(&[T]) -> Vec<T>,
+    f: impl Fn(T) -> T,
+) {
     for &len in LENS {
-        let x = input::<T>(len);
+        let x = input(len);
         group.throughput(Throughput::Elements(len as u64));
         group.bench_function(
             BenchmarkId::new(format!("simdly/{}", T::NAME), len),
@@ -60,11 +74,16 @@ fn out_of_place<T: Float>(group: &mut Group, simdly: impl Fn(&[T]) -> Vec<T>, f:
     }
 }
 
-/// `simdly(x)` vs `for v in x { *v = f(*v) }`. Repeating it is fine for `abs`:
-/// the values stay the same after the first pass.
-fn in_place<T: Float>(group: &mut Group, simdly: impl Fn(&mut [T]), f: impl Fn(T) -> T) {
+/// `simdly(x)` vs `for v in x { *v = f(*v) }`. Repeating it is fine: `abs`
+/// keeps the values after the first pass, and `sqrt` keeps them positive.
+fn in_place<T: Float>(
+    group: &mut Group,
+    input: Input<T>,
+    simdly: impl Fn(&mut [T]),
+    f: impl Fn(T) -> T,
+) {
     for &len in LENS {
-        let mut x = input::<T>(len);
+        let mut x = input(len);
         group.throughput(Throughput::Elements(len as u64));
         group.bench_function(
             BenchmarkId::new(format!("simdly/{}", T::NAME), len),
@@ -85,13 +104,25 @@ fn in_place<T: Float>(group: &mut Group, simdly: impl Fn(&mut [T]), f: impl Fn(T
 
 fn abs(c: &mut Criterion) {
     let mut group = c.benchmark_group("abs");
-    out_of_place::<f32>(&mut group, |x| x.abs(), f32::abs);
-    out_of_place::<f64>(&mut group, |x| x.abs(), f64::abs);
+    out_of_place::<f32>(&mut group, signed, |x| x.abs(), f32::abs);
+    out_of_place::<f64>(&mut group, signed, |x| x.abs(), f64::abs);
     group.finish();
 
     let mut group = c.benchmark_group("abs_in_place");
-    in_place::<f32>(&mut group, |x| x.abs_in_place(), f32::abs);
-    in_place::<f64>(&mut group, |x| x.abs_in_place(), f64::abs);
+    in_place::<f32>(&mut group, signed, |x| x.abs_in_place(), f32::abs);
+    in_place::<f64>(&mut group, signed, |x| x.abs_in_place(), f64::abs);
+    group.finish();
+}
+
+fn sqrt(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sqrt");
+    out_of_place::<f32>(&mut group, positive, |x| x.sqrt(), f32::sqrt);
+    out_of_place::<f64>(&mut group, positive, |x| x.sqrt(), f64::sqrt);
+    group.finish();
+
+    let mut group = c.benchmark_group("sqrt_in_place");
+    in_place::<f32>(&mut group, positive, |x| x.sqrt_in_place(), f32::sqrt);
+    in_place::<f64>(&mut group, positive, |x| x.sqrt_in_place(), f64::sqrt);
     group.finish();
 }
 
@@ -106,6 +137,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs
+    targets = abs, sqrt
 }
 criterion_main!(benches);

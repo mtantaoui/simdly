@@ -8,6 +8,7 @@ pub(crate) trait TestFloat: Copy + PartialEq + Debug {
     /// Signed zeros, infinities, NaN, subnormals and one.
     const SPECIAL: [Self; 8];
     fn from_f64(x: f64) -> Self;
+    fn to_f64(self) -> f64;
     fn is_nan(self) -> bool;
     fn bits(self) -> u64;
     /// The sign bit, in [`bits`](Self::bits).
@@ -32,6 +33,10 @@ macro_rules! test_float {
 
                 fn from_f64(x: f64) -> Self {
                     x as $T
+                }
+
+                fn to_f64(self) -> f64 {
+                    self.into()
                 }
 
                 fn is_nan(self) -> bool {

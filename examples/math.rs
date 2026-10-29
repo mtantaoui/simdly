@@ -12,9 +12,12 @@ fn main() {
     println!("backend: {}\n", simdly::backend());
     println!("x      = {x:?}");
     println!("|x|    = {:?}", x.abs());
+    println!("√x     = {:?}", x.sqrt());
 
     // In place, and on `f64`.
     let mut y = vec![-0.1_f64, 0.2, -0.3];
     y.abs_in_place();
     println!("\n|y|    = {y:?}");
+    y.sqrt_in_place();
+    println!("√|y|   = {y:?}");
 }
