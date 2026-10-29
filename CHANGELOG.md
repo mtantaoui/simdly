@@ -32,5 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every backend: written once over a `Float` lane trait.
 - `SliceMath::asin` and `asin_in_place`, ≤ 1 ULP, on every backend; one
   formula for `|x| ≥ 0.5`, more accurate than musl's `f64` one.
+- `SliceMath::atan` and `atan_in_place`, ≤ 1 ULP, on every backend; musl's
+  five reductions as one, `(p·a − q)/(p + q·a)`, with one division.
 - `SliceMath::sqrt` and `sqrt_in_place`, correctly rounded on every backend;
   without `std`, the scalar fallback computes it exactly with integers.

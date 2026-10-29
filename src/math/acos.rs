@@ -87,8 +87,6 @@ pub(crate) trait Kernel: Element {
     /// Keeps the high bits of `s = √z` as `df`, so that `df²` is exact.
     const HIGH_BITS: Self::Bits;
 
-    fn from_f32(x: f32) -> Self;
-
     /// `z·p(z)/q(z)`.
     fn r<V: Float<Elem = Self>>(z: V) -> V;
 }
@@ -101,11 +99,6 @@ impl Kernel for f32 {
     ];
     // 12 significant bits.
     const HIGH_BITS: u32 = 0xffff_f000;
-
-    #[inline(always)]
-    fn from_f32(x: f32) -> f32 {
-        x
-    }
 
     #[inline(always)]
     fn r<V: Float<Elem = f32>>(z: V) -> V {
@@ -130,11 +123,6 @@ impl Kernel for f64 {
     ];
     // 21 significant bits.
     const HIGH_BITS: u64 = 0xffff_ffff_0000_0000;
-
-    #[inline(always)]
-    fn from_f32(x: f32) -> f64 {
-        x.into()
-    }
 
     #[inline(always)]
     fn r<V: Float<Elem = f64>>(z: V) -> V {

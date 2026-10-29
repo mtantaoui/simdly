@@ -95,13 +95,14 @@ pub(crate) fn assert_same<T: TestFloat>(got: &[T], want: &[T], what: &str) {
     }
 }
 
-/// About `2n` samples of `[−1, 1]`, evenly spaced in bits so every binade is
-/// covered, plus 2000 neighbours on each side of ±0.5 and ±1, the special
-/// values and ±1.5.
-pub(crate) fn unit_interval<T: TestFloat>(n: u64) -> Vec<T> {
-    let one = T::from_f64(1.0).bits();
-    let mut bits: Vec<u64> = (0..=one).step_by((one / n) as usize).collect();
-    for c in [T::from_f64(0.5).bits(), one] {
+/// About `2n` samples of `[−max, max]`, evenly spaced in bits so every
+/// binade is covered, plus 2000 neighbours on each side of `±c` for every
+/// `c` in `around`, and the special values.
+pub(crate) fn samples<T: TestFloat>(n: u64, max: f64, around: &[f64]) -> Vec<T> {
+    let top = T::from_f64(max).bits();
+    let mut bits: Vec<u64> = (0..=top).step_by((top / n) as usize).collect();
+    for &c in around {
+        let c = T::from_f64(c).bits();
         bits.extend((c - 2000)..=(c + 2000));
     }
     let mut xs: Vec<T> = bits
@@ -110,6 +111,12 @@ pub(crate) fn unit_interval<T: TestFloat>(n: u64) -> Vec<T> {
         .map(T::from_bits64)
         .collect();
     xs.extend(T::SPECIAL);
+    xs
+}
+
+/// [`samples`] of `[−1, 1]`, around ±0.5 and ±1, plus ±1.5.
+pub(crate) fn unit_interval<T: TestFloat>(n: u64) -> Vec<T> {
+    let mut xs = samples(n, 1.0, &[0.5, 1.0]);
     xs.extend([1.5, -1.5].map(T::from_f64));
     xs
 }

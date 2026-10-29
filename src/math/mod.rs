@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -17,6 +17,7 @@ use core::mem::MaybeUninit;
 mod abs;
 mod acos;
 mod asin;
+mod atan;
 mod float;
 mod sqrt;
 
@@ -27,14 +28,15 @@ cfg_simd! {
 use abs::Abs;
 use acos::Acos;
 use asin::Asin;
+use atan::Atan;
 use float::Float;
 use sqrt::Sqrt;
 
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
-pub(crate) trait Math: Float + Acos + Asin {}
+pub(crate) trait Math: Float + Acos + Asin + Atan {}
 
-impl<T: Float + Acos + Asin> Math for T {}
+impl<T: Float + Acos + Asin + Atan> Math for T {}
 
 /// An element-wise math function.
 pub(crate) trait UnaryOp {
@@ -78,6 +80,16 @@ impl UnaryOp for AsinOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.asin()
+    }
+}
+
+/// `atan(x)`.
+pub(crate) struct AtanOp;
+
+impl UnaryOp for AtanOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.atan()
     }
 }
 
@@ -319,6 +331,20 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = asin(self[i])`.
     fn asin_in_place(&mut self);
 
+    /// `atan(self[i])` in radians, in `[−π/2, π/2]`. Error ≤ 1 ULP.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![1.0_f64, 0.0, f64::NEG_INFINITY];
+    /// assert_eq!(a.atan(), [core::f64::consts::FRAC_PI_4, 0.0, -core::f64::consts::FRAC_PI_2]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn atan(&self) -> Vec<T>;
+
+    /// `self[i] = atan(self[i])`.
+    fn atan_in_place(&mut self);
+
     /// `√self[i]`, correctly rounded (0 ULP) on every backend. `√-0.0` is
     /// `-0.0`; negative values and NaN give NaN.
     ///
@@ -372,6 +398,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn asin_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<AsinOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn atan(&self) -> Vec<$T> {
+                    unary_to_vec::<AtanOp, _>(self)
+                }
+
+                #[inline]
+                fn atan_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<AtanOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]

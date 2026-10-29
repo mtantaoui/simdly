@@ -15,7 +15,7 @@
 //!
 //! With the `alloc` feature (on by default), [`SliceExt::add`] and friends
 //! return a new `Vec` instead. Math functions are in [`SliceMath`]
-//! ([`abs`](SliceMath::abs), [`acos`](SliceMath::acos), [`asin`](SliceMath::asin), [`sqrt`](SliceMath::sqrt), …).
+//! ([`abs`](SliceMath::abs), [`acos`](SliceMath::acos), [`asin`](SliceMath::asin), [`atan`](SliceMath::atan), [`sqrt`](SliceMath::sqrt), …).
 //!
 //! ## Backends
 //!

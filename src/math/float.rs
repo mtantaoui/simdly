@@ -41,18 +41,31 @@ pub(crate) trait Element: Copy {
     /// The sign bit.
     #[cfg(test)]
     const SIGN: Self::Bits;
+
+    /// `x`, exactly: kernels write their small constants as `f32`.
+    fn from_f32(x: f32) -> Self;
 }
 
 impl Element for f32 {
     type Bits = u32;
     #[cfg(test)]
     const SIGN: u32 = 1 << 31;
+
+    #[inline(always)]
+    fn from_f32(x: f32) -> f32 {
+        x
+    }
 }
 
 impl Element for f64 {
     type Bits = u64;
     #[cfg(test)]
     const SIGN: u64 = 1 << 63;
+
+    #[inline(always)]
+    fn from_f32(x: f32) -> f64 {
+        x.into()
+    }
 }
 
 /// The bits of `V`'s elements.

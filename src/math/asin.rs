@@ -19,7 +19,7 @@
 //! `[−1, 1]`, `√` of a negative gives NaN.
 
 use super::acos::Kernel;
-use super::float::Float;
+use super::float::{Element, Float};
 
 /// A lane type with an arc sine.
 pub(crate) trait Asin {

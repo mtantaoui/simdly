@@ -82,7 +82,8 @@ fn out_of_place<T: Float>(
 }
 
 /// `simdly(x)` vs `for v in x { *v = f(*v) }`. Repeating it is fine: `abs`
-/// keeps the values after the first pass, and `sqrt` keeps them positive.
+/// keeps the values after the first pass, `sqrt` keeps them positive and
+/// `atan` finite.
 fn in_place<T: Float>(
     group: &mut Group,
     input: Input<T>,
@@ -137,6 +138,19 @@ fn asin(c: &mut Criterion) {
     group.finish();
 }
 
+/// In place as well: `atan` of any value is finite.
+fn atan(c: &mut Criterion) {
+    let mut group = c.benchmark_group("atan");
+    out_of_place::<f32>(&mut group, signed, |x| x.atan(), f32::atan);
+    out_of_place::<f64>(&mut group, signed, |x| x.atan(), f64::atan);
+    group.finish();
+
+    let mut group = c.benchmark_group("atan_in_place");
+    in_place::<f32>(&mut group, signed, |x| x.atan_in_place(), f32::atan);
+    in_place::<f64>(&mut group, signed, |x| x.atan_in_place(), f64::atan);
+    group.finish();
+}
+
 fn sqrt(c: &mut Criterion) {
     let mut group = c.benchmark_group("sqrt");
     out_of_place::<f32>(&mut group, positive, |x| x.sqrt(), f32::sqrt);
@@ -160,6 +174,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, asin, sqrt
+    targets = abs, acos, asin, atan, sqrt
 }
 criterion_main!(benches);
