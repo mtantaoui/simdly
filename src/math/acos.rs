@@ -78,7 +78,8 @@ where
     }
 }
 
-/// musl's constants and `r` for one element type.
+/// musl's constants and `r` for one element type, shared with
+/// [`asin`](super::asin).
 pub(crate) trait Kernel: Element {
     /// π/2 as `hi + lo`.
     const PIO2: [Self; 2];
@@ -176,84 +177,34 @@ impl Kernel for f64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::math::{AcosOp, MathElement};
-    use crate::testing::{TestFloat, ulp_error};
-    use std::vec::Vec;
-
-    /// About `2n` samples of `[−1, 1]`, evenly spaced in bits so every binade
-    /// is covered, plus 2000 neighbours on each side of ±0.5 and ±1.
-    fn inputs<T: TestFloat>(n: u64) -> Vec<T> {
-        let one = T::from_f64(1.0).bits();
-        let mut bits: Vec<u64> = (0..=one).step_by((one / n) as usize).collect();
-        for c in [T::from_f64(0.5).bits(), one] {
-            bits.extend((c - 2000)..=(c + 2000));
-        }
-        let mut xs: Vec<T> = bits
-            .iter()
-            .flat_map(|&b| [b, b | T::SIGN])
-            .map(T::from_bits64)
-            .collect();
-        xs.extend(T::SPECIAL);
-        xs.extend([1.5, -1.5, 1.0, -1.0].map(T::from_f64));
-        xs
-    }
-
-    /// Every backend within 1 ULP of the reference: `f64`'s `acos` for
-    /// `f32` (exact enough to measure the real error), `std`'s for `f64`.
-    fn check<T: TestFloat + MathElement>(x: &[T]) {
-        for (backend, got) in T::every_backend::<AcosOp>(x) {
-            for (&x, &got) in x.iter().zip(&got) {
-                let e = ulp_error(got, x.to_f64().acos());
-                assert!(
-                    e <= 1.0,
-                    "acos {} {backend}: acos({x:?}) = {got:?}, {e:.3} ULP",
-                    T::NAME
-                );
-            }
-        }
-    }
+    use crate::math::AcosOp;
+    use crate::testing::{assert_exact, assert_ulps, assert_ulps_every_f32, unit_interval};
 
     #[test]
     fn acos_within_1_ulp() {
-        check::<f32>(&inputs(200_000));
-        check::<f64>(&inputs(200_000));
+        assert_ulps::<f32, AcosOp>("acos", &unit_interval(200_000), f64::acos, 1.0);
+        assert_ulps::<f64, AcosOp>("acos", &unit_interval(200_000), f64::acos, 1.0);
     }
 
     #[test]
     fn acos_special_values() {
-        fn special<T: TestFloat + MathElement>(pi: T, pi_2: T) {
-            let x = [
-                1.0,
-                -1.0,
-                0.0,
-                -0.0,
-                1.0000001,
-                -1.0000001,
-                f64::INFINITY,
-                f64::NEG_INFINITY,
-                f64::NAN,
-            ]
-            .map(T::from_f64);
-            let want = [T::from_f64(0.0), pi, pi_2, pi_2];
-            for (backend, got) in T::every_backend::<AcosOp>(&x) {
-                let what = std::format!("acos {} {backend}", T::NAME);
-                for i in 0..4 {
-                    assert_eq!(
-                        got[i].bits(),
-                        want[i].bits(),
-                        "{what}: acos({:?}) = {:?}",
-                        x[i],
-                        got[i]
-                    );
-                }
-                assert!(
-                    got[4..].iter().all(|v| v.is_nan()),
-                    "{what}: {got:?} outside [-1, 1]"
-                );
-            }
-        }
-        special::<f32>(core::f32::consts::PI, core::f32::consts::FRAC_PI_2);
-        special::<f64>(core::f64::consts::PI, core::f64::consts::FRAC_PI_2);
+        use core::f32::consts as c32;
+        use core::f64::consts as c64;
+        let nan = f64::NAN;
+        let cases = [
+            (1.0, 0.0),
+            (-1.0, c64::PI),
+            (0.0, c64::FRAC_PI_2),
+            (-0.0, c64::FRAC_PI_2),
+        ];
+        let outside =
+            [1.0000001, -1.0000001, f64::INFINITY, f64::NEG_INFINITY, nan].map(|x| (x, nan));
+        let all: std::vec::Vec<(f64, f64)> = cases.into_iter().chain(outside).collect();
+        assert_exact::<f64, AcosOp>("acos", &all);
+        let all32: std::vec::Vec<(f32, f32)> =
+            all.iter().map(|&(x, y)| (x as f32, y as f32)).collect();
+        assert_eq!((all32[1].1, all32[2].1), (c32::PI, c32::FRAC_PI_2));
+        assert_exact::<f32, AcosOp>("acos", &all32);
     }
 
     /// Every `f32`, on every backend:
@@ -261,12 +212,6 @@ mod tests {
     #[test]
     #[ignore = "slow: 2^32 inputs per backend"]
     fn acos_f32_exhaustive() {
-        const CHUNK: u64 = 1 << 22;
-        for start in (0..1_u64 << 32).step_by(CHUNK as usize) {
-            let x: Vec<f32> = (start..start + CHUNK)
-                .map(|b| f32::from_bits(b as u32))
-                .collect();
-            check(&x);
-        }
+        assert_ulps_every_f32::<AcosOp>("acos", f64::acos, 1.0);
     }
 }

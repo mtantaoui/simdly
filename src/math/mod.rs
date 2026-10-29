@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -16,6 +16,7 @@ use core::mem::MaybeUninit;
 
 mod abs;
 mod acos;
+mod asin;
 mod float;
 mod sqrt;
 
@@ -25,14 +26,15 @@ cfg_simd! {
 
 use abs::Abs;
 use acos::Acos;
+use asin::Asin;
 use float::Float;
 use sqrt::Sqrt;
 
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
-pub(crate) trait Math: Float + Acos {}
+pub(crate) trait Math: Float + Acos + Asin {}
 
-impl<T: Float + Acos> Math for T {}
+impl<T: Float + Acos + Asin> Math for T {}
 
 /// An element-wise math function.
 pub(crate) trait UnaryOp {
@@ -66,6 +68,16 @@ impl UnaryOp for AcosOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.acos()
+    }
+}
+
+/// `asin(x)`.
+pub(crate) struct AsinOp;
+
+impl UnaryOp for AsinOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.asin()
     }
 }
 
@@ -292,6 +304,21 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = acos(self[i])`.
     fn acos_in_place(&mut self);
 
+    /// `asin(self[i])` in radians, in `[−π/2, π/2]`. Error ≤ 1 ULP; NaN
+    /// outside `[−1, 1]`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![1.0_f32, 0.0, -1.0];
+    /// assert_eq!(a.asin(), [core::f32::consts::FRAC_PI_2, 0.0, -core::f32::consts::FRAC_PI_2]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn asin(&self) -> Vec<T>;
+
+    /// `self[i] = asin(self[i])`.
+    fn asin_in_place(&mut self);
+
     /// `√self[i]`, correctly rounded (0 ULP) on every backend. `√-0.0` is
     /// `-0.0`; negative values and NaN give NaN.
     ///
@@ -334,6 +361,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn acos_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<AcosOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn asin(&self) -> Vec<$T> {
+                    unary_to_vec::<AsinOp, _>(self)
+                }
+
+                #[inline]
+                fn asin_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<AsinOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]

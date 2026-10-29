@@ -10,6 +10,7 @@
 # Functions
 
 - [Arc cosine `acos`](./functions/acos.md)
+- [Arc sine `asin`](./functions/asin.md)
 
 # Benchmarks
 

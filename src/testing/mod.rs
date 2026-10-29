@@ -2,6 +2,9 @@
 //! values, bit-exact comparison and ULP error.
 
 use core::fmt::Debug;
+use std::vec::Vec;
+
+use crate::math::{MathElement, UnaryOp};
 
 pub(crate) trait TestFloat: Copy + PartialEq + Debug {
     const NAME: &str;
@@ -89,5 +92,64 @@ pub(crate) fn assert_same<T: TestFloat>(got: &[T], want: &[T], what: &str) {
     for (i, (&g, &w)) in got.iter().zip(want).enumerate() {
         let same = g.bits() == w.bits() || (g.is_nan() && w.is_nan());
         assert!(same, "{what}, index {i}: got {g:?}, want {w:?}");
+    }
+}
+
+/// About `2n` samples of `[−1, 1]`, evenly spaced in bits so every binade is
+/// covered, plus 2000 neighbours on each side of ±0.5 and ±1, the special
+/// values and ±1.5.
+pub(crate) fn unit_interval<T: TestFloat>(n: u64) -> Vec<T> {
+    let one = T::from_f64(1.0).bits();
+    let mut bits: Vec<u64> = (0..=one).step_by((one / n) as usize).collect();
+    for c in [T::from_f64(0.5).bits(), one] {
+        bits.extend((c - 2000)..=(c + 2000));
+    }
+    let mut xs: Vec<T> = bits
+        .iter()
+        .flat_map(|&b| [b, b | T::SIGN])
+        .map(T::from_bits64)
+        .collect();
+    xs.extend(T::SPECIAL);
+    xs.extend([1.5, -1.5].map(T::from_f64));
+    xs
+}
+
+/// `F` on every backend within `max` ULPs of `reference`, computed in `f64`:
+/// for `f32` that measures the real error; for `f64` it compares with `std`.
+pub(crate) fn assert_ulps<T: TestFloat + MathElement, F: UnaryOp>(
+    name: &str,
+    x: &[T],
+    reference: fn(f64) -> f64,
+    max: f64,
+) {
+    for (backend, got) in T::every_backend::<F>(x) {
+        for (&x, &got) in x.iter().zip(&got) {
+            let e = ulp_error(got, reference(x.to_f64()));
+            assert!(
+                e <= max,
+                "{name} {} {backend}: {name}({x:?}) = {got:?}, {e:.3} ULP",
+                T::NAME
+            );
+        }
+    }
+}
+
+/// [`assert_ulps`] on every `f32`, in chunks.
+pub(crate) fn assert_ulps_every_f32<F: UnaryOp>(name: &str, reference: fn(f64) -> f64, max: f64) {
+    const CHUNK: u64 = 1 << 22;
+    for start in (0..1_u64 << 32).step_by(CHUNK as usize) {
+        let x: Vec<f32> = (start..start + CHUNK)
+            .map(|b| f32::from_bits(b as u32))
+            .collect();
+        assert_ulps::<f32, F>(name, &x, reference, max);
+    }
+}
+
+/// `F(x) == want` bit for bit on every backend, for each `(x, want)`; a NaN
+/// `want` matches any NaN.
+pub(crate) fn assert_exact<T: TestFloat + MathElement, F: UnaryOp>(name: &str, cases: &[(T, T)]) {
+    let (x, want): (Vec<T>, Vec<T>) = cases.iter().copied().unzip();
+    for (backend, got) in T::every_backend::<F>(&x) {
+        assert_same(&got, &want, &std::format!("{name} {} {backend}", T::NAME));
     }
 }

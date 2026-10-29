@@ -9,6 +9,7 @@ written once for every backend in
 [`src/math/acos.rs`](https://github.com/mtantaoui/simdly/blob/main/src/math/acos.rs).
 Error: **< 1 ULP** for `f32` and `f64`, on every backend
 ([measurements](#9-measured-error)).
+[`asin`](./asin.md) reuses the same pieces.
 
 ## 1. Special values
 
