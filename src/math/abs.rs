@@ -3,7 +3,8 @@
 //!
 //! AVX2 has no float `abs` instruction; `andnot` with `-0.0` (only the sign
 //! bit set) does it in one `vandnps` / `vandnpd`. AVX-512F's `_mm512_abs_*`
-//! is the same, as an integer `vpandd` / `vpandq`.
+//! is the same, as an integer `vpandd` / `vpandq`. NEON's `fabs` is exact
+//! and keeps NaN payloads.
 
 /// A lane type with an absolute value.
 pub(crate) trait Abs: Copy {
@@ -64,6 +65,31 @@ cfg_x86! {
             fn abs(self) -> Self {
                 // SAFETY: an F64x8 exists, so AVX-512F is available.
                 unsafe { F64x8::from_raw(_mm512_abs_pd(self.raw())) }
+            }
+        }
+    }
+}
+
+cfg_neon! {
+    mod neon {
+        use core::arch::aarch64::{vabsq_f32, vabsq_f64};
+
+        use super::Abs;
+        use crate::simd::neon::{f32x4::F32x4, f64x2::F64x2};
+
+        impl Abs for F32x4 {
+            #[inline(always)]
+            fn abs(self) -> Self {
+                // SAFETY: NEON is enabled at compile time.
+                unsafe { F32x4::from_raw(vabsq_f32(self.raw())) }
+            }
+        }
+
+        impl Abs for F64x2 {
+            #[inline(always)]
+            fn abs(self) -> Self {
+                // SAFETY: NEON is enabled at compile time.
+                unsafe { F64x2::from_raw(vabsq_f64(self.raw())) }
             }
         }
     }
