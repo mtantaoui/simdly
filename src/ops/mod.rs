@@ -3,15 +3,22 @@
 //! Horizontal reductions (`sum`, `product`, `min`, `max`) are planned.
 
 mod arith;
-#[cfg(feature = "alloc")]
+// Always compiled: `math` uses `Compare`, though the slice comparisons
+// return `Vec`s.
+#[cfg_attr(
+    not(feature = "alloc"),
+    allow(dead_code, reason = "only `Compare` is used without `alloc`")
+)]
 mod cmp;
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
+pub(crate) use arith::Arith;
 #[cfg(feature = "alloc")]
 use arith::BinaryOp;
 use arith::{AddOp, ArithElement, DivOp, MulOp, SubOp};
+pub(crate) use cmp::Compare;
 #[cfg(feature = "alloc")]
 use cmp::{CmpElement, CmpOp, EqOp, GeOp, GtOp, LeOp, LtOp, NeOp};
 

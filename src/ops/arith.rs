@@ -45,6 +45,15 @@ macro_rules! binary_op {
 
 binary_op!(AddOp: +, SubOp: -, MulOp: *, DivOp: /);
 
+cfg_simd! {
+    impl<Op: BinaryOp, V: Arith> crate::math::driver::BinaryFn<V> for Op {
+        #[inline(always)]
+        fn call(a: V, b: V) -> V {
+            Op::apply(a, b)
+        }
+    }
+}
+
 /// An element type with arithmetic kernels: `f32` or `f64`.
 pub(crate) trait ArithElement: Arith + Sized {
     /// `out[i] = Op(a[i], b[i])`; on return all of `out` is initialised.
@@ -170,7 +179,7 @@ cfg_x86! {
         ) {
             // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
             // AVX2 register type.
-            unsafe { driver::binary_uninit::<V>(a, b, out, Op::apply) }
+            unsafe { driver::binary_uninit::<V, Op>(a, b, out) }
         }
 
         #[target_feature(enable = "avx2,fma")]
@@ -180,7 +189,7 @@ cfg_x86! {
         ) {
             // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
             // AVX2 register type.
-            unsafe { driver::binary_in_place::<V>(a, b, Op::apply) }
+            unsafe { driver::binary_in_place::<V, Op>(a, b) }
         }
 
         #[cfg(any(feature = "alloc", test))]
@@ -192,7 +201,7 @@ cfg_x86! {
         ) {
             // SAFETY: AVX-512F is enabled in this function, and `V` is an
             // AVX-512 register type.
-            unsafe { driver::binary_uninit::<V>(a, b, out, Op::apply) }
+            unsafe { driver::binary_uninit::<V, Op>(a, b, out) }
         }
 
         #[target_feature(enable = "avx512f")]
@@ -202,7 +211,7 @@ cfg_x86! {
         ) {
             // SAFETY: AVX-512F is enabled in this function, and `V` is an
             // AVX-512 register type.
-            unsafe { driver::binary_in_place::<V>(a, b, Op::apply) }
+            unsafe { driver::binary_in_place::<V, Op>(a, b) }
         }
     }
 }
@@ -223,7 +232,7 @@ cfg_neon! {
         ) {
             // SAFETY: NEON is enabled at compile time, and `V` is a NEON
             // register type.
-            unsafe { driver::binary_uninit::<V>(a, b, out, Op::apply) }
+            unsafe { driver::binary_uninit::<V, Op>(a, b, out) }
         }
 
         #[inline]
@@ -233,7 +242,7 @@ cfg_neon! {
         ) {
             // SAFETY: NEON is enabled at compile time, and `V` is a NEON
             // register type.
-            unsafe { driver::binary_in_place::<V>(a, b, Op::apply) }
+            unsafe { driver::binary_in_place::<V, Op>(a, b) }
         }
     }
 }

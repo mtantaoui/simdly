@@ -35,10 +35,10 @@ cargo test
 | `src/macros.rs`      | `cfg_x86!` / `cfg_neon!` / `cfg_simd!` — architecture selection; `dispatch!` |
 | `src/detect.rs`      | CPU feature detection (`has_avx2_fma`, …) and `backend()`  |
 | `src/simd/<isa>/`    | Register types (`F32x8`, …) implementing `SimdVector`      |
-| `src/math/<fn>/`     | One folder per function: `mod.rs` (docs), `consts.rs`, one file per ISA; a simple one (`abs.rs`) is one file |
+| `src/math/<fn>.rs`   | One file per function; an algorithm (`acos.rs`) is written once over `Float` (`float.rs`) for every backend |
 | `src/math/driver.rs` | Chunk + tail loops shared by every function                |
 | `src/ops/`           | Element-wise arithmetic and reductions                     |
-| `src/testing/`       | Test-only helpers: special values, bit-exact comparison (ULP distance planned) |
+| `src/testing/`       | Test-only helpers: special values, bit-exact comparison, ULP error |
 | `examples/`          | One runnable example per public operation                  |
 | `benches/`           | One benchmark per public operation, vs a plain scalar loop |
 

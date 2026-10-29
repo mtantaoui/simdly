@@ -13,6 +13,7 @@ fn main() {
     println!("x      = {x:?}");
     println!("|x|    = {:?}", x.abs());
     println!("√x     = {:?}", x.sqrt());
+    println!("acos x = {:?}", x.acos());
 
     // In place, and on `f64`.
     let mut y = vec![-0.1_f64, 0.2, -0.3];

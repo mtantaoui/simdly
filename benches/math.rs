@@ -51,6 +51,13 @@ fn positive<T: Float>(len: usize) -> Vec<T> {
         .collect()
 }
 
+/// In `[−1, 1]`, the domain of `acos`.
+fn unit<T: Float>(len: usize) -> Vec<T> {
+    (0..len)
+        .map(|i| T::from_f64((i as f64 * 0.37).sin()))
+        .collect()
+}
+
 type Input<T> = fn(usize) -> Vec<T>;
 
 /// `simdly(x)` vs `x.iter().map(f).collect()`.
@@ -114,6 +121,14 @@ fn abs(c: &mut Criterion) {
     group.finish();
 }
 
+/// Out of place only: in place, a second pass would see values above 1.
+fn acos(c: &mut Criterion) {
+    let mut group = c.benchmark_group("acos");
+    out_of_place::<f32>(&mut group, unit, |x| x.acos(), f32::acos);
+    out_of_place::<f64>(&mut group, unit, |x| x.acos(), f64::acos);
+    group.finish();
+}
+
 fn sqrt(c: &mut Criterion) {
     let mut group = c.benchmark_group("sqrt");
     out_of_place::<f32>(&mut group, positive, |x| x.sqrt(), f32::sqrt);
@@ -137,6 +152,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, sqrt
+    targets = abs, acos, sqrt
 }
 criterion_main!(benches);

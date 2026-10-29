@@ -1,22 +1,13 @@
 //! Element-wise mathematical functions, through [`SliceMath`].
 //!
-//! A function needing ISA-specific kernels gets its own folder:
+//! Each function is one file implementing a lane-level trait (`Abs`, `Acos`,
+//! …) for every lane type (`f32`, `f64` and the SIMD registers), and a
+//! zero-sized [`UnaryOp`] names it, so every `(function, element, backend)`
+//! triple compiles to its own inlined loop over the [`driver`].
 //!
-//! ```text
-//! math/exp/
-//! ├── mod.rs      public docs + algorithm; routes to the active backend
-//! ├── consts.rs   musl / fdlibm constants shared by every ISA
-//! ├── avx2.rs     AVX2 kernel and its ULP tests
-//! ├── avx512.rs
-//! ├── neon.rs
-//! └── scalar.rs
-//! ```
-//!
-//! A simple one, like [`abs`] or [`sqrt`], is one file. Either way it implements a
-//! lane-level trait (`Abs`, …) for every lane type (`f32`, `f64` and the SIMD
-//! registers), and a zero-sized [`UnaryOp`] names it, so every
-//! `(function, element, backend)` triple compiles to its own inlined loop
-//! over the [`driver`].
+//! A single instruction ([`abs`], [`sqrt`]) is implemented per lane type. An
+//! algorithm ([`acos`]) is written once, generic over [`Float`], and each
+//! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
@@ -24,6 +15,8 @@ use alloc::vec::Vec;
 use core::mem::MaybeUninit;
 
 mod abs;
+mod acos;
+mod float;
 mod sqrt;
 
 cfg_simd! {
@@ -31,18 +24,29 @@ cfg_simd! {
 }
 
 use abs::Abs;
+use acos::Acos;
+use float::Float;
 use sqrt::Sqrt;
 
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
-pub(crate) trait Math: Abs + Sqrt {}
+pub(crate) trait Math: Float + Acos {}
 
-impl<T: Abs + Sqrt> Math for T {}
+impl<T: Float + Acos> Math for T {}
 
 /// An element-wise math function.
 pub(crate) trait UnaryOp {
     /// Applies the function lane-wise.
     fn apply<V: Math>(v: V) -> V;
+}
+
+cfg_simd! {
+    impl<F: UnaryOp, V: Math> driver::UnaryFn<V> for F {
+        #[inline(always)]
+        fn call(x: V) -> V {
+            F::apply(x)
+        }
+    }
 }
 
 /// `|x|`.
@@ -52,6 +56,16 @@ impl UnaryOp for AbsOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.abs()
+    }
+}
+
+/// `acos(x)`.
+pub(crate) struct AcosOp;
+
+impl UnaryOp for AcosOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.acos()
     }
 }
 
@@ -174,14 +188,14 @@ cfg_x86! {
         ) {
             // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
             // AVX2 register type.
-            unsafe { driver::unary_uninit::<V>(x, out, F::apply) }
+            unsafe { driver::unary_uninit::<V, F>(x, out) }
         }
 
         #[target_feature(enable = "avx2,fma")]
         pub(super) fn avx2_unary_in_place<V: SimdVector + Math, F: UnaryOp>(x: &mut [V::Scalar]) {
             // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
             // AVX2 register type.
-            unsafe { driver::unary_in_place::<V>(x, F::apply) }
+            unsafe { driver::unary_in_place::<V, F>(x) }
         }
 
         #[cfg(any(feature = "alloc", test))]
@@ -192,14 +206,14 @@ cfg_x86! {
         ) {
             // SAFETY: AVX-512F is enabled in this function, and `V` is an
             // AVX-512 register type.
-            unsafe { driver::unary_uninit::<V>(x, out, F::apply) }
+            unsafe { driver::unary_uninit::<V, F>(x, out) }
         }
 
         #[target_feature(enable = "avx512f")]
         pub(super) fn avx512_unary_in_place<V: SimdVector + Math, F: UnaryOp>(x: &mut [V::Scalar]) {
             // SAFETY: AVX-512F is enabled in this function, and `V` is an
             // AVX-512 register type.
-            unsafe { driver::unary_in_place::<V>(x, F::apply) }
+            unsafe { driver::unary_in_place::<V, F>(x) }
         }
     }
 }
@@ -218,14 +232,14 @@ cfg_neon! {
         ) {
             // SAFETY: NEON is enabled at compile time, and `V` is a NEON
             // register type.
-            unsafe { driver::unary_uninit::<V>(x, out, F::apply) }
+            unsafe { driver::unary_uninit::<V, F>(x, out) }
         }
 
         #[inline]
         pub(super) fn unary_in_place<V: SimdVector + Math, F: UnaryOp>(x: &mut [V::Scalar]) {
             // SAFETY: NEON is enabled at compile time, and `V` is a NEON
             // register type.
-            unsafe { driver::unary_in_place::<V>(x, F::apply) }
+            unsafe { driver::unary_in_place::<V, F>(x) }
         }
     }
 }
@@ -263,6 +277,21 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = |self[i]|`.
     fn abs_in_place(&mut self);
 
+    /// `acos(self[i])` in radians, in `[0, π]`. Error ≤ 1 ULP; NaN outside
+    /// `[−1, 1]`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![1.0_f64, 0.0, -1.0];
+    /// assert_eq!(a.acos(), [0.0, core::f64::consts::FRAC_PI_2, core::f64::consts::PI]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn acos(&self) -> Vec<T>;
+
+    /// `self[i] = acos(self[i])`.
+    fn acos_in_place(&mut self);
+
     /// `√self[i]`, correctly rounded (0 ULP) on every backend. `√-0.0` is
     /// `-0.0`; negative values and NaN give NaN.
     ///
@@ -294,6 +323,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn abs_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<AbsOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn acos(&self) -> Vec<$T> {
+                    unary_to_vec::<AcosOp, _>(self)
+                }
+
+                #[inline]
+                fn acos_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<AcosOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]
