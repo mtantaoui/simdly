@@ -8,14 +8,14 @@
 
 use core::ops::Neg;
 
-use super::{Abs, Sqrt};
+use super::{Abs, Floor, Sqrt};
 use crate::ops::{Arith, Compare};
 
 /// A float, or a SIMD register of floats.
 ///
 /// Methods taking `self` are safe: a register value proves the CPU supports
 /// its ISA (see `SimdVector`).
-pub(crate) trait Float: Arith + Neg<Output = Self> + Compare + Abs + Sqrt {
+pub(crate) trait Float: Arith + Neg<Output = Self> + Compare + Abs + Floor + Sqrt {
     /// The element type: `f32` or `f64`.
     type Elem: Element;
 

@@ -41,5 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SliceMath::cbrt` and `cbrt_in_place`, ≤ 1 ULP (0.667) on every backend:
   exact reduction with `Float::frexp` / `Float::ldexp`, a polynomial guess
   and musl's final step.
+- `SliceMath::floor` and `floor_in_place`, exact on every backend (one
+  rounding instruction; float arithmetic on scalar); `Float` now requires
+  `Floor`.
 - `SliceMath::sqrt` and `sqrt_in_place`, correctly rounded on every backend;
   without `std`, the scalar fallback computes it exactly with integers.

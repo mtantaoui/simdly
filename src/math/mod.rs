@@ -5,7 +5,7 @@
 //! zero-sized [`UnaryOp`] names it, so every `(function, element, backend)`
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
-//! A single instruction ([`abs`], [`sqrt`]) is implemented per lane type. An
+//! A single instruction ([`abs`], [`floor`], [`sqrt`]) is implemented per lane type. An
 //! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
@@ -21,6 +21,7 @@ mod atan;
 mod atan2;
 mod cbrt;
 mod float;
+mod floor;
 mod sqrt;
 
 cfg_simd! {
@@ -34,6 +35,7 @@ use atan::Atan;
 use atan2::Atan2;
 use cbrt::Cbrt;
 use float::Float;
+use floor::Floor;
 use sqrt::Sqrt;
 
 /// A lane type with every math function: a float or a SIMD register of
@@ -131,6 +133,16 @@ impl UnaryOp for CbrtOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.cbrt()
+    }
+}
+
+/// `⌊x⌋`.
+pub(crate) struct FloorOp;
+
+impl UnaryOp for FloorOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.floor()
     }
 }
 
@@ -583,6 +595,23 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = ∛self[i]`.
     fn cbrt_in_place(&mut self);
 
+    /// `⌊self[i]⌋`, the largest integer not above it. Exact: `⌊−0.0⌋` is
+    /// `−0.0`, `⌊−0.3⌋` is `−1.0`, and `±∞` and NaN are returned as they are.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![2.7_f32, -2.7, -0.0];
+    /// let f = a.floor();
+    /// assert_eq!(f, [2.0, -3.0, -0.0]);
+    /// assert!(f[2].is_sign_negative());
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn floor(&self) -> Vec<T>;
+
+    /// `self[i] = ⌊self[i]⌋`.
+    fn floor_in_place(&mut self);
+
     /// `√self[i]`, correctly rounded (0 ULP) on every backend. `√-0.0` is
     /// `-0.0`; negative values and NaN give NaN.
     ///
@@ -669,6 +698,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn cbrt_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<CbrtOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn floor(&self) -> Vec<$T> {
+                    unary_to_vec::<FloorOp, _>(self)
+                }
+
+                #[inline]
+                fn floor_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<FloorOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]
