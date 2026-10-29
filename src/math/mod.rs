@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -19,6 +19,7 @@ mod acos;
 mod asin;
 mod atan;
 mod atan2;
+mod cbrt;
 mod float;
 mod sqrt;
 
@@ -31,14 +32,15 @@ use acos::Acos;
 use asin::Asin;
 use atan::Atan;
 use atan2::Atan2;
+use cbrt::Cbrt;
 use float::Float;
 use sqrt::Sqrt;
 
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
-pub(crate) trait Math: Float + Acos + Asin + Atan + Atan2 {}
+pub(crate) trait Math: Float + Acos + Asin + Atan + Atan2 + Cbrt {}
 
-impl<T: Float + Acos + Asin + Atan + Atan2> Math for T {}
+impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt> Math for T {}
 
 /// An element-wise math function.
 pub(crate) trait UnaryOp {
@@ -119,6 +121,16 @@ impl BinaryOp for Atan2Op {
     #[inline(always)]
     fn apply<V: Math>(y: V, x: V) -> V {
         y.atan2(x)
+    }
+}
+
+/// `∛x`.
+pub(crate) struct CbrtOp;
+
+impl UnaryOp for CbrtOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.cbrt()
     }
 }
 
@@ -556,6 +568,21 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// If `self` and `x` have different lengths.
     fn atan2_in_place(&mut self, x: &[T]);
 
+    /// `∛self[i]`, defined for negative values too (`∛−8 = −2`). Error ≤ 1
+    /// ULP; `±0`, `±∞` and NaN are returned as they are.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![27.0_f32, -8.0, 0.125];
+    /// assert_eq!(a.cbrt(), [3.0, -2.0, 0.5]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn cbrt(&self) -> Vec<T>;
+
+    /// `self[i] = ∛self[i]`.
+    fn cbrt_in_place(&mut self);
+
     /// `√self[i]`, correctly rounded (0 ULP) on every backend. `√-0.0` is
     /// `-0.0`; negative values and NaN give NaN.
     ///
@@ -631,6 +658,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn atan2_in_place(&mut self, x: &[$T]) {
                     <$T as MathElement>::binary_in_place::<Atan2Op>(self, x);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn cbrt(&self) -> Vec<$T> {
+                    unary_to_vec::<CbrtOp, _>(self)
+                }
+
+                #[inline]
+                fn cbrt_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<CbrtOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]

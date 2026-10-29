@@ -13,9 +13,10 @@
 //! assert_eq!(a, [5.0, 7.0, 9.0]);
 //! ```
 //!
-//! With the `alloc` feature (on by default), [`SliceExt::add`] and friends
-//! return a new `Vec` instead. Math functions are in [`SliceMath`]
-//! ([`abs`](SliceMath::abs), [`acos`](SliceMath::acos), [`asin`](SliceMath::asin), [`atan`](SliceMath::atan), [`atan2`](SliceMath::atan2), [`sqrt`](SliceMath::sqrt), …).
+//! With the `alloc` feature (on by default), `add` and friends return a new
+//! `Vec` instead. Math functions are in [`SliceMath`]: `abs`, `acos`,
+//! `asin`, `atan`, `atan2`, `cbrt`, `sqrt`, …, each with an `_in_place`
+//! variant.
 //!
 //! ## Backends
 //!
@@ -34,7 +35,7 @@
 //! ## Cargo features
 //!
 //! - `std` *(default)* — runtime CPU detection; implies `alloc`.
-//! - `alloc` — `Vec`-returning slice APIs ([`SliceExt::add`], …).
+//! - `alloc` — `Vec`-returning slice APIs ([`SliceExt`]'s `add`, …).
 //!
 //! Without default features the crate is `no_std`.
 

@@ -1,5 +1,5 @@
 //! `atan2(y, x)`, ≤ 1 ULP on every backend, written once over [`Float`]. It
-//! reuses [`atan`](super::atan)'s ranges, constants and polynomial, with two
+//! reuses [`atan`]'s ranges, constants and polynomial, with two
 //! changes that keep the error below 1 ULP (musl's `atan2`, which computes
 //! `atan(|y/x|)` and then `π − z`, reaches 1.47 ULP):
 //!

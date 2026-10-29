@@ -13,6 +13,7 @@ fn main() {
     println!("x      = {x:?}");
     println!("|x|    = {:?}", x.abs());
     println!("√x     = {:?}", x.sqrt());
+    println!("∛x     = {:?}", x.cbrt());
     println!("acos x = {:?}", x.acos());
     println!("asin x = {:?}", x.asin());
     println!("atan x = {:?}", x.atan());

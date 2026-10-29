@@ -38,5 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   C99's signed zeros and infinities: no rounded `y/x` (exact remainder) and
   `π − atan` folded into the constants. `Float::residual` (exact `c − a·b`)
   and `Float::is_sign_negative`.
+- `SliceMath::cbrt` and `cbrt_in_place`, ≤ 1 ULP (0.667) on every backend:
+  exact reduction with `Float::frexp` / `Float::ldexp`, a polynomial guess
+  and musl's final step.
 - `SliceMath::sqrt` and `sqrt_in_place`, correctly rounded on every backend;
   without `std`, the scalar fallback computes it exactly with integers.
