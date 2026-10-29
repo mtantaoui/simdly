@@ -39,3 +39,9 @@ cargo test --release -- --ignored exhaustive
 backend against `std` on about 400 000 inputs; the maxima quoted in this
 book come from a 200-bit reference ([mpmath](https://mpmath.org)) on the
 same kind of sample.
+
+`std`'s `f64` functions come from the platform's C library, and their
+accuracy varies: the Windows C runtime's `cbrt` is off by 1.5 ULP on some
+inputs. Where that matters, the test reference is `std`'s result corrected
+by one Newton step in double-double arithmetic (about 100 bits), so the
+tests measure simdly, not the platform.

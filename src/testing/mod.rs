@@ -72,18 +72,24 @@ test_float!(f32: 1e-40, f64: 1e-310);
 /// `|got − want|` in ULPs of `want` rounded to `T`: 0 if both are NaN or
 /// equal, infinite if only one is NaN.
 pub(crate) fn ulp_error<T: TestFloat>(got: T, want: f64) -> f64 {
-    if got.is_nan() || want.is_nan() {
-        return if got.is_nan() && want.is_nan() {
+    ulp_error_dd(got, (want, 0.0))
+}
+
+/// [`ulp_error`] against `hi + lo`, a reference more precise than `f64`.
+pub(crate) fn ulp_error_dd<T: TestFloat>(got: T, (hi, lo): (f64, f64)) -> f64 {
+    if got.is_nan() || hi.is_nan() {
+        return if got.is_nan() && hi.is_nan() {
             0.0
         } else {
             f64::INFINITY
         };
     }
     let got = got.to_f64();
-    if got == want {
+    if got == hi && lo == 0.0 {
         return 0.0;
     }
-    (got - want).abs() / T::from_f64(want).ulp()
+    // `got − hi` is exact when they are close: the only case that matters.
+    ((got - hi) - lo).abs() / T::from_f64(hi).ulp()
 }
 
 /// Bit-exact equality, except that any two NaNs match.
@@ -129,9 +135,20 @@ pub(crate) fn assert_ulps<T: TestFloat + MathElement, F: UnaryOp>(
     reference: fn(f64) -> f64,
     max: f64,
 ) {
+    assert_ulps_dd::<T, F>(name, x, |v| (reference(v), 0.0), max);
+}
+
+/// [`assert_ulps`] against a reference given as `hi + lo`: for `f64`
+/// results, when the platform's `f64` function is not accurate enough.
+pub(crate) fn assert_ulps_dd<T: TestFloat + MathElement, F: UnaryOp>(
+    name: &str,
+    x: &[T],
+    reference: impl Fn(f64) -> (f64, f64),
+    max: f64,
+) {
     for (backend, got) in T::every_backend::<F>(x) {
         for (&x, &got) in x.iter().zip(&got) {
-            let e = ulp_error(got, reference(x.to_f64()));
+            let e = ulp_error_dd(got, reference(x.to_f64()));
             assert!(
                 e <= max,
                 "{name} {} {backend}: {name}({x:?}) = {got:?}, {e:.3} ULP",

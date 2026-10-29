@@ -141,22 +141,48 @@ impl Kernel for f64 {
 #[cfg(test)]
 mod tests {
     use crate::math::CbrtOp;
-    use crate::testing::{assert_exact, assert_ulps, assert_ulps_every_f32, samples};
+    use crate::testing::{assert_exact, assert_ulps_dd, assert_ulps_every_f32, samples};
+
+    /// `∛x` as `hi + lo`, to about 100 bits whatever the platform's `cbrt`
+    /// (the Windows C runtime's is off by 1.5 ULP on some inputs): `std`'s
+    /// result corrected by one Newton step in double-double arithmetic.
+    fn cbrt_dd(x: f64) -> (f64, f64) {
+        // Keep r³'s error terms out of the subnormals: ∛(x·2^300) = ∛x·2^100.
+        let (x, scale) = if x.abs() < 1e-250 {
+            (x * 2f64.powi(300), 2f64.powi(-100))
+        } else {
+            (x, 1.0)
+        };
+        let r = x.cbrt();
+        if r == 0.0 || !r.is_finite() {
+            return (r * scale, 0.0);
+        }
+        let (p1, e1) = (r * r, r.mul_add(r, -(r * r))); // r² = p1 + e1
+        let (p2, e2) = (r * p1, r.mul_add(p1, -(r * p1))); // r·p1 = p2 + e2
+        let residual = (x - p2) - r.mul_add(e1, e2); // x − r³
+        (r * scale, residual / (3.0 * p1) * scale)
+    }
 
     #[test]
     fn cbrt_within_1_ulp() {
-        assert_ulps::<f32, CbrtOp>(
-            "cbrt",
-            &samples(200_000, f32::MAX.into(), &[1.0, 8.0]),
-            f64::cbrt,
-            1.0,
-        );
-        assert_ulps::<f64, CbrtOp>(
-            "cbrt",
-            &samples(200_000, f64::MAX, &[1.0, 8.0]),
-            f64::cbrt,
-            1.0,
-        );
+        let x32 = samples(200_000, f32::MAX.into(), &[1.0, 8.0]);
+        assert_ulps_dd::<f32, CbrtOp>("cbrt", &x32, cbrt_dd, 1.0);
+        let x64 = samples(200_000, f64::MAX, &[1.0, 8.0]);
+        assert_ulps_dd::<f64, CbrtOp>("cbrt", &x64, cbrt_dd, 1.0);
+    }
+
+    /// The reference itself, on the inputs that failed on Windows, against
+    /// a 200-bit computation: `hi + lo` rounds to the correct result, and
+    /// is not `std`'s plain `f64` result there.
+    #[test]
+    fn cbrt_reference_is_precise() {
+        for (x, want) in [
+            (7.512_354_133_931_177e-290, 4.219_477_585_190_55e-97),
+            (3.206_033_946_634_274_7e-304, 6.844_200_213_881_058e-102),
+        ] {
+            let (hi, lo) = cbrt_dd(x);
+            assert_eq!(hi + lo, want, "cbrt_dd({x:e})");
+        }
     }
 
     #[test]
