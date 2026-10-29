@@ -1,0 +1,13 @@
+[book]
+title = "simdly"
+description = "How simdly computes its functions with SIMD, the maths behind each one, and benchmarks."
+authors = ["Mahdi Tantaoui"]
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/mtantaoui/simdly"
+mathjax-support = true
+
+[output.html.playground]
+runnable = false

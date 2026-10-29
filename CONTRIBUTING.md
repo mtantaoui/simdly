@@ -15,7 +15,11 @@ cargo build --target thumbv7em-none-eabihf --no-default-features    # cross-comp
 
 `cargo run --example backend` prints the backend in use, and `cargo bench`
 runs the benchmarks (criterion; HTML reports in
-`target/criterion/report/index.html`).
+`target/criterion/report/index.html`). `python3 tools/bench_table.py` turns
+the results into the book's speed-up tables.
+
+The book in `book/` (maths of each function, benchmarks) builds with
+[mdBook](https://rust-lang.github.io/mdBook/): `mdbook serve book`.
 
 Set `SIMDLY_REQUIRE_BACKENDS=avx2,avx512` to make the tests fail, instead of
 skip, when a backend is missing (CI does this).
@@ -41,6 +45,8 @@ cargo test
 | `src/testing/`       | Test-only helpers: special values, bit-exact comparison, ULP error |
 | `examples/`          | One runnable example per public operation                  |
 | `benches/`           | One benchmark per public operation, vs a plain scalar loop |
+| `book/`              | mdBook: design, the maths of each function, benchmark results |
+| `tools/`             | Helper scripts (`bench_table.py`)                          |
 
 ## Conventions
 

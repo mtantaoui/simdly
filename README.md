@@ -54,6 +54,9 @@ scalar).
 | `hypot3`                                       | 🚧      | 🚧   | 🚧   | 🚧     |
 | `hypot4`                                       | 🚧      | 🚧   | 🚧   | 🚧     |
 
+The [book](book/) explains the maths behind each function and collects the
+benchmarks (`mdbook serve book`).
+
 ## Supported targets
 
 | Architecture | ISA             | `f32` lanes | `f64` lanes |
