@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SliceMath::cbrt` and `cbrt_in_place`, ≤ 1 ULP (0.667) on every backend:
   exact reduction with `Float::frexp` / `Float::ldexp`, a polynomial guess
   and musl's final step.
+- `SliceMath::exp` and `exp_in_place`, ≤ 1 ULP (0.91 `f32`, 0.84 `f64`) on
+  every backend, subnormal results included: fdlibm's algorithm with `f32`
+  kept in `f32`, and `2^k` applied in two normal factors.
 - `SliceMath::floor` and `floor_in_place`, exact on every backend (one
   rounding instruction; float arithmetic on scalar); `Float` now requires
   `Floor`.

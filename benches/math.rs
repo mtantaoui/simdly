@@ -58,6 +58,13 @@ fn unit<T: Float>(len: usize) -> Vec<T> {
         .collect()
 }
 
+/// In `[−80, 80]`: finite `exp` for `f32` and `f64`.
+fn moderate<T: Float>(len: usize) -> Vec<T> {
+    (0..len)
+        .map(|i| T::from_f64((i as f64 * 0.37).sin() * 80.0))
+        .collect()
+}
+
 type Input<T> = fn(usize) -> Vec<T>;
 
 /// `simdly(x)` vs `x.iter().map(f).collect()`.
@@ -204,6 +211,14 @@ fn cbrt(c: &mut Criterion) {
     group.finish();
 }
 
+/// Out of place only: in place, a second pass would overflow.
+fn exp(c: &mut Criterion) {
+    let mut group = c.benchmark_group("exp");
+    out_of_place::<f32>(&mut group, moderate, |x| x.exp(), f32::exp);
+    out_of_place::<f64>(&mut group, moderate, |x| x.exp(), f64::exp);
+    group.finish();
+}
+
 fn floor(c: &mut Criterion) {
     let mut group = c.benchmark_group("floor");
     out_of_place::<f32>(&mut group, signed, |x| x.floor(), f32::floor);
@@ -239,6 +254,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, asin, atan, atan2, cbrt, floor, sqrt
+    targets = abs, acos, asin, atan, atan2, cbrt, exp, floor, sqrt
 }
 criterion_main!(benches);

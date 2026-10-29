@@ -84,6 +84,15 @@ pub(crate) fn ulp_error_dd<T: TestFloat>(got: T, (hi, lo): (f64, f64)) -> f64 {
             f64::INFINITY
         };
     }
+    // A result that rounds to ±∞ must be exactly that.
+    let want = T::from_f64(hi);
+    if want.to_f64().is_infinite() || got.to_f64().is_infinite() {
+        return if got.bits() == want.bits() {
+            0.0
+        } else {
+            f64::INFINITY
+        };
+    }
     let got = got.to_f64();
     if got == hi && lo == 0.0 {
         return 0.0;

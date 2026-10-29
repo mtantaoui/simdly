@@ -15,7 +15,7 @@
 //!
 //! With the `alloc` feature (on by default), `add` and friends return a new
 //! `Vec` instead. Math functions are in [`SliceMath`]: `abs`, `acos`,
-//! `asin`, `atan`, `atan2`, `cbrt`, `floor`, `sqrt`, …, each with an `_in_place`
+//! `asin`, `atan`, `atan2`, `cbrt`, `exp`, `floor`, `sqrt`, …, each with an `_in_place`
 //! variant.
 //!
 //! ## Backends

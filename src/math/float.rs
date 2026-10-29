@@ -155,9 +155,11 @@ macro_rules! float_scalar {
                     (m, (bits >> $FRAC) as $T - $BIAS as $T)
                 }
 
+                /// Wrapping, like the SIMD versions: out-of-range `n` (whose
+                /// result a kernel discards) must not panic.
                 #[inline(always)]
                 fn ldexp(self, n: $T) -> $T {
-                    self * $T::from_bits(((n as i32 + $BIAS) as $Bits) << $FRAC)
+                    self * $T::from_bits(((n as i32).wrapping_add($BIAS) as $Bits) << $FRAC)
                 }
             }
         )*

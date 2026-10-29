@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -20,6 +20,7 @@ mod asin;
 mod atan;
 mod atan2;
 mod cbrt;
+mod exp;
 mod float;
 mod floor;
 mod sqrt;
@@ -34,15 +35,16 @@ use asin::Asin;
 use atan::Atan;
 use atan2::Atan2;
 use cbrt::Cbrt;
+use exp::Exp;
 use float::Float;
 use floor::Floor;
 use sqrt::Sqrt;
 
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
-pub(crate) trait Math: Float + Acos + Asin + Atan + Atan2 + Cbrt {}
+pub(crate) trait Math: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp {}
 
-impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt> Math for T {}
+impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp> Math for T {}
 
 /// An element-wise math function.
 pub(crate) trait UnaryOp {
@@ -133,6 +135,16 @@ impl UnaryOp for CbrtOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.cbrt()
+    }
+}
+
+/// `eˣ`.
+pub(crate) struct ExpOp;
+
+impl UnaryOp for ExpOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.exp()
     }
 }
 
@@ -595,6 +607,24 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = ∛self[i]`.
     fn cbrt_in_place(&mut self);
 
+    /// `e^self[i]`. Error ≤ 1 ULP; `+∞` above `ln(MAX)`, `+0` below the
+    /// underflow threshold, subnormal results in between.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let r = vec![0.0_f64, f64::NEG_INFINITY, 1.0].exp();
+    /// assert_eq!(r[..2], [1.0, 0.0]);
+    /// // Within 1 ULP of e (here 0.67 ULP: the float just above `E`).
+    /// let e = core::f64::consts::E;
+    /// assert!((r[2] - e).abs() <= f64::EPSILON * 2.0);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn exp(&self) -> Vec<T>;
+
+    /// `self[i] = e^self[i]`.
+    fn exp_in_place(&mut self);
+
     /// `⌊self[i]⌋`, the largest integer not above it. Exact: `⌊−0.0⌋` is
     /// `−0.0`, `⌊−0.3⌋` is `−1.0`, and `±∞` and NaN are returned as they are.
     ///
@@ -698,6 +728,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn cbrt_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<CbrtOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn exp(&self) -> Vec<$T> {
+                    unary_to_vec::<ExpOp, _>(self)
+                }
+
+                #[inline]
+                fn exp_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<ExpOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]
