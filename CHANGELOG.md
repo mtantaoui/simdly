@@ -49,8 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and one Newton step on the square root.
 - `SliceMath::hypot3(&y, &z)` and `hypot3_in_place`, √(x² + y² + z²)
   without overflow or underflow in between: 0.500 ULP for normal results
-  (the squares summed exactly), 0.75 for subnormal ones. Ternary slice
-  drivers.
+  (the squares summed exactly), 0.75 for subnormal ones.
+- `SliceMath::hypot4(&y, &z, &w)` and `hypot4_in_place`, the same for four
+  inputs: one kernel for `N` squares, and `N`-input slice drivers.
 - `SliceMath::ln` and `ln_in_place`, ≤ 1 ULP (0.835 `f32`, 0.823 `f64`) on
   every backend, subnormal inputs included: fdlibm's algorithm, `f32` kept
   in `f32`.

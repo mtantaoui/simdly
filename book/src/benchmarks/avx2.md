@@ -90,6 +90,8 @@ Speed-up of simdly's AVX2 backend (8 `f32` / 4 `f64` lanes) over the scalar loop
 | `hypot` | `f64` | – | – | – | – |
 | `hypot3` | `f32` | – | – | – | – |
 | `hypot3` | `f64` | – | – | – | – |
+| `hypot4` | `f32` | – | – | – | – |
+| `hypot4` | `f64` | – | – | – | – |
 | `ln` | `f32` | – | – | – | – |
 | `ln` | `f64` | – | – | – | – |
 | `sin` | `f32` | – | – | – | – |

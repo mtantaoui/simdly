@@ -20,6 +20,7 @@
 - [Floor `floor`](./functions/floor.md)
 - [Hypotenuse `hypot`](./functions/hypot.md)
 - [Three-dimensional hypotenuse `hypot3`](./functions/hypot3.md)
+- [Four-dimensional hypotenuse `hypot4`](./functions/hypot4.md)
 - [Natural logarithm `ln`](./functions/ln.md)
 - [Sine `sin`](./functions/sin.md)
 - [Tangent `tan`](./functions/tan.md)

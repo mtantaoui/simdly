@@ -8,7 +8,7 @@ SIMD implementations of mathematical functions for Rust, with a documented
 worst-case ULP bound for every function.
 
 > **Status:** early development. Element-wise arithmetic, comparisons (like
-> NumPy's), `abs`, `ceil`, `floor`, `sqrt`, `cbrt`, `exp`, `ln`, `acos`, `asin`, `atan`, `atan2`, `hypot`, `hypot3`, `sin`, `cos` and `tan` on `f32` and `f64` slices are implemented; see
+> NumPy's), `abs`, `ceil`, `floor`, `sqrt`, `cbrt`, `exp`, `ln`, `acos`, `asin`, `atan`, `atan2`, `hypot`, `hypot3`, `hypot4`, `sin`, `cos` and `tan` on `f32` and `f64` slices are implemented; see
 > [Implementation status](#implementation-status).
 
 ```rust
@@ -46,11 +46,11 @@ scalar).
 | `ln`                                           | ✅      | ✅   | ✅   | ✅     |
 | `hypot`                                        | ✅      | ✅   | ✅   | ✅     |
 | `hypot3`                                       | ✅      | ✅   | ✅   | ✅     |
+| `hypot4`                                       | ✅      | ✅   | ✅   | ✅     |
 | `sin`                                          | ✅      | ✅   | ✅   | ✅     |
 | `cos`                                          | ✅      | ✅   | ✅   | ✅     |
 | `tan`                                          | ✅      | ✅   | ✅   | ✅     |
 | `sqrt`                                         | ✅      | ✅   | ✅   | ✅     |
-| `hypot4`                                       | 🚧      | 🚧   | 🚧   | 🚧     |
 
 The [book](book/) explains the maths behind each function and collects the
 benchmarks (`mdbook serve book`).

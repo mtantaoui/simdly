@@ -13,7 +13,7 @@
 //! }
 //! ```
 //!
-//! The operation is a type ([`UnaryFn`], [`BinaryFn`], [`TernaryFn`]), not a closure or
+//! The operation is a type ([`UnaryFn`], [`BinaryFn`], [`NaryFn`]), not a closure or
 //! `impl Fn`: either would go through a function compiled without the
 //! kernel's target features, and unless LLVM inlines it, every intrinsic in
 //! a large operation (`acos`, …) becomes a call.
@@ -35,9 +35,9 @@ pub(crate) trait BinaryFn<S> {
     fn call(a: S, b: S) -> S;
 }
 
-/// A register operation `(S, S, S) -> S`, applied by the ternary drivers.
-pub(crate) trait TernaryFn<S> {
-    fn call(a: S, b: S, c: S) -> S;
+/// A register operation `[S; N] -> S`, applied by the `nary` drivers.
+pub(crate) trait NaryFn<S, const N: usize> {
+    fn call(v: [S; N]) -> S;
 }
 
 /// `out[i] = F(x[i])`.
@@ -162,7 +162,7 @@ pub(crate) unsafe fn binary_in_place<S: SimdVector, F: BinaryFn<S>>(
     unsafe { drive(a.len(), [ptr.cast_const(), b.as_ptr()], ptr, Binary::<F>(PhantomData)) }
 }
 
-/// [`binary_uninit`] with three inputs: on return all of `out` is
+/// `out[i] = F([src[0][i], .., src[N-1][i]])`: on return all of `out` is
 /// initialised.
 ///
 /// # Safety
@@ -171,24 +171,21 @@ pub(crate) unsafe fn binary_in_place<S: SimdVector, F: BinaryFn<S>>(
 ///
 /// # Panics
 ///
-/// If `a`, `b`, `c` and `out` do not all have the same length.
+/// If the slices and `out` do not all have the same length.
 #[inline(always)]
-pub(crate) unsafe fn ternary_uninit<S: SimdVector, F: TernaryFn<S>>(
-    a: &[S::Scalar],
-    b: &[S::Scalar],
-    c: &[S::Scalar],
+pub(crate) unsafe fn nary_uninit<S: SimdVector, F: NaryFn<S, N>, const N: usize>(
+    src: [&[S::Scalar]; N],
     out: &mut [MaybeUninit<S::Scalar>],
 ) {
-    assert_eq!(a.len(), b.len(), "length mismatch");
-    assert_eq!(a.len(), c.len(), "length mismatch");
-    assert_eq!(a.len(), out.len(), "length mismatch");
-    let src = [a.as_ptr(), b.as_ptr(), c.as_ptr()];
-    // SAFETY: the caller guarantees the ISA; all four slices hold `a.len()`
+    for x in src {
+        assert_eq!(x.len(), out.len(), "length mismatch");
+    }
+    // SAFETY: the caller guarantees the ISA; every slice holds `out.len()`
     // elements, and `MaybeUninit<T>` has the layout of `T`.
-    unsafe { drive(a.len(), src, out.as_mut_ptr().cast(), Ternary::<F>(PhantomData)) }
+    unsafe { drive(out.len(), src.map(<[_]>::as_ptr), out.as_mut_ptr().cast(), Nary::<F>(PhantomData)) }
 }
 
-/// `a[i] = F(a[i], b[i], c[i])`.
+/// `x[i] = F([x[i], rest[0][i], .., rest[M-1][i]])`, with `N = M + 1`.
 ///
 /// # Safety
 ///
@@ -196,20 +193,27 @@ pub(crate) unsafe fn ternary_uninit<S: SimdVector, F: TernaryFn<S>>(
 ///
 /// # Panics
 ///
-/// If `a`, `b` and `c` do not all have the same length.
+/// If the slices do not all have the same length.
 #[inline(always)]
-pub(crate) unsafe fn ternary_in_place<S: SimdVector, F: TernaryFn<S>>(
-    a: &mut [S::Scalar],
-    b: &[S::Scalar],
-    c: &[S::Scalar],
+pub(crate) unsafe fn nary_in_place<
+    S: SimdVector,
+    F: NaryFn<S, N>,
+    const N: usize,
+    const M: usize,
+>(
+    x: &mut [S::Scalar],
+    rest: [&[S::Scalar]; M],
 ) {
-    assert_eq!(a.len(), b.len(), "length mismatch");
-    assert_eq!(a.len(), c.len(), "length mismatch");
-    let ptr = a.as_mut_ptr();
-    let src = [ptr.cast_const(), b.as_ptr(), c.as_ptr()];
-    // SAFETY: the caller guarantees the ISA; all three slices hold `a.len()`
-    // elements, and each chunk of `a` is read before it is overwritten.
-    unsafe { drive(a.len(), src, ptr, Ternary::<F>(PhantomData)) }
+    const { assert!(M + 1 == N, "N must be M + 1") };
+    let (len, ptr) = (x.len(), x.as_mut_ptr());
+    let mut src = [ptr.cast_const(); N];
+    for (p, r) in src[1..].iter_mut().zip(rest) {
+        assert_eq!(r.len(), len, "length mismatch");
+        *p = r.as_ptr();
+    }
+    // SAFETY: the caller guarantees the ISA; every slice holds `len`
+    // elements, and each chunk of `x` is read before it is overwritten.
+    unsafe { drive(len, src, ptr, Nary::<F>(PhantomData)) }
 }
 
 /// An operation on `N` slices, one register from each.
@@ -265,26 +269,30 @@ impl<S: SimdVector, F: BinaryFn<S>> Op<S, 2> for Binary<F> {
     }
 }
 
-/// A [`TernaryFn`] as an [`Op`].
-struct Ternary<F>(PhantomData<F>);
+/// A [`NaryFn`] as an [`Op`].
+struct Nary<F>(PhantomData<F>);
 
-impl<S: SimdVector, F: TernaryFn<S>> Op<S, 3> for Ternary<F> {
+impl<S: SimdVector, F: NaryFn<S, N>, const N: usize> Op<S, N> for Nary<F> {
     #[inline(always)]
-    unsafe fn full(&self, [a, b, c]: [*const S::Scalar; 3], i: usize) -> S {
+    unsafe fn full(&self, src: [*const S::Scalar; N], i: usize) -> S {
         // SAFETY: guaranteed by the caller.
-        unsafe { F::call(S::load(a.add(i)), S::load(b.add(i)), S::load(c.add(i))) }
+        let mut v = [unsafe { S::load(src[0].add(i)) }; N];
+        for (vk, p) in v[1..].iter_mut().zip(&src[1..]) {
+            // SAFETY: guaranteed by the caller.
+            *vk = unsafe { S::load(p.add(i)) };
+        }
+        F::call(v)
     }
 
     #[inline(always)]
-    unsafe fn partial(&self, [a, b, c]: [*const S::Scalar; 3], i: usize, n: usize) -> S {
+    unsafe fn partial(&self, src: [*const S::Scalar; N], i: usize, n: usize) -> S {
         // SAFETY: guaranteed by the caller.
-        unsafe {
-            F::call(
-                S::load_partial(a.add(i), n),
-                S::load_partial(b.add(i), n),
-                S::load_partial(c.add(i), n),
-            )
+        let mut v = [unsafe { S::load_partial(src[0].add(i), n) }; N];
+        for (vk, p) in v[1..].iter_mut().zip(&src[1..]) {
+            // SAFETY: guaranteed by the caller.
+            *vk = unsafe { S::load_partial(p.add(i), n) };
         }
+        F::call(v)
     }
 }
 
@@ -467,15 +475,15 @@ mod tests {
 
         struct Fma3;
 
-        impl TernaryFn<F32x8> for Fma3 {
+        impl NaryFn<F32x8, 3> for Fma3 {
             #[inline(always)]
-            fn call(a: F32x8, b: F32x8, c: F32x8) -> F32x8 {
+            fn call([a, b, c]: [F32x8; 3]) -> F32x8 {
                 a * b - c
             }
         }
 
         #[test]
-        fn ternary_matches_scalar() {
+        fn nary_matches_scalar() {
             if !has_avx2_fma() {
                 return;
             }
@@ -490,11 +498,11 @@ mod tests {
                 // the layout of `f32`.
                 unsafe {
                     let out = core::slice::from_raw_parts_mut(got.as_mut_ptr().cast(), len);
-                    ternary_uninit::<F32x8, Fma3>(&a, &b, &c, out);
-                    ternary_in_place::<F32x8, Fma3>(&mut in_place[..len], &b, &c);
+                    nary_uninit::<F32x8, Fma3, 3>([&a, &b, &c], out);
+                    nary_in_place::<F32x8, Fma3, 3, 2>(&mut in_place[..len], [&b, &c]);
                 }
-                assert_eq!(got[..len], want, "ternary_uninit, len {len}");
-                assert_eq!(in_place[..len], want, "ternary_in_place, len {len}");
+                assert_eq!(got[..len], want, "nary_uninit, len {len}");
+                assert_eq!(in_place[..len], want, "nary_in_place, len {len}");
                 assert_untouched_past(&got, len);
                 assert_untouched_past(&in_place, len);
             }

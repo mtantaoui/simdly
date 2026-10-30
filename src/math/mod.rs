@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`ceil`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`), [`ln`], [`trig`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`ln`], [`trig`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -43,7 +43,7 @@ use ceil::Ceil;
 use exp::Exp;
 use float::Float;
 use floor::Floor;
-use hypot::{Hypot, Hypot3};
+use hypot::{Hypot, Norm};
 use ln::Ln;
 use sqrt::Sqrt;
 use trig::Trig;
@@ -51,11 +51,11 @@ use trig::Trig;
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
 pub(crate) trait Math:
-    Float + Acos + Asin + Atan + Atan2 + Cbrt + Ceil + Exp + Hypot + Hypot3 + Ln + Trig
+    Float + Acos + Asin + Atan + Atan2 + Cbrt + Ceil + Exp + Hypot + Norm + Ln + Trig
 {
 }
 
-impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Ceil + Exp + Hypot + Hypot3 + Ln + Trig> Math
+impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Ceil + Exp + Hypot + Norm + Ln + Trig> Math
     for T
 {
 }
@@ -72,10 +72,10 @@ pub(crate) trait BinaryOp {
     fn apply<V: Math>(y: V, x: V) -> V;
 }
 
-/// An element-wise math function of three arguments, `f(x, y, z)`.
-pub(crate) trait TernaryOp {
+/// An element-wise math function of `N` arguments.
+pub(crate) trait NaryOp<const N: usize> {
     /// Applies the function lane-wise.
-    fn apply<V: Math>(x: V, y: V, z: V) -> V;
+    fn apply<V: Math>(v: [V; N]) -> V;
 }
 
 cfg_simd! {
@@ -97,10 +97,10 @@ cfg_simd! {
         }
     }
 
-    impl<F: TernaryOp, V: Math> driver::TernaryFn<V> for F {
+    impl<F: NaryOp<N>, V: Math, const N: usize> driver::NaryFn<V, N> for F {
         #[inline(always)]
-        fn call(x: V, y: V, z: V) -> V {
-            F::apply(x, y, z)
+        fn call(v: [V; N]) -> V {
+            F::apply(v)
         }
     }
 }
@@ -198,10 +198,20 @@ impl UnaryOp for FloorOp {
 /// `√(x² + y² + z²)`.
 pub(crate) struct Hypot3Op;
 
-impl TernaryOp for Hypot3Op {
+impl NaryOp<3> for Hypot3Op {
     #[inline(always)]
-    fn apply<V: Math>(x: V, y: V, z: V) -> V {
-        x.hypot3(y, z)
+    fn apply<V: Math>(v: [V; 3]) -> V {
+        V::norm(v)
+    }
+}
+
+/// `√(x² + y² + z² + w²)`.
+pub(crate) struct Hypot4Op;
+
+impl NaryOp<4> for Hypot4Op {
+    #[inline(always)]
+    fn apply<V: Math>(v: [V; 4]) -> V {
+        V::norm(v)
     }
 }
 
@@ -305,33 +315,30 @@ pub(crate) trait MathElement: Math + Sized {
         x: &[Self],
     ) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)>;
 
-    /// `out[i] = F(x[i], y[i], z[i])`; on return all of `out` is
-    /// initialised.
+    /// `out[i] = F([src[0][i], .., src[N-1][i]])`; on return all of `out`
+    /// is initialised.
     ///
     /// # Panics
     ///
-    /// If `x`, `y`, `z` and `out` do not all have the same length.
+    /// If the slices and `out` do not all have the same length.
     #[cfg(feature = "alloc")]
-    fn ternary_uninit<F: TernaryOp>(
-        x: &[Self],
-        y: &[Self],
-        z: &[Self],
-        out: &mut [MaybeUninit<Self>],
+    fn nary_uninit<F: NaryOp<N>, const N: usize>(src: [&[Self]; N], out: &mut [MaybeUninit<Self>]);
+
+    /// `x[i] = F([x[i], rest[0][i], .., rest[M-1][i]])`, with `N = M + 1`.
+    ///
+    /// # Panics
+    ///
+    /// If the slices do not all have the same length.
+    fn nary_in_place<F: NaryOp<N>, const N: usize, const M: usize>(
+        x: &mut [Self],
+        rest: [&[Self]; M],
     );
 
-    /// `x[i] = F(x[i], y[i], z[i])`.
-    ///
-    /// # Panics
-    ///
-    /// If `x`, `y` and `z` do not all have the same length.
-    fn ternary_in_place<F: TernaryOp>(x: &mut [Self], y: &[Self], z: &[Self]);
-
-    /// [`every_backend`](Self::every_backend) for a [`TernaryOp`].
+    /// [`every_backend`](Self::every_backend) for a [`NaryOp`].
     #[cfg(test)]
-    fn every_backend_ternary<F: TernaryOp>(
+    fn every_backend_nary<F: NaryOp<N>, const N: usize, const M: usize>(
         x: &[Self],
-        y: &[Self],
-        z: &[Self],
+        rest: [&[Self]; M],
     ) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)>;
 }
 
@@ -448,62 +455,64 @@ macro_rules! math_element {
 
                 #[cfg(feature = "alloc")]
                 #[inline]
-                fn ternary_uninit<F: TernaryOp>(
-                    x: &[Self],
-                    y: &[Self],
-                    z: &[Self],
+                fn nary_uninit<F: NaryOp<N>, const N: usize>(
+                    src: [&[Self]; N],
                     out: &mut [MaybeUninit<Self>],
                 ) {
-                    assert_eq!(x.len(), y.len(), "length mismatch");
-                    assert_eq!(x.len(), z.len(), "length mismatch");
-                    assert_eq!(x.len(), out.len(), "length mismatch");
+                    for x in src {
+                        assert_eq!(x.len(), out.len(), "length mismatch");
+                    }
                     dispatch! {
-                        avx512 => x86::avx512_ternary_uninit::<x86::$avx512, F>(x, y, z, out),
-                        avx2 => x86::avx2_ternary_uninit::<x86::$avx2, F>(x, y, z, out),
-                        neon => neon::ternary_uninit::<neon::$neon, F>(x, y, z, out),
-                        scalar => scalar_ternary_uninit::<F, Self>(x, y, z, out),
+                        avx512 => x86::avx512_nary_uninit::<x86::$avx512, F, N>(src, out),
+                        avx2 => x86::avx2_nary_uninit::<x86::$avx2, F, N>(src, out),
+                        neon => neon::nary_uninit::<neon::$neon, F, N>(src, out),
+                        scalar => scalar_nary_uninit::<F, Self, N>(src, out),
                     }
                 }
 
                 #[inline]
-                fn ternary_in_place<F: TernaryOp>(x: &mut [Self], y: &[Self], z: &[Self]) {
-                    assert_eq!(x.len(), y.len(), "length mismatch");
-                    assert_eq!(x.len(), z.len(), "length mismatch");
+                fn nary_in_place<F: NaryOp<N>, const N: usize, const M: usize>(
+                    x: &mut [Self],
+                    rest: [&[Self]; M],
+                ) {
+                    const { assert!(M + 1 == N, "N must be M + 1") };
+                    for r in rest {
+                        assert_eq!(x.len(), r.len(), "length mismatch");
+                    }
                     dispatch! {
-                        avx512 => x86::avx512_ternary_in_place::<x86::$avx512, F>(x, y, z),
-                        avx2 => x86::avx2_ternary_in_place::<x86::$avx2, F>(x, y, z),
-                        neon => neon::ternary_in_place::<neon::$neon, F>(x, y, z),
-                        scalar => scalar_ternary_in_place::<F, Self>(x, y, z),
+                        avx512 => x86::avx512_nary_in_place::<x86::$avx512, F, N, M>(x, rest),
+                        avx2 => x86::avx2_nary_in_place::<x86::$avx2, F, N, M>(x, rest),
+                        neon => neon::nary_in_place::<neon::$neon, F, N, M>(x, rest),
+                        scalar => scalar_nary_in_place::<F, Self, N, M>(x, rest),
                     }
                 }
 
                 #[cfg(test)]
-                fn every_backend_ternary<F: TernaryOp>(
+                fn every_backend_nary<F: NaryOp<N>, const N: usize, const M: usize>(
                     x: &[Self],
-                    y: &[Self],
-                    z: &[Self],
+                    rest: [&[Self]; M],
                 ) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)> {
                     let mut r = x.to_vec();
-                    scalar_ternary_in_place::<F, Self>(&mut r, y, z);
+                    scalar_nary_in_place::<F, Self, N, M>(&mut r, rest);
                     #[allow(unused_mut, reason = "only scalar on some targets")]
                     let mut results = std::vec![("scalar", r)];
                     cfg_x86!(if {
                         if crate::detect::has_avx2_fma() {
                             let mut r = x.to_vec();
                             // SAFETY: AVX2 + FMA checked just above.
-                            unsafe { x86::avx2_ternary_in_place::<x86::$avx2, F>(&mut r, y, z) };
+                            unsafe { x86::avx2_nary_in_place::<x86::$avx2, F, N, M>(&mut r, rest) };
                             results.push(("avx2", r));
                         }
                         if crate::detect::has_avx512f() {
                             let mut r = x.to_vec();
                             // SAFETY: AVX-512F checked just above.
-                            unsafe { x86::avx512_ternary_in_place::<x86::$avx512, F>(&mut r, y, z) };
+                            unsafe { x86::avx512_nary_in_place::<x86::$avx512, F, N, M>(&mut r, rest) };
                             results.push(("avx512", r));
                         }
                     } else {});
                     cfg_neon!(if {
                         let mut r = x.to_vec();
-                        neon::ternary_in_place::<neon::$neon, F>(&mut r, y, z);
+                        neon::nary_in_place::<neon::$neon, F, N, M>(&mut r, rest);
                         results.push(("neon", r));
                     } else {});
                     results
@@ -542,26 +551,31 @@ fn scalar_binary_in_place<F: BinaryOp, T: Math>(y: &mut [T], x: &[T]) {
 }
 
 #[cfg(feature = "alloc")]
-fn scalar_ternary_uninit<F: TernaryOp, T: Math>(
-    x: &[T],
-    y: &[T],
-    z: &[T],
+fn scalar_nary_uninit<F: NaryOp<N>, T: Math, const N: usize>(
+    src: [&[T]; N],
     out: &mut [MaybeUninit<T>],
 ) {
-    for (((o, &a), &b), &c) in out.iter_mut().zip(x).zip(y).zip(z) {
-        o.write(F::apply(a, b, c));
+    for (i, o) in out.iter_mut().enumerate() {
+        o.write(F::apply(src.map(|x| x[i])));
     }
 }
 
-fn scalar_ternary_in_place<F: TernaryOp, T: Math>(x: &mut [T], y: &[T], z: &[T]) {
-    for ((a, &b), &c) in x.iter_mut().zip(y).zip(z) {
-        *a = F::apply(*a, b, c);
+fn scalar_nary_in_place<F: NaryOp<N>, T: Math, const N: usize, const M: usize>(
+    x: &mut [T],
+    rest: [&[T]; M],
+) {
+    for (i, a) in x.iter_mut().enumerate() {
+        let mut v = [*a; N];
+        for (k, r) in rest.iter().enumerate() {
+            v[k + 1] = r[i];
+        }
+        *a = F::apply(v);
     }
 }
 
 cfg_x86! {
     mod x86 {
-        use super::{Binary, BinaryOp, Math, TernaryOp, UnaryOp, driver};
+        use super::{Binary, BinaryOp, Math, NaryOp, UnaryOp, driver};
         use crate::simd::SimdVector;
         pub(super) use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
         pub(super) use crate::simd::avx512::{f32x16::F32x16, f64x8::F64x8};
@@ -626,26 +640,28 @@ cfg_x86! {
 
         #[cfg(feature = "alloc")]
         #[target_feature(enable = "avx2,fma")]
-        pub(super) fn avx2_ternary_uninit<V: SimdVector + Math, F: TernaryOp>(
-            x: &[V::Scalar],
-            y: &[V::Scalar],
-            z: &[V::Scalar],
+        pub(super) fn avx2_nary_uninit<V: SimdVector + Math, F: NaryOp<N>, const N: usize>(
+            src: [&[V::Scalar]; N],
             out: &mut [core::mem::MaybeUninit<V::Scalar>],
         ) {
             // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
             // AVX2 register type.
-            unsafe { driver::ternary_uninit::<V, F>(x, y, z, out) }
+            unsafe { driver::nary_uninit::<V, F, N>(src, out) }
         }
 
         #[target_feature(enable = "avx2,fma")]
-        pub(super) fn avx2_ternary_in_place<V: SimdVector + Math, F: TernaryOp>(
+        pub(super) fn avx2_nary_in_place<
+            V: SimdVector + Math,
+            F: NaryOp<N>,
+            const N: usize,
+            const M: usize,
+        >(
             x: &mut [V::Scalar],
-            y: &[V::Scalar],
-            z: &[V::Scalar],
+            rest: [&[V::Scalar]; M],
         ) {
             // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
             // AVX2 register type.
-            unsafe { driver::ternary_in_place::<V, F>(x, y, z) }
+            unsafe { driver::nary_in_place::<V, F, N, M>(x, rest) }
         }
 
         #[cfg(any(feature = "alloc", test))]
@@ -672,33 +688,35 @@ cfg_x86! {
 
         #[cfg(feature = "alloc")]
         #[target_feature(enable = "avx512f")]
-        pub(super) fn avx512_ternary_uninit<V: SimdVector + Math, F: TernaryOp>(
-            x: &[V::Scalar],
-            y: &[V::Scalar],
-            z: &[V::Scalar],
+        pub(super) fn avx512_nary_uninit<V: SimdVector + Math, F: NaryOp<N>, const N: usize>(
+            src: [&[V::Scalar]; N],
             out: &mut [core::mem::MaybeUninit<V::Scalar>],
         ) {
             // SAFETY: AVX-512F is enabled in this function, and `V` is an
             // AVX-512 register type.
-            unsafe { driver::ternary_uninit::<V, F>(x, y, z, out) }
+            unsafe { driver::nary_uninit::<V, F, N>(src, out) }
         }
 
         #[target_feature(enable = "avx512f")]
-        pub(super) fn avx512_ternary_in_place<V: SimdVector + Math, F: TernaryOp>(
+        pub(super) fn avx512_nary_in_place<
+            V: SimdVector + Math,
+            F: NaryOp<N>,
+            const N: usize,
+            const M: usize,
+        >(
             x: &mut [V::Scalar],
-            y: &[V::Scalar],
-            z: &[V::Scalar],
+            rest: [&[V::Scalar]; M],
         ) {
             // SAFETY: AVX-512F is enabled in this function, and `V` is an
             // AVX-512 register type.
-            unsafe { driver::ternary_in_place::<V, F>(x, y, z) }
+            unsafe { driver::nary_in_place::<V, F, N, M>(x, rest) }
         }
     }
 }
 
 cfg_neon! {
     mod neon {
-        use super::{Binary, BinaryOp, Math, TernaryOp, UnaryOp, driver};
+        use super::{Binary, BinaryOp, Math, NaryOp, UnaryOp, driver};
         use crate::simd::SimdVector;
         pub(super) use crate::simd::neon::{f32x4::F32x4, f64x2::F64x2};
 
@@ -744,26 +762,28 @@ cfg_neon! {
 
         #[cfg(feature = "alloc")]
         #[inline]
-        pub(super) fn ternary_uninit<V: SimdVector + Math, F: TernaryOp>(
-            x: &[V::Scalar],
-            y: &[V::Scalar],
-            z: &[V::Scalar],
+        pub(super) fn nary_uninit<V: SimdVector + Math, F: NaryOp<N>, const N: usize>(
+            src: [&[V::Scalar]; N],
             out: &mut [core::mem::MaybeUninit<V::Scalar>],
         ) {
             // SAFETY: NEON is enabled at compile time, and `V` is a NEON
             // register type.
-            unsafe { driver::ternary_uninit::<V, F>(x, y, z, out) }
+            unsafe { driver::nary_uninit::<V, F, N>(src, out) }
         }
 
         #[inline]
-        pub(super) fn ternary_in_place<V: SimdVector + Math, F: TernaryOp>(
+        pub(super) fn nary_in_place<
+            V: SimdVector + Math,
+            F: NaryOp<N>,
+            const N: usize,
+            const M: usize,
+        >(
             x: &mut [V::Scalar],
-            y: &[V::Scalar],
-            z: &[V::Scalar],
+            rest: [&[V::Scalar]; M],
         ) {
             // SAFETY: NEON is enabled at compile time, and `V` is a NEON
             // register type.
-            unsafe { driver::ternary_in_place::<V, F>(x, y, z) }
+            unsafe { driver::nary_in_place::<V, F, N, M>(x, rest) }
         }
     }
 }
@@ -1010,6 +1030,35 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// If `self`, `y` and `z` do not all have the same length.
     fn hypot3_in_place(&mut self, y: &[T], z: &[T]);
 
+    /// `√(self[i]² + y[i]² + z[i]² + w[i]²)`, as [`hypot3`](Self::hypot3):
+    /// the norm of a quaternion or a 4-vector.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let x = vec![1.0_f64, 1e300, -0.0];
+    /// let y = vec![2.0_f64, 1e300, f64::NAN];
+    /// let z = vec![4.0_f64, 1e300, f64::NEG_INFINITY];
+    /// let w = vec![10.0_f64, 1e300, 0.0];
+    /// let h = x.hypot4(&y, &z, &w);
+    /// assert_eq!(h[0], 11.0);
+    /// assert_eq!(h[1], 2e300); // x² would overflow
+    /// assert_eq!(h[2], f64::INFINITY);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `self`, `y`, `z` and `w` do not all have the same length.
+    #[cfg(feature = "alloc")]
+    fn hypot4(&self, y: &[T], z: &[T], w: &[T]) -> Vec<T>;
+
+    /// `self[i] = √(self[i]² + y[i]² + z[i]² + w[i]²)`.
+    ///
+    /// # Panics
+    ///
+    /// If `self`, `y`, `z` and `w` do not all have the same length.
+    fn hypot4_in_place(&mut self, y: &[T], z: &[T], w: &[T]);
+
     /// `ln self[i]`, the natural logarithm. Error ≤ 1 ULP; `ln(±0) = −∞`,
     /// NaN for negative values, `ln(+∞) = +∞`, `ln(1) = 0` exactly.
     ///
@@ -1202,12 +1251,23 @@ macro_rules! impl_slice_math {
                 #[cfg(feature = "alloc")]
                 #[inline]
                 fn hypot3(&self, y: &[$T], z: &[$T]) -> Vec<$T> {
-                    ternary_to_vec::<Hypot3Op, _>(self, y, z)
+                    nary_to_vec::<Hypot3Op, _, 3>([self, y, z])
                 }
 
                 #[inline]
                 fn hypot3_in_place(&mut self, y: &[$T], z: &[$T]) {
-                    <$T as MathElement>::ternary_in_place::<Hypot3Op>(self, y, z);
+                    <$T as MathElement>::nary_in_place::<Hypot3Op, 3, 2>(self, [y, z]);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn hypot4(&self, y: &[$T], z: &[$T], w: &[$T]) -> Vec<$T> {
+                    nary_to_vec::<Hypot4Op, _, 4>([self, y, z, w])
+                }
+
+                #[inline]
+                fn hypot4_in_place(&mut self, y: &[$T], z: &[$T], w: &[$T]) {
+                    <$T as MathElement>::nary_in_place::<Hypot4Op, 4, 3>(self, [y, z, w]);
                 }
 
                 #[cfg(feature = "alloc")]
@@ -1279,10 +1339,11 @@ fn binary_to_vec<F: BinaryOp, T: MathElement>(y: &[T], x: &[T]) -> Vec<T> {
 }
 
 #[cfg(feature = "alloc")]
-fn ternary_to_vec<F: TernaryOp, T: MathElement>(x: &[T], y: &[T], z: &[T]) -> Vec<T> {
-    let mut out = Vec::with_capacity(x.len());
-    T::ternary_uninit::<F>(x, y, z, &mut out.spare_capacity_mut()[..x.len()]);
-    // SAFETY: `ternary_uninit` initialised the first `x.len()` elements.
-    unsafe { out.set_len(x.len()) };
+fn nary_to_vec<F: NaryOp<N>, T: MathElement, const N: usize>(src: [&[T]; N]) -> Vec<T> {
+    let len = src[0].len();
+    let mut out = Vec::with_capacity(len);
+    T::nary_uninit::<F, N>(src, &mut out.spare_capacity_mut()[..len]);
+    // SAFETY: `nary_uninit` initialised the first `len` elements.
+    unsafe { out.set_len(len) };
     out
 }

@@ -254,13 +254,8 @@ pub(crate) mod dd {
         norm_dd(&[x, y])
     }
 
-    /// `√(x² + y² + z²) = (hi + lo) · 2^k`, as [`hypot_dd`].
-    pub(crate) fn hypot3_dd(x: f64, y: f64, z: f64) -> (f64, f64, i32) {
-        norm_dd(&[x, y, z])
-    }
-
-    /// The Euclidean norm of `v`, as [`hypot_dd`].
-    fn norm_dd(v: &[f64]) -> (f64, f64, i32) {
+    /// The Euclidean norm of `v` as `(hi + lo) · 2^k`, as [`hypot_dd`].
+    pub(crate) fn norm_dd(v: &[f64]) -> (f64, f64, i32) {
         let a = v.iter().fold(0.0_f64, |m, x| m.max(x.abs()));
         if a == 0.0 {
             return (0.0, 0.0, 0);

@@ -28,14 +28,15 @@ Each input is scaled by the power of 2 chosen from the **largest** one
 
 `hypot`'s Newton step computes \\(h_x - r^2\\) with `residual`, exact on
 the scalar backend (Dekker's product) only when \\(h_x \ge r^2 / 2\\). With
-three squares, the largest can be a third of the sum. So the three high
-parts are first summed **exactly** with two `two_sum`s:
+three squares, the largest can be a third of the sum. So the high parts
+are first summed **exactly**, with a chain of `two_sum`s (Knuth), each
+adding one square and keeping the rounding error:
 
 \\[
 h_x + h_y + h_z = t + e
 \\]
 
-and the Newton step uses \\(t \approx r^2\\), for which the residual is
+The Newton step then uses \\(t \approx r^2\\), for which the residual is
 exact on every backend:
 
 \\[
@@ -44,7 +45,8 @@ r = \sqrt{t + \ell}, \qquad r' = r + \frac{(t - r^2) + \ell}{2r}, \qquad \ell = 
 
 The sum being exact in any order, the inputs need no sorting: only the
 largest is found, for the scale. Without the exact sum, the scalar backend
-measured 0.975 ULP.
+measured 0.975 ULP. [`hypot4`](./hypot4.md) runs the same code with
+four squares.
 
 ## 3. Subnormal results
 
@@ -63,12 +65,12 @@ Maximum error in ULPs ([how it is measured](../accuracy.md)), against
 
 Fused (SIMD) and Dekker (scalar) give the same maxima. The tests run
 200 000 triples per type on every backend, and 10⁸ more `f32` triples in
-an ignored test (`cargo test --release -- --ignored many_triples`).
+an ignored test (`cargo test --release -- --ignored many_vectors`).
 
 ## 5. Cost
 
 Per register: three products and three `residual`s for the squares, two
-`two_sum`s, a square root, one more `residual`, one division, and the
+`two_sum`s (6 operations each), a square root, one more `residual`, one division, and the
 selects. `std` has no `hypot3`; its overflow-safe equivalent,
-`x.hypot(y).hypot(z)`, is 2.4× to 4.3× slower on AVX2 (see
+`x.hypot(y).hypot(z)`, is 2.7× to 4.4× slower on AVX2 (see
 [Benchmarks](../benchmarks/README.md)).

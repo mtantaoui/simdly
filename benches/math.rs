@@ -21,6 +21,7 @@ type Group<'a> = BenchmarkGroup<'a, WallTime>;
 trait Float: Copy {
     const NAME: &str;
     fn from_f64(x: f64) -> Self;
+    fn hypot(self, y: Self) -> Self;
 }
 
 impl Float for f32 {
@@ -28,12 +29,18 @@ impl Float for f32 {
     fn from_f64(x: f64) -> Self {
         x as f32
     }
+    fn hypot(self, y: Self) -> Self {
+        f32::hypot(self, y)
+    }
 }
 
 impl Float for f64 {
     const NAME: &str = "f64";
     fn from_f64(x: f64) -> Self {
         x
+    }
+    fn hypot(self, y: Self) -> Self {
+        f64::hypot(self, y)
     }
 }
 
@@ -192,37 +199,30 @@ fn binary_vs_scalar<T: Float>(
     }
 }
 
-/// `simdly(x, y, z)` vs `x.iter().zip(y).zip(z).map(f)`.
-fn ternary_vs_scalar<T: Float>(
+/// `simdly(v)` vs `scalar(v)` on `N` slices, mixed signs and magnitudes.
+fn nary_vs_scalar<T: Float, const N: usize>(
     group: &mut Group,
-    simdly: impl Fn(&[T], &[T], &[T]) -> Vec<T>,
-    f: impl Fn(T, T, T) -> T,
+    simdly: impl Fn(&[Vec<T>; N]) -> Vec<T>,
+    scalar: impl Fn(&[Vec<T>; N]) -> Vec<T>,
 ) {
     for &len in LENS {
-        let x = signed::<T>(len);
-        let y: Vec<T> = (0..len)
-            .map(|i| T::from_f64((i as f64 * 0.73).cos() * 30.0))
-            .collect();
-        let z: Vec<T> = (0..len)
-            .map(|i| T::from_f64((i as f64 * 0.41).sin() * 10.0))
-            .collect();
+        let v: [Vec<T>; N] = std::array::from_fn(|k| {
+            (0..len)
+                .map(|i| {
+                    T::from_f64(
+                        (i as f64 * (0.37 + 0.36 * k as f64)).sin() * (50.0 - 10.0 * k as f64),
+                    )
+                })
+                .collect()
+        });
         group.throughput(Throughput::Elements(len as u64));
         group.bench_function(
             BenchmarkId::new(format!("simdly/{}", T::NAME), len),
-            |bench| bench.iter(|| simdly(black_box(&x), black_box(&y), black_box(&z))),
+            |bench| bench.iter(|| simdly(black_box(&v))),
         );
         group.bench_function(
             BenchmarkId::new(format!("scalar/{}", T::NAME), len),
-            |bench| {
-                bench.iter(|| {
-                    black_box(&x)
-                        .iter()
-                        .zip(black_box(&y))
-                        .zip(black_box(&z))
-                        .map(|((&a, &b), &c)| f(a, b, c))
-                        .collect::<Vec<T>>()
-                })
-            },
+            |bench| bench.iter(|| scalar(black_box(&v))),
         );
     }
 }
@@ -293,19 +293,51 @@ fn hypot(c: &mut Criterion) {
     group.finish();
 }
 
-/// Against `std`'s overflow-safe way: two `hypot`s.
+/// Against `std`'s overflow-safe way: nested `hypot`s.
 fn hypot3(c: &mut Criterion) {
+    fn bench<T: Float>(group: &mut Group)
+    where
+        [T]: SliceMath<T>,
+    {
+        nary_vs_scalar::<T, 3>(
+            group,
+            |[x, y, z]| x.hypot3(y, z),
+            |[x, y, z]| {
+                x.iter()
+                    .zip(y)
+                    .zip(z)
+                    .map(|((&a, &b), &c)| T::hypot(T::hypot(a, b), c))
+                    .collect()
+            },
+        );
+    }
     let mut group = c.benchmark_group("hypot3");
-    ternary_vs_scalar::<f32>(
-        &mut group,
-        |x, y, z| x.hypot3(y, z),
-        |a, b, c| a.hypot(b).hypot(c),
-    );
-    ternary_vs_scalar::<f64>(
-        &mut group,
-        |x, y, z| x.hypot3(y, z),
-        |a, b, c| a.hypot(b).hypot(c),
-    );
+    bench::<f32>(&mut group);
+    bench::<f64>(&mut group);
+    group.finish();
+}
+
+fn hypot4(c: &mut Criterion) {
+    fn bench<T: Float>(group: &mut Group)
+    where
+        [T]: SliceMath<T>,
+    {
+        nary_vs_scalar::<T, 4>(
+            group,
+            |[x, y, z, w]| x.hypot4(y, z, w),
+            |[x, y, z, w]| {
+                x.iter()
+                    .zip(y)
+                    .zip(z)
+                    .zip(w)
+                    .map(|(((&a, &b), &c), &d)| T::hypot(T::hypot(T::hypot(a, b), c), d))
+                    .collect()
+            },
+        );
+    }
+    let mut group = c.benchmark_group("hypot4");
+    bench::<f32>(&mut group);
+    bench::<f64>(&mut group);
     group.finish();
 }
 
@@ -368,6 +400,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, asin, atan, atan2, cbrt, ceil, cos, exp, floor, hypot, hypot3, ln, sin, sqrt, tan
+    targets = abs, acos, asin, atan, atan2, cbrt, ceil, cos, exp, floor, hypot, hypot3, hypot4, ln, sin, sqrt, tan
 }
 criterion_main!(benches);
