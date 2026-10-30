@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`ln`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`], [`ln`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -23,6 +23,7 @@ mod cbrt;
 mod exp;
 mod float;
 mod floor;
+mod hypot;
 mod ln;
 mod sqrt;
 
@@ -39,14 +40,15 @@ use cbrt::Cbrt;
 use exp::Exp;
 use float::Float;
 use floor::Floor;
+use hypot::Hypot;
 use ln::Ln;
 use sqrt::Sqrt;
 
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
-pub(crate) trait Math: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Ln {}
+pub(crate) trait Math: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Hypot + Ln {}
 
-impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Ln> Math for T {}
+impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Hypot + Ln> Math for T {}
 
 /// An element-wise math function.
 pub(crate) trait UnaryOp {
@@ -157,6 +159,16 @@ impl UnaryOp for FloorOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.floor()
+    }
+}
+
+/// `√(x² + y²)`.
+pub(crate) struct HypotOp;
+
+impl BinaryOp for HypotOp {
+    #[inline(always)]
+    fn apply<V: Math>(x: V, y: V) -> V {
+        x.hypot(y)
     }
 }
 
@@ -654,6 +666,34 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = ⌊self[i]⌋`.
     fn floor_in_place(&mut self);
 
+    /// `√(self[i]² + y[i]²)`, without overflow or underflow in between, as
+    /// `f32::hypot`. Error ≤ 1 ULP; `+∞` if either is infinite, even when the
+    /// other is NaN.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let x = vec![3.0_f32, 1e30, f32::INFINITY];
+    /// let y = vec![4.0_f32, 1e30, f32::NAN];
+    /// let h = x.hypot(&y);
+    /// assert_eq!(h[0], 5.0);
+    /// assert!(h[1].is_finite()); // x² would overflow
+    /// assert_eq!(h[2], f32::INFINITY);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `self` and `y` have different lengths.
+    #[cfg(feature = "alloc")]
+    fn hypot(&self, y: &[T]) -> Vec<T>;
+
+    /// `self[i] = √(self[i]² + y[i]²)`.
+    ///
+    /// # Panics
+    ///
+    /// If `self` and `y` have different lengths.
+    fn hypot_in_place(&mut self, y: &[T]);
+
     /// `ln self[i]`, the natural logarithm. Error ≤ 1 ULP; `ln(±0) = −∞`,
     /// NaN for negative values, `ln(+∞) = +∞`, `ln(1) = 0` exactly.
     ///
@@ -777,6 +817,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn floor_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<FloorOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn hypot(&self, y: &[$T]) -> Vec<$T> {
+                    binary_to_vec::<HypotOp, _>(self, y)
+                }
+
+                #[inline]
+                fn hypot_in_place(&mut self, y: &[$T]) {
+                    <$T as MathElement>::binary_in_place::<HypotOp>(self, y);
                 }
 
                 #[cfg(feature = "alloc")]

@@ -158,9 +158,9 @@ fn atan(c: &mut Criterion) {
     group.finish();
 }
 
-/// `y.atan2(&x)` vs `y.iter().zip(x).map(|(y, x)| y.atan2(x))`, over all
+/// `simdly(a, b)` vs `a.iter().zip(b).map(|(a, b)| f(a, b))`, over all
 /// four quadrants.
-fn atan2_vs_scalar<T: Float>(
+fn binary_vs_scalar<T: Float>(
     group: &mut Group,
     simdly: impl Fn(&[T], &[T]) -> Vec<T>,
     f: impl Fn(T, T) -> T,
@@ -194,8 +194,8 @@ fn atan2_vs_scalar<T: Float>(
 
 fn atan2(c: &mut Criterion) {
     let mut group = c.benchmark_group("atan2");
-    atan2_vs_scalar::<f32>(&mut group, |y, x| y.atan2(x), f32::atan2);
-    atan2_vs_scalar::<f64>(&mut group, |y, x| y.atan2(x), f64::atan2);
+    binary_vs_scalar::<f32>(&mut group, |y, x| y.atan2(x), f32::atan2);
+    binary_vs_scalar::<f64>(&mut group, |y, x| y.atan2(x), f64::atan2);
     group.finish();
 }
 
@@ -239,6 +239,13 @@ fn ln(c: &mut Criterion) {
     group.finish();
 }
 
+fn hypot(c: &mut Criterion) {
+    let mut group = c.benchmark_group("hypot");
+    binary_vs_scalar::<f32>(&mut group, |x, y| x.hypot(y), f32::hypot);
+    binary_vs_scalar::<f64>(&mut group, |x, y| x.hypot(y), f64::hypot);
+    group.finish();
+}
+
 fn sqrt(c: &mut Criterion) {
     let mut group = c.benchmark_group("sqrt");
     out_of_place::<f32>(&mut group, positive, |x| x.sqrt(), f32::sqrt);
@@ -262,6 +269,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, asin, atan, atan2, cbrt, exp, floor, ln, sqrt
+    targets = abs, acos, asin, atan, atan2, cbrt, exp, floor, hypot, ln, sqrt
 }
 criterion_main!(benches);

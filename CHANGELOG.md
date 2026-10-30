@@ -44,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SliceMath::exp` and `exp_in_place`, ≤ 1 ULP (0.91 `f32`, 0.84 `f64`) on
   every backend, subnormal results included: fdlibm's algorithm with `f32`
   kept in `f32`, and `2^k` applied in two normal factors.
+- `SliceMath::hypot(&y)` and `hypot_in_place`, ≤ 1 ULP on every backend
+  without overflow or underflow in between: exact squares (as musl's `hypot`)
+  and one Newton step on the square root.
 - `SliceMath::ln` and `ln_in_place`, ≤ 1 ULP (0.835 `f32`, 0.823 `f64`) on
   every backend, subnormal inputs included: fdlibm's algorithm, `f32` kept
   in `f32`.

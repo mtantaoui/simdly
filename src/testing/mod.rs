@@ -75,6 +75,24 @@ pub(crate) fn ulp_error<T: TestFloat>(got: T, want: f64) -> f64 {
     ulp_error_dd(got, (want, 0.0))
 }
 
+/// [`ulp_error`] against `(hi + lo) · 2^k`, `hi + lo` near 1: computed in
+/// the scaled domain `· 2^−k`, so it stays exact for subnormal results,
+/// whose ULP is fixed.
+pub(crate) fn ulp_error_scaled<T: TestFloat>(got: T, (hi, lo, k): (f64, f64, i32)) -> f64 {
+    let scale = |v: f64, e: i32| v * 2f64.powi(e / 2) * 2f64.powi(e - e / 2);
+    let want = T::from_f64(scale(hi, k));
+    if want.to_f64().is_infinite() || want.to_f64() == 0.0 {
+        return if got.bits() == want.bits() {
+            0.0
+        } else {
+            f64::INFINITY
+        };
+    }
+    let got = scale(got.to_f64(), -k);
+    let ulp = scale(want.ulp(), -k);
+    ((got - hi) - lo).abs() / ulp
+}
+
 /// [`ulp_error`] against `hi + lo`, a reference more precise than `f64`.
 pub(crate) fn ulp_error_dd<T: TestFloat>(got: T, (hi, lo): (f64, f64)) -> f64 {
     if got.is_nan() || hi.is_nan() {
@@ -227,6 +245,26 @@ pub(crate) mod dd {
             s = dd_add((1.0, 0.0), dd_div(dd_mul(s, r), f64::from(n)));
         }
         (s.0, s.1, k as i32)
+    }
+
+    /// `√(x² + y²) = (hi + lo) · 2^k`: both scaled by a power of 2 near the
+    /// larger one, the squares summed exactly in double-double, then one
+    /// Newton step of the square root.
+    pub(crate) fn hypot_dd(x: f64, y: f64) -> (f64, f64, i32) {
+        let (a, b) = (x.abs().max(y.abs()), x.abs().min(y.abs()));
+        if a == 0.0 {
+            return (0.0, 0.0, 0);
+        }
+        let k = a.log2().floor() as i32;
+        let s = |v: f64| v * 2f64.powi(-k / 2) * 2f64.powi(-(k - k / 2));
+        let (a, b) = (s(a), s(b));
+        let sq = |v: f64| (v * v, v.mul_add(v, -(v * v)));
+        let sum = dd_add(sq(a), sq(b));
+        let r = sum.0.sqrt();
+        // (sum − r²)/(2r), with r² exact.
+        let (p, e) = sq(r);
+        let c = ((sum.0 - p) - e + sum.1) / (2.0 * r);
+        (r, c, k)
     }
 
     /// `ln x` as `hi + lo` for positive finite `x`: `std`'s `ln`, plus the

@@ -22,6 +22,7 @@ fn main() {
     println!("atan x = {:?}", x.atan());
     let ones = vec![-1.0_f32; x.len()];
     println!("atan2(x, -1) = {:?}", x.atan2(&ones));
+    println!("hypot(x, -1) = {:?}", x.hypot(&ones));
 
     // In place, and on `f64`.
     let mut y = vec![-0.1_f64, 0.2, -0.3];

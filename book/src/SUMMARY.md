@@ -16,6 +16,7 @@
 - [Cube root `cbrt`](./functions/cbrt.md)
 - [Exponential `exp`](./functions/exp.md)
 - [Floor `floor`](./functions/floor.md)
+- [Hypotenuse `hypot`](./functions/hypot.md)
 - [Natural logarithm `ln`](./functions/ln.md)
 
 # Benchmarks

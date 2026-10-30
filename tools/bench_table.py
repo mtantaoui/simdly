@@ -16,7 +16,7 @@ from pathlib import Path
 CATEGORIES = {
     "Arithmetic": ["add", "sub", "mul", "div", "add_assign", "sub_assign", "mul_assign", "div_assign"],
     "Comparisons": ["less", "less_scalar", "equal", "equal_scalar"],
-    "Math": ["abs", "abs_in_place", "sqrt", "sqrt_in_place", "acos", "asin", "atan", "atan_in_place", "atan2", "cbrt", "cbrt_in_place", "exp", "floor", "floor_in_place", "ln"],
+    "Math": ["abs", "abs_in_place", "sqrt", "sqrt_in_place", "acos", "asin", "atan", "atan_in_place", "atan2", "cbrt", "cbrt_in_place", "exp", "floor", "floor_in_place", "hypot", "ln"],
 }
 TYPES = ["f32", "f64"]
 LENS = [64, 4_096, 262_144, 4_194_304]

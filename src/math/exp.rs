@@ -132,32 +132,14 @@ impl Kernel for f64 {
 mod tests {
     use crate::math::{ExpOp, MathElement};
     use crate::testing::dd::exp_dd;
+    use crate::testing::ulp_error_scaled;
     use crate::testing::{TestFloat, assert_exact, assert_ulps_every_f32, samples};
     use std::vec::Vec;
-
-    /// `|got − eˣ|` in ULPs of the correctly rounded result, in the scaled
-    /// domain `· 2^−k`: exact for subnormal results too.
-    fn exp_error<T: TestFloat>(got: T, x: T) -> f64 {
-        let x = x.to_f64();
-        let (hi, lo, k) = exp_dd(x);
-        let scale = |v: f64, e: i32| v * 2f64.powi(e / 2) * 2f64.powi(e - e / 2);
-        let want = T::from_f64(scale(hi, k));
-        if want.to_f64().is_infinite() || want.to_f64() == 0.0 {
-            return if got.bits() == want.bits() {
-                0.0
-            } else {
-                f64::INFINITY
-            };
-        }
-        let got = scale(got.to_f64(), -k);
-        let ulp = scale(want.ulp(), -k);
-        ((got - hi) - lo).abs() / ulp
-    }
 
     fn check<T: TestFloat + MathElement>(x: &[T]) {
         for (backend, got) in T::every_backend::<ExpOp>(x) {
             for (&x, &got) in x.iter().zip(&got) {
-                let e = exp_error(got, x);
+                let e = ulp_error_scaled(got, exp_dd(x.to_f64()));
                 assert!(
                     e <= 1.0,
                     "exp {} {backend}: exp({x:?}) = {got:?}, {e:.3} ULP",
