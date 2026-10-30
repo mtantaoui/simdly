@@ -16,6 +16,7 @@ fn main() {
     println!("∛x     = {:?}", x.cbrt());
     println!("⌊x⌋    = {:?}", x.floor());
     println!("eˣ     = {:?}", x.exp());
+    println!("ln x   = {:?}", x.ln());
     println!("acos x = {:?}", x.acos());
     println!("asin x = {:?}", x.asin());
     println!("atan x = {:?}", x.atan());

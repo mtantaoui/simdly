@@ -78,4 +78,6 @@ Speed-up of simdly's NEON backend (4 `f32` / 2 `f64` lanes) over the scalar loop
 | `floor` | `f64` | – | – | – | – |
 | `floor_in_place` | `f32` | – | – | – | – |
 | `floor_in_place` | `f64` | – | – | – | – |
+| `ln` | `f32` | – | – | – | – |
+| `ln` | `f64` | – | – | – | – |
 

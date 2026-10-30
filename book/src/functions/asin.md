@@ -103,15 +103,6 @@ Maximum error in ULPs ([how it is measured](../accuracy.md)):
 | `f64`   | SIMD (fused)      | ~2.5 × 10⁵, 200-bit reference | 0.593                      | 0.660                        |
 | `f64`   | scalar (unfused)  | ~2.5 × 10⁵, 200-bit reference | 0.636                      | 0.679                        |
 
-## 7. Alternative considered
-
-A polynomial in \\(x\\) with no division, as in
-[erydanos](https://github.com/awxkee/erydanos), was measured in the same
-SIMD kernel: on AVX2 it takes 27 % less time for `f32`, but its error
-reaches 3.2 ULP (`f32`, more than half of all inputs above 1 ULP) and 2.8
-ULP (`f64`), beyond simdly's bound. A division-free approximation that keeps
-the error under 1 ULP would need new coefficients, fitted in \\(x^2\\).
-
-## 8. Speed
+## 7. Speed
 
 See [Benchmarks](../benchmarks/README.md).

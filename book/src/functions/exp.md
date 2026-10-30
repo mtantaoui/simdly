@@ -98,17 +98,6 @@ not `std`'s, which is the platform C library's (see
 [`cbrt`](./cbrt.md) for why). Errors in the subnormal range are measured
 in the scaled domain, so they are exact too.
 
-For comparison, measured the same way on every `f32`:
-
-| `f32` `exp`                         | Max error       | Inputs > 1 ULP | Wrong 0 or ∞ |
-|-------------------------------------|-----------------|----------------|--------------|
-| simdly                              | 0.910 ULP       | 0              | 0            |
-| [erydanos](https://github.com/awxkee/erydanos) | 11.7 million ULP | 2.3 million | 94 743 |
-
-erydanos's documented 1.0 ULP holds in the middle of the range, but it
-returns \\(\infty\\) for \\(x > 88\\) (\\(e^{88.5}\\) is finite) and 0 for
-\\(x < -87\\) (where results are normal or subnormal, not 0).
-
 ## 7. Cost
 
 Per register: one compare-free reduction (two multiply-adds), a 2- or

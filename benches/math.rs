@@ -44,7 +44,7 @@ fn signed<T: Float>(len: usize) -> Vec<T> {
         .collect()
 }
 
-/// Positive, so `sqrt` gives no NaN.
+/// Positive, so `sqrt` and `ln` give no NaN.
 fn positive<T: Float>(len: usize) -> Vec<T> {
     (0..len)
         .map(|i| T::from_f64(i as f64 * 0.37 + 1.0))
@@ -231,6 +231,14 @@ fn floor(c: &mut Criterion) {
     group.finish();
 }
 
+/// Out of place only: in place, a second pass would see negative values.
+fn ln(c: &mut Criterion) {
+    let mut group = c.benchmark_group("ln");
+    out_of_place::<f32>(&mut group, positive, |x| x.ln(), f32::ln);
+    out_of_place::<f64>(&mut group, positive, |x| x.ln(), f64::ln);
+    group.finish();
+}
+
 fn sqrt(c: &mut Criterion) {
     let mut group = c.benchmark_group("sqrt");
     out_of_place::<f32>(&mut group, positive, |x| x.sqrt(), f32::sqrt);
@@ -254,6 +262,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, asin, atan, atan2, cbrt, exp, floor, sqrt
+    targets = abs, acos, asin, atan, atan2, cbrt, exp, floor, ln, sqrt
 }
 criterion_main!(benches);

@@ -186,3 +186,57 @@ pub(crate) fn assert_exact<T: TestFloat + MathElement, F: UnaryOp>(name: &str, c
         assert_same(&got, &want, &std::format!("{name} {} {backend}", T::NAME));
     }
 }
+
+/// Double-double arithmetic (a value as an unevaluated `hi + lo`, about 106
+/// bits), for `f64` test references that do not depend on the platform's
+/// C library: the Windows C runtime's `cbrt`, for one, is off by 1.5 ULP.
+pub(crate) mod dd {
+    pub(crate) fn two_sum(a: f64, b: f64) -> (f64, f64) {
+        let s = a + b;
+        let bb = s - a;
+        (s, (a - (s - bb)) + (b - bb))
+    }
+    pub(crate) fn dd_mul((ah, al): (f64, f64), (bh, bl): (f64, f64)) -> (f64, f64) {
+        let p = ah * bh;
+        let e = ah.mul_add(bh, -p) + (ah * bl + al * bh);
+        two_sum(p, e)
+    }
+    pub(crate) fn dd_add((ah, al): (f64, f64), (bh, bl): (f64, f64)) -> (f64, f64) {
+        let (s, e) = two_sum(ah, bh);
+        two_sum(s, e + al + bl)
+    }
+    pub(crate) fn dd_div((ah, al): (f64, f64), d: f64) -> (f64, f64) {
+        let q = ah / d;
+        let p = q * d;
+        let e = q.mul_add(d, -p);
+        two_sum(q, ((ah - p) - e + al) / d)
+    }
+
+    /// `eˣ = (hi + lo) · 2^k` to about 100 bits, `hi + lo` in
+    /// `[1/√2, √2]`: `x − k·ln 2` in double-double, then a Taylor series.
+    pub(crate) fn exp_dd(x: f64) -> (f64, f64, i32) {
+        const LN2: (f64, f64) = (
+            f64::from_bits(0x3fe6_2e42_fefa_39ef),
+            f64::from_bits(0x3c7a_bc9e_3b39_803f),
+        );
+        let k = (x / LN2.0).round();
+        let k_ln2 = dd_mul((k, 0.0), LN2);
+        let r = dd_add((x, 0.0), (-k_ln2.0, -k_ln2.1));
+        let mut s = (1.0, 0.0);
+        for n in (1..=30).rev() {
+            s = dd_add((1.0, 0.0), dd_div(dd_mul(s, r), f64::from(n)));
+        }
+        (s.0, s.1, k as i32)
+    }
+
+    /// `ln x` as `hi + lo` for positive finite `x`: `std`'s `ln`, plus the
+    /// correction `ln(x / e^y) ≈ x / e^y − 1`, computed with [`exp_dd`].
+    pub(crate) fn ln_dd(x: f64) -> (f64, f64) {
+        let y = x.ln();
+        let (h, l, k) = exp_dd(y);
+        // x · 2^−k is exact and close to h + l, so q − h is exact.
+        let q = x * 2f64.powi(-k / 2) * 2f64.powi(-(k - k / 2));
+        let d = ((q - h) - l) / h;
+        two_sum(y, d)
+    }
+}

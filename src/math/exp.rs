@@ -131,48 +131,9 @@ impl Kernel for f64 {
 #[cfg(test)]
 mod tests {
     use crate::math::{ExpOp, MathElement};
+    use crate::testing::dd::exp_dd;
     use crate::testing::{TestFloat, assert_exact, assert_ulps_every_f32, samples};
     use std::vec::Vec;
-
-    // Double-double arithmetic, for a reference independent of the
-    // platform's `exp` (as for `cbrt`).
-    fn two_sum(a: f64, b: f64) -> (f64, f64) {
-        let s = a + b;
-        let bb = s - a;
-        (s, (a - (s - bb)) + (b - bb))
-    }
-    fn dd_mul((ah, al): (f64, f64), (bh, bl): (f64, f64)) -> (f64, f64) {
-        let p = ah * bh;
-        let e = ah.mul_add(bh, -p) + (ah * bl + al * bh);
-        two_sum(p, e)
-    }
-    fn dd_add((ah, al): (f64, f64), (bh, bl): (f64, f64)) -> (f64, f64) {
-        let (s, e) = two_sum(ah, bh);
-        two_sum(s, e + al + bl)
-    }
-    fn dd_div((ah, al): (f64, f64), d: f64) -> (f64, f64) {
-        let q = ah / d;
-        let p = q * d;
-        let e = q.mul_add(d, -p);
-        two_sum(q, ((ah - p) - e + al) / d)
-    }
-
-    /// `eˣ = (hi + lo) · 2^k` to about 100 bits, `hi + lo` in
-    /// `[1/√2, √2]`: `x − k·ln 2` in double-double, then a Taylor series.
-    fn exp_dd(x: f64) -> (f64, f64, i32) {
-        const LN2: (f64, f64) = (
-            f64::from_bits(0x3fe6_2e42_fefa_39ef),
-            f64::from_bits(0x3c7a_bc9e_3b39_803f),
-        );
-        let k = (x / LN2.0).round();
-        let k_ln2 = dd_mul((k, 0.0), LN2);
-        let r = dd_add((x, 0.0), (-k_ln2.0, -k_ln2.1));
-        let mut s = (1.0, 0.0);
-        for n in (1..=30).rev() {
-            s = dd_add((1.0, 0.0), dd_div(dd_mul(s, r), f64::from(n)));
-        }
-        (s.0, s.1, k as i32)
-    }
 
     /// `|got − eˣ|` in ULPs of the correctly rounded result, in the scaled
     /// domain `· 2^−k`: exact for subnormal results too.

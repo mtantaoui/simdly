@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`ln`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -23,6 +23,7 @@ mod cbrt;
 mod exp;
 mod float;
 mod floor;
+mod ln;
 mod sqrt;
 
 cfg_simd! {
@@ -38,13 +39,14 @@ use cbrt::Cbrt;
 use exp::Exp;
 use float::Float;
 use floor::Floor;
+use ln::Ln;
 use sqrt::Sqrt;
 
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
-pub(crate) trait Math: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp {}
+pub(crate) trait Math: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Ln {}
 
-impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp> Math for T {}
+impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Ln> Math for T {}
 
 /// An element-wise math function.
 pub(crate) trait UnaryOp {
@@ -155,6 +157,16 @@ impl UnaryOp for FloorOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.floor()
+    }
+}
+
+/// `ln x`.
+pub(crate) struct LnOp;
+
+impl UnaryOp for LnOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.ln()
     }
 }
 
@@ -642,6 +654,21 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = ⌊self[i]⌋`.
     fn floor_in_place(&mut self);
 
+    /// `ln self[i]`, the natural logarithm. Error ≤ 1 ULP; `ln(±0) = −∞`,
+    /// NaN for negative values, `ln(+∞) = +∞`, `ln(1) = 0` exactly.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![1.0_f64, 0.0, 2.0];
+    /// assert_eq!(a.ln(), [0.0, f64::NEG_INFINITY, core::f64::consts::LN_2]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn ln(&self) -> Vec<T>;
+
+    /// `self[i] = ln self[i]`.
+    fn ln_in_place(&mut self);
+
     /// `√self[i]`, correctly rounded (0 ULP) on every backend. `√-0.0` is
     /// `-0.0`; negative values and NaN give NaN.
     ///
@@ -750,6 +777,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn floor_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<FloorOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn ln(&self) -> Vec<$T> {
+                    unary_to_vec::<LnOp, _>(self)
+                }
+
+                #[inline]
+                fn ln_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<LnOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]
