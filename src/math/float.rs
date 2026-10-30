@@ -59,6 +59,14 @@ pub(crate) trait Float: Arith + Neg<Output = Self> + Compare + Abs + Floor + Sqr
     fn map_lanes(self, f: fn(Self::Elem) -> Self::Elem) -> Self;
 }
 
+/// `a + b` as `s + e` exactly (Knuth).
+#[inline(always)]
+pub(crate) fn two_sum<V: Float>(a: V, b: V) -> (V, V) {
+    let s = a + b;
+    let bb = s - a;
+    (s, (a - (s - bb)) + (b - bb))
+}
+
 /// An operation on `f64` lanes, applied by [`Widen::via_f64`]. A type, not a
 /// closure: see the slice drivers.
 pub(crate) trait WideFn {

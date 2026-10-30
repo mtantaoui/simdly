@@ -251,15 +251,24 @@ pub(crate) mod dd {
     /// larger one, the squares summed exactly in double-double, then one
     /// Newton step of the square root.
     pub(crate) fn hypot_dd(x: f64, y: f64) -> (f64, f64, i32) {
-        let (a, b) = (x.abs().max(y.abs()), x.abs().min(y.abs()));
+        norm_dd(&[x, y])
+    }
+
+    /// `√(x² + y² + z²) = (hi + lo) · 2^k`, as [`hypot_dd`].
+    pub(crate) fn hypot3_dd(x: f64, y: f64, z: f64) -> (f64, f64, i32) {
+        norm_dd(&[x, y, z])
+    }
+
+    /// The Euclidean norm of `v`, as [`hypot_dd`].
+    fn norm_dd(v: &[f64]) -> (f64, f64, i32) {
+        let a = v.iter().fold(0.0_f64, |m, x| m.max(x.abs()));
         if a == 0.0 {
             return (0.0, 0.0, 0);
         }
         let k = a.log2().floor() as i32;
         let s = |v: f64| v * 2f64.powi(-k / 2) * 2f64.powi(-(k - k / 2));
-        let (a, b) = (s(a), s(b));
         let sq = |v: f64| (v * v, v.mul_add(v, -(v * v)));
-        let sum = dd_add(sq(a), sq(b));
+        let sum = v.iter().fold((0.0, 0.0), |acc, &x| dd_add(acc, sq(s(x))));
         let r = sum.0.sqrt();
         // (sum − r²)/(2r), with r² exact.
         let (p, e) = sq(r);

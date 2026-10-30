@@ -192,6 +192,41 @@ fn binary_vs_scalar<T: Float>(
     }
 }
 
+/// `simdly(x, y, z)` vs `x.iter().zip(y).zip(z).map(f)`.
+fn ternary_vs_scalar<T: Float>(
+    group: &mut Group,
+    simdly: impl Fn(&[T], &[T], &[T]) -> Vec<T>,
+    f: impl Fn(T, T, T) -> T,
+) {
+    for &len in LENS {
+        let x = signed::<T>(len);
+        let y: Vec<T> = (0..len)
+            .map(|i| T::from_f64((i as f64 * 0.73).cos() * 30.0))
+            .collect();
+        let z: Vec<T> = (0..len)
+            .map(|i| T::from_f64((i as f64 * 0.41).sin() * 10.0))
+            .collect();
+        group.throughput(Throughput::Elements(len as u64));
+        group.bench_function(
+            BenchmarkId::new(format!("simdly/{}", T::NAME), len),
+            |bench| bench.iter(|| simdly(black_box(&x), black_box(&y), black_box(&z))),
+        );
+        group.bench_function(
+            BenchmarkId::new(format!("scalar/{}", T::NAME), len),
+            |bench| {
+                bench.iter(|| {
+                    black_box(&x)
+                        .iter()
+                        .zip(black_box(&y))
+                        .zip(black_box(&z))
+                        .map(|((&a, &b), &c)| f(a, b, c))
+                        .collect::<Vec<T>>()
+                })
+            },
+        );
+    }
+}
+
 fn atan2(c: &mut Criterion) {
     let mut group = c.benchmark_group("atan2");
     binary_vs_scalar::<f32>(&mut group, |y, x| y.atan2(x), f32::atan2);
@@ -258,6 +293,22 @@ fn hypot(c: &mut Criterion) {
     group.finish();
 }
 
+/// Against `std`'s overflow-safe way: two `hypot`s.
+fn hypot3(c: &mut Criterion) {
+    let mut group = c.benchmark_group("hypot3");
+    ternary_vs_scalar::<f32>(
+        &mut group,
+        |x, y, z| x.hypot3(y, z),
+        |a, b, c| a.hypot(b).hypot(c),
+    );
+    ternary_vs_scalar::<f64>(
+        &mut group,
+        |x, y, z| x.hypot3(y, z),
+        |a, b, c| a.hypot(b).hypot(c),
+    );
+    group.finish();
+}
+
 fn cos(c: &mut Criterion) {
     let mut group = c.benchmark_group("cos");
     out_of_place::<f32>(&mut group, signed, |x| x.cos(), f32::cos);
@@ -317,6 +368,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, asin, atan, atan2, cbrt, ceil, cos, exp, floor, hypot, ln, sin, sqrt, tan
+    targets = abs, acos, asin, atan, atan2, cbrt, ceil, cos, exp, floor, hypot, hypot3, ln, sin, sqrt, tan
 }
 criterion_main!(benches);

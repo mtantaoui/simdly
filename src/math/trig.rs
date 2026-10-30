@@ -33,7 +33,7 @@
 #![allow(clippy::excessive_precision, reason = "fdlibm's constants, verbatim")]
 
 use super::atan::{k, ks};
-use super::float::{Element, Float, WideFn, Widen};
+use super::float::{Element, Float, WideFn, Widen, two_sum};
 
 /// A lane type with a sine, a cosine and a tangent.
 pub(crate) trait Trig {
@@ -289,14 +289,6 @@ fn reduce_mid<V: Float<Elem = f64>>(x: V, n: V) -> (V, V) {
     let lo = ((ea + eb) - e2) - n * c3;
     let y0 = b + lo;
     (y0, lo - (y0 - b))
-}
-
-/// `a + b` as `s + e` exactly (Knuth).
-#[inline(always)]
-fn two_sum<V: Float>(a: V, b: V) -> (V, V) {
-    let s = a + b;
-    let bb = s - a;
-    (s, (a - (s - bb)) + (b - bb))
 }
 
 /// `x = n·π/2 + y` for an `f32` value `|x| ≥ 2^28·π/2`, to `f32`'s needs,
