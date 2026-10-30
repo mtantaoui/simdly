@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-30
+
+First release.
+
 ### Added
 
 - Crate scaffolding: backend selection macros, module layout for the
@@ -77,3 +81,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Floor`.
 - `SliceMath::sqrt` and `sqrt_in_place`, correctly rounded on every backend;
   without `std`, the scalar fallback computes it exactly with integers.
+
+[Unreleased]: https://github.com/mtantaoui/simdly/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/mtantaoui/simdly/releases/tag/v0.1.0
