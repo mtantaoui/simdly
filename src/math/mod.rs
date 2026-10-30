@@ -44,16 +44,16 @@ use floor::Floor;
 use hypot::Hypot;
 use ln::Ln;
 use sqrt::Sqrt;
-use trig::Sin;
+use trig::Trig;
 
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
 pub(crate) trait Math:
-    Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Hypot + Ln + Sin
+    Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Hypot + Ln + Trig
 {
 }
 
-impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Hypot + Ln + Sin> Math for T {}
+impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Hypot + Ln + Trig> Math for T {}
 
 /// An element-wise math function.
 pub(crate) trait UnaryOp {
@@ -184,6 +184,26 @@ impl UnaryOp for LnOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.ln()
+    }
+}
+
+/// `cos x`.
+pub(crate) struct CosOp;
+
+impl UnaryOp for CosOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.cos()
+    }
+}
+
+/// `tan x`.
+pub(crate) struct TanOp;
+
+impl UnaryOp for TanOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.tan()
     }
 }
 
@@ -646,6 +666,21 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = ∛self[i]`.
     fn cbrt_in_place(&mut self);
 
+    /// `cos self[i]`, in radians. Error ≤ 1 ULP for every finite input, huge
+    /// ones included; NaN for `±∞`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let c = vec![0.0_f64, -0.0, core::f64::consts::PI].cos();
+    /// assert_eq!(c, [1.0, 1.0, -1.0]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn cos(&self) -> Vec<T>;
+
+    /// `self[i] = cos self[i]`.
+    fn cos_in_place(&mut self);
+
     /// `e^self[i]`. Error ≤ 1 ULP; `+∞` above `ln(MAX)`, `+0` below the
     /// underflow threshold, subnormal results in between.
     ///
@@ -739,6 +774,22 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = sin self[i]`.
     fn sin_in_place(&mut self);
 
+    /// `tan self[i]`, in radians. Error ≤ 1 ULP for every finite input, huge
+    /// ones included; NaN for `±∞`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// // FRAC_PI_4 is just below π/4: its tangent rounds to just below 1.
+    /// let t = vec![0.0_f64, -0.0, core::f64::consts::FRAC_PI_4].tan();
+    /// assert_eq!(t, [0.0, -0.0, 0.999_999_999_999_999_9]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn tan(&self) -> Vec<T>;
+
+    /// `self[i] = tan self[i]`.
+    fn tan_in_place(&mut self);
+
     /// `√self[i]`, correctly rounded (0 ULP) on every backend. `√-0.0` is
     /// `-0.0`; negative values and NaN give NaN.
     ///
@@ -829,6 +880,17 @@ macro_rules! impl_slice_math {
 
                 #[cfg(feature = "alloc")]
                 #[inline]
+                fn cos(&self) -> Vec<$T> {
+                    unary_to_vec::<CosOp, _>(self)
+                }
+
+                #[inline]
+                fn cos_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<CosOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
                 fn exp(&self) -> Vec<$T> {
                     unary_to_vec::<ExpOp, _>(self)
                 }
@@ -880,6 +942,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn sin_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<SinOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn tan(&self) -> Vec<$T> {
+                    unary_to_vec::<TanOp, _>(self)
+                }
+
+                #[inline]
+                fn tan_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<TanOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]

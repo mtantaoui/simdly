@@ -18,6 +18,8 @@ fn main() {
     println!("eˣ     = {:?}", x.exp());
     println!("ln x   = {:?}", x.ln());
     println!("sin x  = {:?}", x.sin());
+    println!("cos x  = {:?}", x.cos());
+    println!("tan x  = {:?}", x.tan());
     println!("acos x = {:?}", x.acos());
     println!("asin x = {:?}", x.asin());
     println!("atan x = {:?}", x.atan());

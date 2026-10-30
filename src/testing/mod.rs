@@ -271,6 +271,25 @@ pub(crate) mod dd {
     /// `sin`: [`reduce`](crate::math::trig::reduce) (exact, checked against
     /// fixed 3000-bit values), then Taylor series in double-double.
     pub(crate) fn sin_dd(x: f64) -> (f64, f64) {
+        trig_dd(x, 0)
+    }
+
+    /// `cos x` as `hi + lo`, as [`sin_dd`]: `cos x = sin(x + π/2)`.
+    pub(crate) fn cos_dd(x: f64) -> (f64, f64) {
+        trig_dd(x, 1)
+    }
+
+    /// `tan x` as `hi + lo`: [`sin_dd`] / [`cos_dd`].
+    pub(crate) fn tan_dd(x: f64) -> (f64, f64) {
+        let (s, c) = (sin_dd(x), cos_dd(x));
+        let q = s.0 / c.0;
+        let (ph, pl) = dd_mul((q, 0.0), c);
+        let r = dd_add(s, (-ph, -pl));
+        two_sum(q, r.0 / c.0)
+    }
+
+    /// `sin` of `x + shift·π/2`.
+    fn trig_dd(x: f64, shift: u32) -> (f64, f64) {
         let (n, y0, y1) = crate::math::trig::reduce(x);
         let y = (y0, y1);
         let y2 = dd_mul(y, y);
@@ -285,7 +304,7 @@ pub(crate) mod dd {
             c = dd_add((1.0, 0.0), dc);
         }
         let s = dd_mul(s, y);
-        match n as u32 {
+        match (n as u32 + shift) % 4 {
             0 => s,
             1 => c,
             2 => (-s.0, -s.1),

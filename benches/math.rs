@@ -246,6 +246,30 @@ fn hypot(c: &mut Criterion) {
     group.finish();
 }
 
+fn cos(c: &mut Criterion) {
+    let mut group = c.benchmark_group("cos");
+    out_of_place::<f32>(&mut group, signed, |x| x.cos(), f32::cos);
+    out_of_place::<f64>(&mut group, signed, |x| x.cos(), f64::cos);
+    group.finish();
+
+    let mut group = c.benchmark_group("cos_in_place");
+    in_place::<f32>(&mut group, signed, |x| x.cos_in_place(), f32::cos);
+    in_place::<f64>(&mut group, signed, |x| x.cos_in_place(), f64::cos);
+    group.finish();
+}
+
+fn tan(c: &mut Criterion) {
+    let mut group = c.benchmark_group("tan");
+    out_of_place::<f32>(&mut group, signed, |x| x.tan(), f32::tan);
+    out_of_place::<f64>(&mut group, signed, |x| x.tan(), f64::tan);
+    group.finish();
+
+    let mut group = c.benchmark_group("tan_in_place");
+    in_place::<f32>(&mut group, signed, |x| x.tan_in_place(), f32::tan);
+    in_place::<f64>(&mut group, signed, |x| x.tan_in_place(), f64::tan);
+    group.finish();
+}
+
 fn sin(c: &mut Criterion) {
     let mut group = c.benchmark_group("sin");
     out_of_place::<f32>(&mut group, signed, |x| x.sin(), f32::sin);
@@ -281,6 +305,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, asin, atan, atan2, cbrt, exp, floor, hypot, ln, sin, sqrt
+    targets = abs, acos, asin, atan, atan2, cbrt, cos, exp, floor, hypot, ln, sin, sqrt, tan
 }
 criterion_main!(benches);

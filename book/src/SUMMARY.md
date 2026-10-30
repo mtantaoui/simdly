@@ -14,11 +14,13 @@
 - [Arc tangent `atan`](./functions/atan.md)
 - [Two-argument arc tangent `atan2`](./functions/atan2.md)
 - [Cube root `cbrt`](./functions/cbrt.md)
+- [Cosine `cos`](./functions/cos.md)
 - [Exponential `exp`](./functions/exp.md)
 - [Floor `floor`](./functions/floor.md)
 - [Hypotenuse `hypot`](./functions/hypot.md)
 - [Natural logarithm `ln`](./functions/ln.md)
 - [Sine `sin`](./functions/sin.md)
+- [Tangent `tan`](./functions/tan.md)
 
 # Benchmarks
 

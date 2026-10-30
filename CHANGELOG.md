@@ -50,6 +50,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SliceMath::ln` and `ln_in_place`, ≤ 1 ULP (0.835 `f32`, 0.823 `f64`) on
   every backend, subnormal inputs included: fdlibm's algorithm, `f32` kept
   in `f32`.
+- `SliceMath::cos` and `cos_in_place`, ≤ 1 ULP (0.501 `f32`, 0.730 `f64`)
+  on every backend for every finite input: `sin`'s code with the quadrant
+  shifted by one.
+- `SliceMath::tan` and `tan_in_place`, ≤ 1 ULP (0.797 `f32`, 0.802 `f64`)
+  on every backend for every finite input: musl's `k_tanf` / `k_tan`, one
+  division per lane, only in registers that need it.
+- `sin`, `cos`, `tan`: large arguments reduced in vector arithmetic,
+  `f32` up to `f32::MAX` (`M·A mod 4`) and `f64` up to `2^33`
+  (double-double); a faster scalar Payne–Hanek above. Faster than `std`
+  in every argument range.
 - `SliceMath::sin` and `sin_in_place`, ≤ 1 ULP (0.501 `f32`, 0.774 `f64`)
   on every backend for every finite input: musl's kernels and reduction,
   `f32` computed in `f64` (`Float::via_f64`), huge arguments reduced exactly
