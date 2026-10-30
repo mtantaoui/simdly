@@ -18,6 +18,7 @@
 - [Floor `floor`](./functions/floor.md)
 - [Hypotenuse `hypot`](./functions/hypot.md)
 - [Natural logarithm `ln`](./functions/ln.md)
+- [Sine `sin`](./functions/sin.md)
 
 # Benchmarks
 

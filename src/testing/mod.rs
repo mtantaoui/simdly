@@ -267,6 +267,32 @@ pub(crate) mod dd {
         (r, c, k)
     }
 
+    /// `sin x` as `hi + lo` for finite `x`, independent of the platform's
+    /// `sin`: [`reduce`](crate::math::trig::reduce) (exact, checked against
+    /// fixed 3000-bit values), then Taylor series in double-double.
+    pub(crate) fn sin_dd(x: f64) -> (f64, f64) {
+        let (n, y0, y1) = crate::math::trig::reduce(x);
+        let y = (y0, y1);
+        let y2 = dd_mul(y, y);
+        // sin y = y·Σ (−y²)^k/(2k+1)!, cos y = Σ (−y²)^k/(2k)!, Horner from
+        // the 20th term down.
+        let (mut s, mut c) = ((1.0, 0.0), (1.0, 0.0));
+        for k in (1..=20).rev() {
+            let k = f64::from(k);
+            let ds = dd_div(dd_mul(s, y2), -(2.0 * k) * (2.0 * k + 1.0));
+            s = dd_add((1.0, 0.0), ds);
+            let dc = dd_div(dd_mul(c, y2), -(2.0 * k - 1.0) * (2.0 * k));
+            c = dd_add((1.0, 0.0), dc);
+        }
+        let s = dd_mul(s, y);
+        match n as u32 {
+            0 => s,
+            1 => c,
+            2 => (-s.0, -s.1),
+            _ => (-c.0, -c.1),
+        }
+    }
+
     /// `ln x` as `hi + lo` for positive finite `x`: `std`'s `ln`, plus the
     /// correction `ln(x / e^y) ≈ x / e^y − 1`, computed with [`exp_dd`].
     pub(crate) fn ln_dd(x: f64) -> (f64, f64) {

@@ -48,6 +48,35 @@ pub(crate) trait Float: Arith + Neg<Output = Self> + Compare + Abs + Floor + Sqr
     /// `self · 2^n` for an integer `n` (as a float) such that `2^n` is a
     /// normal float.
     fn ldexp(self, n: Self) -> Self;
+
+    /// Whether any lane of `mask` is set: decides whether a rare slow path
+    /// runs at all.
+    fn any(mask: Self::Mask) -> bool;
+
+    /// `f` on every lane, through memory: the escape hatch for rare inputs
+    /// a kernel cannot handle in registers. A plain function, not a
+    /// closure, so it cannot capture registers.
+    fn map_lanes(self, f: fn(Self::Elem) -> Self::Elem) -> Self;
+}
+
+/// An operation on `f64` lanes, applied by [`Widen::via_f64`]. A type, not a
+/// closure: see the slice drivers.
+pub(crate) trait WideFn {
+    fn call<W: Float<Elem = f64>>(w: W) -> W;
+}
+
+/// An `f32` lane type whose kernels can run in `f64`.
+pub(crate) trait Widen: Float<Elem = f32> {
+    /// `F` on the lanes widened to `f64` (two registers for a SIMD type),
+    /// rounded back to `f32`.
+    fn via_f64<F: WideFn>(self) -> Self;
+}
+
+impl Widen for f32 {
+    #[inline(always)]
+    fn via_f64<F: WideFn>(self) -> f32 {
+        F::call(f64::from(self)) as f32
+    }
 }
 
 /// `f32` or `f64`.
@@ -161,6 +190,16 @@ macro_rules! float_scalar {
                 fn ldexp(self, n: $T) -> $T {
                     self * $T::from_bits(((n as i32).wrapping_add($BIAS) as $Bits) << $FRAC)
                 }
+
+                #[inline(always)]
+                fn any(mask: bool) -> bool {
+                    mask
+                }
+
+                #[inline(always)]
+                fn map_lanes(self, f: fn($T) -> $T) -> $T {
+                    f(self)
+                }
             }
         )*
     };
@@ -184,15 +223,19 @@ cfg_x86! {
             _mm256_cmpgt_epi32, _mm256_cmpgt_epi64, _mm256_fmadd_pd, _mm256_fmadd_ps,
             _mm256_fnmadd_pd, _mm256_fnmadd_ps, _mm256_or_si256, _mm256_set1_epi32,
             _mm256_set1_epi64x, _mm256_setzero_si256, _mm256_slli_epi32, _mm256_slli_epi64,
-            _mm256_srli_epi32, _mm256_srli_epi64, _mm512_and_si512, _mm512_castpd_si512, _mm512_castps_si512,
+            _mm256_srli_epi32, _mm256_srli_epi64, _mm256_movemask_epi8, _mm512_and_si512, _mm512_castpd_si512, _mm512_castps_si512,
             _mm512_castsi512_pd, _mm512_castsi512_ps, _mm512_cmplt_epi32_mask,
             _mm512_cmplt_epi64_mask, _mm512_fmadd_pd, _mm512_fmadd_ps, _mm512_fnmadd_pd,
             _mm512_fnmadd_ps, _mm512_mask_blend_pd, _mm512_mask_blend_ps, _mm512_or_si512,
             _mm512_set1_epi32, _mm512_set1_epi64, _mm512_setzero_si512, _mm512_slli_epi32,
-            _mm512_slli_epi64, _mm512_srli_epi32, _mm512_srli_epi64,
+            _mm512_slli_epi64, _mm512_srli_epi32, _mm512_srli_epi64, _mm256_castpd_ps,
+            _mm256_castps128_ps256, _mm256_castps256_ps128, _mm256_castps_pd, _mm256_cvtpd_ps,
+            _mm256_cvtps_pd, _mm256_extractf128_ps, _mm256_insertf128_ps, _mm512_castpd256_pd512,
+            _mm512_castpd_ps, _mm512_castps512_ps256, _mm512_castps_pd, _mm512_cvtpd_ps,
+            _mm512_cvtps_pd, _mm512_extractf64x4_pd, _mm512_insertf64x4,
         };
 
-        use super::Float;
+        use super::{Float, WideFn, Widen};
         use crate::simd::SimdVector;
         use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
         use crate::simd::avx512::{f32x16::F32x16, f64x8::F64x8};
@@ -207,6 +250,7 @@ cfg_x86! {
                 select: |$m:ident, $a:ident, $b:ident| $select:expr,
                 and: |$v:ident, $bits:ident| $and:expr,
                 sign: |$s:ident| $sign:expr,
+                any: |$k:ident| $any:expr,
                 bits: $FRAC:literal, $BIAS:literal, $I:ty, $toi:ident, $fromi:ident,
                     $set1:ident, $andi:ident, $or:ident, $srli:ident, $slli:ident $(,)?
             ) => {
@@ -287,6 +331,27 @@ cfg_x86! {
                         // is available.
                         self * unsafe { $V::from_raw($fromi($slli::<$FRAC>($toi(b.raw())))) }
                     }
+
+                    #[inline(always)]
+                    #[allow(unused_unsafe, reason = "AVX-512 masks are plain integers")]
+                    fn any($k: $Mask) -> bool {
+                        // SAFETY: a mask of this type comes from a register
+                        // of this type, so its ISA is available.
+                        unsafe { $any }
+                    }
+
+                    #[inline(always)]
+                    fn map_lanes(self, f: fn($T) -> $T) -> Self {
+                        let mut lanes = [0.0; <$V as SimdVector>::LANES];
+                        // SAFETY: a register of this type exists, so its ISA
+                        // is available; `lanes` holds `LANES` elements.
+                        unsafe { self.store(lanes.as_mut_ptr()) };
+                        for v in &mut lanes {
+                            *v = f(*v);
+                        }
+                        // SAFETY: as above.
+                        unsafe { <$V as SimdVector>::load(lanes.as_ptr()) }
+                    }
                 }
             };
         }
@@ -300,6 +365,7 @@ cfg_x86! {
                 _mm256_set1_epi32(bits as i32),
             )),
             sign: |v| _mm256_cmpgt_epi32(_mm256_setzero_si256(), _mm256_castps_si256(v)),
+            any: |k| _mm256_movemask_epi8(k) != 0,
             bits: 23, 127, i32, _mm256_castps_si256, _mm256_castsi256_ps,
                 _mm256_set1_epi32, _mm256_and_si256, _mm256_or_si256, _mm256_srli_epi32, _mm256_slli_epi32,
         );
@@ -313,6 +379,7 @@ cfg_x86! {
                 _mm256_set1_epi64x(bits as i64),
             )),
             sign: |v| _mm256_cmpgt_epi64(_mm256_setzero_si256(), _mm256_castpd_si256(v)),
+            any: |k| _mm256_movemask_epi8(k) != 0,
             bits: 52, 1023, i64, _mm256_castpd_si256, _mm256_castsi256_pd,
                 _mm256_set1_epi64x, _mm256_and_si256, _mm256_or_si256, _mm256_srli_epi64, _mm256_slli_epi64,
         );
@@ -326,6 +393,7 @@ cfg_x86! {
                 _mm512_set1_epi32(bits as i32),
             )),
             sign: |v| _mm512_cmplt_epi32_mask(_mm512_castps_si512(v), _mm512_setzero_si512()),
+            any: |k| k != 0,
             bits: 23, 127, i32, _mm512_castps_si512, _mm512_castsi512_ps,
                 _mm512_set1_epi32, _mm512_and_si512, _mm512_or_si512, _mm512_srli_epi32, _mm512_slli_epi32,
         );
@@ -339,9 +407,49 @@ cfg_x86! {
                 _mm512_set1_epi64(bits as i64),
             )),
             sign: |v| _mm512_cmplt_epi64_mask(_mm512_castpd_si512(v), _mm512_setzero_si512()),
+            any: |k| k != 0,
             bits: 52, 1023, i64, _mm512_castpd_si512, _mm512_castsi512_pd,
                 _mm512_set1_epi64, _mm512_and_si512, _mm512_or_si512, _mm512_srli_epi64, _mm512_slli_epi64,
         );
+
+        impl Widen for F32x8 {
+            #[inline(always)]
+            fn via_f64<F: WideFn>(self) -> Self {
+                let v = self.raw();
+                // SAFETY: an F32x8 exists, so AVX2 + FMA are available: the
+                // F64x4 halves may exist too.
+                unsafe {
+                    let lo = F64x4::from_raw(_mm256_cvtps_pd(_mm256_castps256_ps128(v)));
+                    let hi = F64x4::from_raw(_mm256_cvtps_pd(_mm256_extractf128_ps::<1>(v)));
+                    let (lo, hi) = (F::call(lo).raw(), F::call(hi).raw());
+                    F32x8::from_raw(_mm256_insertf128_ps::<1>(
+                        _mm256_castps128_ps256(_mm256_cvtpd_ps(lo)),
+                        _mm256_cvtpd_ps(hi),
+                    ))
+                }
+            }
+        }
+
+        impl Widen for F32x16 {
+            #[inline(always)]
+            fn via_f64<F: WideFn>(self) -> Self {
+                let v = self.raw();
+                // SAFETY: an F32x16 exists, so AVX-512F is available: the
+                // F64x8 halves may exist too. Every intrinsic is AVX-512F.
+                unsafe {
+                    let lo = F64x8::from_raw(_mm512_cvtps_pd(_mm512_castps512_ps256(v)));
+                    let high = _mm512_extractf64x4_pd::<1>(_mm512_castps_pd(v));
+                    let hi = F64x8::from_raw(_mm512_cvtps_pd(_mm256_castpd_ps(high)));
+                    let (lo, hi) = (F::call(lo).raw(), F::call(hi).raw());
+                    let lo = _mm256_castps_pd(_mm512_cvtpd_ps(lo));
+                    let hi = _mm256_castps_pd(_mm512_cvtpd_ps(hi));
+                    F32x16::from_raw(_mm512_castpd_ps(_mm512_insertf64x4::<1>(
+                        _mm512_castpd256_pd512(lo),
+                        hi,
+                    )))
+                }
+            }
+        }
     }
 }
 
@@ -353,17 +461,39 @@ cfg_neon! {
             vreinterpretq_f32_u32, vreinterpretq_f64_u64, vreinterpretq_s32_f32,
             vorrq_u32, vorrq_u64, vreinterpretq_s64_f64, vreinterpretq_u32_f32,
             vreinterpretq_u64_f64, vshlq_n_u32, vshlq_n_u64, vshrq_n_u32, vshrq_n_u64,
+            vcvt_f32_f64, vcvt_f64_f32, vcvt_high_f32_f64, vcvt_high_f64_f32, vget_low_f32,
+            vmaxvq_u32, vreinterpretq_u32_u64,
         };
 
-        use super::Float;
+        use super::{Float, WideFn, Widen};
         use crate::simd::SimdVector;
         use crate::simd::neon::{f32x4::F32x4, f64x2::F64x2};
+
+        /// `uint32x4_t` as itself, for `float_neon!`'s `any`.
+        #[inline(always)]
+        fn same_u32(m: uint32x4_t) -> uint32x4_t {
+            m
+        }
+
+        impl Widen for F32x4 {
+            #[inline(always)]
+            fn via_f64<F: WideFn>(self) -> Self {
+                let v = self.raw();
+                // SAFETY: NEON is enabled at compile time.
+                unsafe {
+                    let lo = F64x2::from_raw(vcvt_f64_f32(vget_low_f32(v)));
+                    let hi = F64x2::from_raw(vcvt_high_f64_f32(v));
+                    let (lo, hi) = (F::call(lo).raw(), F::call(hi).raw());
+                    F32x4::from_raw(vcvt_high_f32_f64(vcvt_f32_f64(lo), hi))
+                }
+            }
+        }
 
         macro_rules! float_neon {
             ($($V:ident: $T:ident, $Bits:ident, $Mask:ty, $fma:ident, $fms:ident, $bsl:ident,
                 $and:ident, $dup:ident, $to_bits:ident, $from_bits:ident,
                 $cltz:ident, $to_signed:ident, $FRAC:literal, $BIAS:literal,
-                $orr:ident, $shr:ident, $shl:ident);* $(;)?) => {
+                $orr:ident, $shr:ident, $shl:ident, $to_u32:ident);* $(;)?) => {
                 $(
                     impl Float for $V {
                         type Elem = $T;
@@ -430,6 +560,25 @@ cfg_neon! {
                             // SAFETY: NEON is enabled at compile time.
                             self * unsafe { $V::from_raw($from_bits($shl::<$FRAC>($to_bits(b.raw())))) }
                         }
+
+                        #[inline(always)]
+                        fn any(mask: $Mask) -> bool {
+                            // SAFETY: NEON is enabled at compile time.
+                            unsafe { vmaxvq_u32($to_u32(mask)) != 0 }
+                        }
+
+                        #[inline(always)]
+                        fn map_lanes(self, f: fn($T) -> $T) -> Self {
+                            let mut lanes = [0.0; <$V as SimdVector>::LANES];
+                            // SAFETY: NEON is enabled at compile time; `lanes`
+                            // holds `LANES` elements.
+                            unsafe { self.store(lanes.as_mut_ptr()) };
+                            for v in &mut lanes {
+                                *v = f(*v);
+                            }
+                            // SAFETY: as above.
+                            unsafe { <$V as SimdVector>::load(lanes.as_ptr()) }
+                        }
                     }
                 )*
             };
@@ -438,10 +587,12 @@ cfg_neon! {
         float_neon!(
             F32x4: f32, u32, uint32x4_t, vfmaq_f32, vfmsq_f32, vbslq_f32,
                 vandq_u32, vdupq_n_u32, vreinterpretq_u32_f32, vreinterpretq_f32_u32,
-                vcltzq_s32, vreinterpretq_s32_f32, 23, 127, vorrq_u32, vshrq_n_u32, vshlq_n_u32;
+                vcltzq_s32, vreinterpretq_s32_f32, 23, 127, vorrq_u32, vshrq_n_u32, vshlq_n_u32,
+                same_u32;
             F64x2: f64, u64, uint64x2_t, vfmaq_f64, vfmsq_f64, vbslq_f64,
                 vandq_u64, vdupq_n_u64, vreinterpretq_u64_f64, vreinterpretq_f64_u64,
-                vcltzq_s64, vreinterpretq_s64_f64, 52, 1023, vorrq_u64, vshrq_n_u64, vshlq_n_u64;
+                vcltzq_s64, vreinterpretq_s64_f64, 52, 1023, vorrq_u64, vshrq_n_u64, vshlq_n_u64,
+                vreinterpretq_u32_u64;
         );
     }
 }

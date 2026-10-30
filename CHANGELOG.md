@@ -50,6 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SliceMath::ln` and `ln_in_place`, ≤ 1 ULP (0.835 `f32`, 0.823 `f64`) on
   every backend, subnormal inputs included: fdlibm's algorithm, `f32` kept
   in `f32`.
+- `SliceMath::sin` and `sin_in_place`, ≤ 1 ULP (0.501 `f32`, 0.774 `f64`)
+  on every backend for every finite input: musl's kernels and reduction,
+  `f32` computed in `f64` (`Float::via_f64`), huge arguments reduced exactly
+  (Payne–Hanek) only in registers that hold one (`Float::any`,
+  `Float::map_lanes`).
 - `SliceMath::floor` and `floor_in_place`, exact on every backend (one
   rounding instruction; float arithmetic on scalar); `Float` now requires
   `Floor`.

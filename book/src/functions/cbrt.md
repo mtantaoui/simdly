@@ -105,7 +105,7 @@ The `OR` into \\(2^{23}\\) converts the exponent to a float without an
 integer-to-float instruction, which AVX2 lacks for 64-bit integers. On
 AVX2 these are `vpsrld` / `vpslld` / `vpor` / `vpand`, the same with
 `q` for `f64`; AVX-512 has the 512-bit forms; NEON uses `ushr`, `shl`,
-`orr`, `and`. They will serve `exp`, `ln` and `pow` too.
+`orr`, `and`. [`exp`](./exp.md) and [`ln`](./ln.md) use them too.
 
 ## 7. Measured error
 

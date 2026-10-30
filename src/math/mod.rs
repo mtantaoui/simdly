@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`], [`ln`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`], [`ln`], [`trig`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -26,6 +26,7 @@ mod floor;
 mod hypot;
 mod ln;
 mod sqrt;
+pub(crate) mod trig;
 
 cfg_simd! {
     pub(crate) mod driver;
@@ -43,12 +44,16 @@ use floor::Floor;
 use hypot::Hypot;
 use ln::Ln;
 use sqrt::Sqrt;
+use trig::Sin;
 
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
-pub(crate) trait Math: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Hypot + Ln {}
+pub(crate) trait Math:
+    Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Hypot + Ln + Sin
+{
+}
 
-impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Hypot + Ln> Math for T {}
+impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Hypot + Ln + Sin> Math for T {}
 
 /// An element-wise math function.
 pub(crate) trait UnaryOp {
@@ -179,6 +184,16 @@ impl UnaryOp for LnOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.ln()
+    }
+}
+
+/// `sin x`.
+pub(crate) struct SinOp;
+
+impl UnaryOp for SinOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.sin()
     }
 }
 
@@ -709,6 +724,21 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = ln self[i]`.
     fn ln_in_place(&mut self);
 
+    /// `sin self[i]`, in radians. Error ≤ 1 ULP for every finite input, huge
+    /// ones included; NaN for `±∞`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let s = vec![0.0_f64, core::f64::consts::FRAC_PI_2, -0.0].sin();
+    /// assert_eq!(s, [0.0, 1.0, -0.0]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn sin(&self) -> Vec<T>;
+
+    /// `self[i] = sin self[i]`.
+    fn sin_in_place(&mut self);
+
     /// `√self[i]`, correctly rounded (0 ULP) on every backend. `√-0.0` is
     /// `-0.0`; negative values and NaN give NaN.
     ///
@@ -839,6 +869,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn ln_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<LnOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn sin(&self) -> Vec<$T> {
+                    unary_to_vec::<SinOp, _>(self)
+                }
+
+                #[inline]
+                fn sin_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<SinOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]

@@ -246,6 +246,18 @@ fn hypot(c: &mut Criterion) {
     group.finish();
 }
 
+fn sin(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sin");
+    out_of_place::<f32>(&mut group, signed, |x| x.sin(), f32::sin);
+    out_of_place::<f64>(&mut group, signed, |x| x.sin(), f64::sin);
+    group.finish();
+
+    let mut group = c.benchmark_group("sin_in_place");
+    in_place::<f32>(&mut group, signed, |x| x.sin_in_place(), f32::sin);
+    in_place::<f64>(&mut group, signed, |x| x.sin_in_place(), f64::sin);
+    group.finish();
+}
+
 fn sqrt(c: &mut Criterion) {
     let mut group = c.benchmark_group("sqrt");
     out_of_place::<f32>(&mut group, positive, |x| x.sqrt(), f32::sqrt);
@@ -269,6 +281,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, asin, atan, atan2, cbrt, exp, floor, hypot, ln, sqrt
+    targets = abs, acos, asin, atan, atan2, cbrt, exp, floor, hypot, ln, sin, sqrt
 }
 criterion_main!(benches);
