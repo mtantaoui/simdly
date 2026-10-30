@@ -72,6 +72,10 @@ Speed-up of simdly's AVX2 backend (8 `f32` / 4 `f64` lanes) over the scalar loop
 | `cbrt` | `f64` | – | – | – | – |
 | `cbrt_in_place` | `f32` | – | – | – | – |
 | `cbrt_in_place` | `f64` | – | – | – | – |
+| `ceil` | `f32` | – | – | – | – |
+| `ceil` | `f64` | – | – | – | – |
+| `ceil_in_place` | `f32` | – | – | – | – |
+| `ceil_in_place` | `f64` | – | – | – | – |
 | `cos` | `f32` | – | – | – | – |
 | `cos` | `f64` | – | – | – | – |
 | `cos_in_place` | `f32` | – | – | – | – |

@@ -5,7 +5,7 @@
 //! zero-sized [`UnaryOp`] names it, so every `(function, element, backend)`
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
-//! A single instruction ([`abs`], [`floor`], [`sqrt`]) is implemented per lane type. An
+//! A single instruction ([`abs`], [`ceil`], [`floor`], [`sqrt`]) is implemented per lane type. An
 //! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`], [`ln`], [`trig`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
@@ -20,6 +20,7 @@ mod asin;
 mod atan;
 mod atan2;
 mod cbrt;
+mod ceil;
 mod exp;
 mod float;
 mod floor;
@@ -38,6 +39,7 @@ use asin::Asin;
 use atan::Atan;
 use atan2::Atan2;
 use cbrt::Cbrt;
+use ceil::Ceil;
 use exp::Exp;
 use float::Float;
 use floor::Floor;
@@ -49,11 +51,11 @@ use trig::Trig;
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
 pub(crate) trait Math:
-    Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Hypot + Ln + Trig
+    Float + Acos + Asin + Atan + Atan2 + Cbrt + Ceil + Exp + Hypot + Ln + Trig
 {
 }
 
-impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Exp + Hypot + Ln + Trig> Math for T {}
+impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Ceil + Exp + Hypot + Ln + Trig> Math for T {}
 
 /// An element-wise math function.
 pub(crate) trait UnaryOp {
@@ -154,6 +156,16 @@ impl UnaryOp for ExpOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.exp()
+    }
+}
+
+/// `⌈x⌉`.
+pub(crate) struct CeilOp;
+
+impl UnaryOp for CeilOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.ceil()
     }
 }
 
@@ -699,6 +711,23 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = e^self[i]`.
     fn exp_in_place(&mut self);
 
+    /// `⌈self[i]⌉`, the smallest integer not below it. Exact: `⌈−0.3⌉` is
+    /// `−0.0`, `⌈0.3⌉` is `1.0`, and `±∞` and NaN are returned as they are.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![2.3_f32, -2.7, -0.3];
+    /// let c = a.ceil();
+    /// assert_eq!(c, [3.0, -2.0, -0.0]);
+    /// assert!(c[2].is_sign_negative());
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn ceil(&self) -> Vec<T>;
+
+    /// `self[i] = ⌈self[i]⌉`.
+    fn ceil_in_place(&mut self);
+
     /// `⌊self[i]⌋`, the largest integer not above it. Exact: `⌊−0.0⌋` is
     /// `−0.0`, `⌊−0.3⌋` is `−1.0`, and `±∞` and NaN are returned as they are.
     ///
@@ -898,6 +927,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn exp_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<ExpOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn ceil(&self) -> Vec<$T> {
+                    unary_to_vec::<CeilOp, _>(self)
+                }
+
+                #[inline]
+                fn ceil_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<CeilOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]

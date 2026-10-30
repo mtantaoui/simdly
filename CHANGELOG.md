@@ -65,6 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `f32` computed in `f64` (`Float::via_f64`), huge arguments reduced exactly
   (Payne–Hanek) only in registers that hold one (`Float::any`,
   `Float::map_lanes`).
+- `SliceMath::ceil` and `ceil_in_place`, exact on every backend (one
+  rounding instruction; `−⌊−x⌋` on scalar).
 - `SliceMath::floor` and `floor_in_place`, exact on every backend (one
   rounding instruction; float arithmetic on scalar); `Float` now requires
   `Floor`.

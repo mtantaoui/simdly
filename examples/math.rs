@@ -14,6 +14,7 @@ fn main() {
     println!("|x|    = {:?}", x.abs());
     println!("√x     = {:?}", x.sqrt());
     println!("∛x     = {:?}", x.cbrt());
+    println!("⌈x⌉    = {:?}", x.ceil());
     println!("⌊x⌋    = {:?}", x.floor());
     println!("eˣ     = {:?}", x.exp());
     println!("ln x   = {:?}", x.ln());

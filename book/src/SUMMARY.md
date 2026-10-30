@@ -14,6 +14,7 @@
 - [Arc tangent `atan`](./functions/atan.md)
 - [Two-argument arc tangent `atan2`](./functions/atan2.md)
 - [Cube root `cbrt`](./functions/cbrt.md)
+- [Ceiling `ceil`](./functions/ceil.md)
 - [Cosine `cos`](./functions/cos.md)
 - [Exponential `exp`](./functions/exp.md)
 - [Floor `floor`](./functions/floor.md)

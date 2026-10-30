@@ -88,8 +88,8 @@ fn out_of_place<T: Float>(
     }
 }
 
-/// `simdly(x)` vs `for v in x { *v = f(*v) }`. Repeating it is fine: `abs`
-/// and `floor` keep the values after the first pass, `sqrt` keeps them
+/// `simdly(x)` vs `for v in x { *v = f(*v) }`. Repeating it is fine: `abs`,
+/// `ceil` and `floor` keep the values after the first pass, `sqrt` keeps them
 /// positive, and `atan` and `cbrt` finite.
 fn in_place<T: Float>(
     group: &mut Group,
@@ -212,6 +212,18 @@ fn cbrt(c: &mut Criterion) {
 }
 
 /// Out of place only: in place, a second pass would overflow.
+fn ceil(c: &mut Criterion) {
+    let mut group = c.benchmark_group("ceil");
+    out_of_place::<f32>(&mut group, signed, |x| x.ceil(), f32::ceil);
+    out_of_place::<f64>(&mut group, signed, |x| x.ceil(), f64::ceil);
+    group.finish();
+
+    let mut group = c.benchmark_group("ceil_in_place");
+    in_place::<f32>(&mut group, signed, |x| x.ceil_in_place(), f32::ceil);
+    in_place::<f64>(&mut group, signed, |x| x.ceil_in_place(), f64::ceil);
+    group.finish();
+}
+
 fn exp(c: &mut Criterion) {
     let mut group = c.benchmark_group("exp");
     out_of_place::<f32>(&mut group, moderate, |x| x.exp(), f32::exp);
@@ -305,6 +317,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, asin, atan, atan2, cbrt, cos, exp, floor, hypot, ln, sin, sqrt, tan
+    targets = abs, acos, asin, atan, atan2, cbrt, ceil, cos, exp, floor, hypot, ln, sin, sqrt, tan
 }
 criterion_main!(benches);
