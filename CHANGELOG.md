@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-02
+
 ### Added
 
 - `rayon` feature: `ParSliceMath`, every `SliceMath` function on several
@@ -94,5 +96,6 @@ First release.
 - `SliceMath::sqrt` and `sqrt_in_place`, correctly rounded on every backend;
   without `std`, the scalar fallback computes it exactly with integers.
 
-[Unreleased]: https://github.com/mtantaoui/simdly/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/mtantaoui/simdly/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/mtantaoui/simdly/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/mtantaoui/simdly/releases/tag/v0.1.0

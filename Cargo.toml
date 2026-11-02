@@ -1,6 +1,6 @@
 [package]
 name = "simdly"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 # 1.89 stabilised the AVX-512 intrinsics.
 rust-version = "1.89"
