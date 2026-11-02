@@ -1,8 +1,11 @@
 //! `SliceExt` comparisons against the plain scalar loop, from L1-resident to
-//! larger-than-cache slices.
+//! larger-than-cache slices. With `--features rayon`, the same groups also
+//! time `ParSliceExt` (`par`) and the rayon loop (`rayon`), at every length
+//! (`par_` runs on one thread up to twice `PARALLEL_SIMD_THRESHOLD`).
 //!
 //! ```sh
 //! cargo bench --bench comparison
+//! cargo bench --bench comparison --features rayon
 //! ```
 
 use std::hint::black_box;
@@ -12,6 +15,10 @@ use criterion::measurement::WallTime;
 use criterion::{
     BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
 };
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
+#[cfg(feature = "rayon")]
+use simdly::ParSliceExt;
 use simdly::SliceExt;
 
 const LENS: &[usize] = &[64, 4_096, 262_144, 4_194_304];
@@ -21,7 +28,22 @@ const RHS: f64 = 8.0;
 
 type Group<'a> = BenchmarkGroup<'a, WallTime>;
 
-trait Float: Copy {
+/// `Some(f)` with the `rayon` feature, `None` (and `f` not compiled)
+/// without.
+#[cfg(feature = "rayon")]
+macro_rules! par {
+    ($f:expr) => {
+        Some($f)
+    };
+}
+#[cfg(not(feature = "rayon"))]
+macro_rules! par {
+    ($f:expr) => {
+        None
+    };
+}
+
+trait Float: Copy + Send + Sync {
     const NAME: &str;
     fn from_f64(x: f64) -> Self;
 }
@@ -47,11 +69,16 @@ fn inputs<T: Float>(len: usize) -> (Vec<T>, Vec<T>) {
     (a, b)
 }
 
-/// `simdly(a, b)` vs `a.iter().zip(b).map(op).collect()`.
+type Cmp<T> = fn(&[T], &[T]) -> Vec<bool>;
+type CmpScalar<T> = fn(&[T], T) -> Vec<bool>;
+
+/// `simdly(a, b)` vs `a.iter().zip(b).map(op).collect()`; with `rayon`,
+/// `par(a, b)` vs the same with `par_iter`.
 fn slices<T: Float>(
     group: &mut Group,
     simdly: impl Fn(&[T], &[T]) -> Vec<bool>,
-    op: impl Fn(T, T) -> bool + Copy,
+    par: Option<Cmp<T>>,
+    op: impl Fn(T, T) -> bool + Copy + Sync,
 ) {
     for &len in LENS {
         let (a, b) = inputs::<T>(len);
@@ -72,14 +99,36 @@ fn slices<T: Float>(
                 })
             },
         );
+        #[cfg(feature = "rayon")]
+        if let Some(par) = par {
+            group.bench_function(BenchmarkId::new(format!("par/{}", T::NAME), len), |bench| {
+                bench.iter(|| par(black_box(&a), black_box(&b)))
+            });
+            group.bench_function(
+                BenchmarkId::new(format!("rayon/{}", T::NAME), len),
+                |bench| {
+                    bench.iter(|| {
+                        black_box(&a)
+                            .par_iter()
+                            .zip(black_box(&b))
+                            .map(|(&x, &y)| op(x, y))
+                            .collect::<Vec<bool>>()
+                    })
+                },
+            );
+        }
     }
+    #[cfg(not(feature = "rayon"))]
+    let _ = par;
 }
 
-/// The `_scalar` form against [`RHS`].
+/// The `_scalar` form against [`RHS`]; with `rayon`, `par(a, rhs)` vs the
+/// same with `par_iter`.
 fn scalar<T: Float>(
     group: &mut Group,
     simdly: impl Fn(&[T], T) -> Vec<bool>,
-    op: impl Fn(T, T) -> bool + Copy,
+    par: Option<CmpScalar<T>>,
+    op: impl Fn(T, T) -> bool + Copy + Sync,
 ) {
     let rhs = T::from_f64(RHS);
     for &len in LENS {
@@ -101,30 +150,80 @@ fn scalar<T: Float>(
                 })
             },
         );
+        #[cfg(feature = "rayon")]
+        if let Some(par) = par {
+            group.bench_function(BenchmarkId::new(format!("par/{}", T::NAME), len), |bench| {
+                bench.iter(|| par(black_box(&a), black_box(rhs)))
+            });
+            group.bench_function(
+                BenchmarkId::new(format!("rayon/{}", T::NAME), len),
+                |bench| {
+                    bench.iter(|| {
+                        let s = black_box(rhs);
+                        black_box(&a)
+                            .par_iter()
+                            .map(|&x| op(x, s))
+                            .collect::<Vec<bool>>()
+                    })
+                },
+            );
+        }
     }
+    #[cfg(not(feature = "rayon"))]
+    let _ = par;
 }
 
 /// `less` for both element types; `equal` for `f32` only, to keep the run
 /// short.
 fn less(c: &mut Criterion) {
     let mut group = c.benchmark_group("less");
-    slices::<f32>(&mut group, |a, b| a.less(b), |x, y| x < y);
-    slices::<f64>(&mut group, |a, b| a.less(b), |x, y| x < y);
+    slices::<f32>(
+        &mut group,
+        |a, b| a.less(b),
+        par!(|a, b| a.par_less(b)),
+        |x, y| x < y,
+    );
+    slices::<f64>(
+        &mut group,
+        |a, b| a.less(b),
+        par!(|a, b| a.par_less(b)),
+        |x, y| x < y,
+    );
     group.finish();
 
     let mut group = c.benchmark_group("less_scalar");
-    scalar::<f32>(&mut group, |a, s| a.less_scalar(s), |x, y| x < y);
-    scalar::<f64>(&mut group, |a, s| a.less_scalar(s), |x, y| x < y);
+    scalar::<f32>(
+        &mut group,
+        |a, s| a.less_scalar(s),
+        par!(|a, s| a.par_less_scalar(s)),
+        |x, y| x < y,
+    );
+    scalar::<f64>(
+        &mut group,
+        |a, s| a.less_scalar(s),
+        par!(|a, s| a.par_less_scalar(s)),
+        |x, y| x < y,
+    );
     group.finish();
 }
 
 fn equal(c: &mut Criterion) {
     let mut group = c.benchmark_group("equal");
-    slices::<f32>(&mut group, |a, b| a.equal(b), |x, y| x == y);
+    slices::<f32>(
+        &mut group,
+        |a, b| a.equal(b),
+        par!(|a, b| a.par_equal(b)),
+        |x, y| x == y,
+    );
     group.finish();
 
     let mut group = c.benchmark_group("equal_scalar");
-    scalar::<f32>(&mut group, |a, s| a.equal_scalar(s), |x, y| x == y);
+    scalar::<f32>(
+        &mut group,
+        |a, s| a.equal_scalar(s),
+        par!(|a, s| a.par_equal_scalar(s)),
+        |x, y| x == y,
+    );
     group.finish();
 }
 

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `rayon` feature: `ParSliceMath`, every `SliceMath` function on several
+  threads (`par_sin`, `par_hypot_in_place`, …). Slices longer than
+  `PARALLEL_SIMD_THRESHOLD` (262 144 elements) are split into chunks of
+  16 384 and run in rayon's pool, with the same results bit for bit;
+  shorter ones run on the calling thread.
+- `ParSliceExt` (feature `rayon`): every `SliceExt` operation on several
+  threads (`par_add`, `par_mul_assign`, `par_less`, `par_equal_scalar`, …),
+  from twice `PARALLEL_SIMD_THRESHOLD` (524 288 elements) on: they do less
+  work per element than the math functions.
+
 ## [0.1.0] - 2026-10-30
 
 First release.

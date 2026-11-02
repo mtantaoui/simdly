@@ -10,6 +10,8 @@ mod arith;
     allow(dead_code, reason = "only `Compare` is used without `alloc`")
 )]
 mod cmp;
+#[cfg(feature = "rayon")]
+pub(crate) mod par;
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;

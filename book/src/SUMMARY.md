@@ -6,6 +6,7 @@
 
 - [How simdly works](./design.md)
 - [Accuracy and ULPs](./accuracy.md)
+- [Parallelism](./parallel.md)
 
 # Functions
 

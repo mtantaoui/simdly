@@ -36,6 +36,9 @@
 //!
 //! - `std` *(default)* — runtime CPU detection; implies `alloc`.
 //! - `alloc` — `Vec`-returning slice APIs ([`SliceExt`]'s `add`, …).
+//! - `rayon` — [`ParSliceMath`] and [`ParSliceExt`]: the math functions,
+//!   arithmetic and comparisons on several threads (`par_sin`, `par_add`,
+//!   …) for long slices; implies `std`.
 //!
 //! Without default features the crate is `no_std`.
 
@@ -57,7 +60,27 @@ mod ops;
 
 pub use detect::{Backend, backend};
 pub use math::SliceMath;
+#[cfg(feature = "rayon")]
+pub use math::par::ParSliceMath;
 pub use ops::SliceExt;
+#[cfg(feature = "rayon")]
+pub use ops::par::ParSliceExt;
+
+/// Length above which [`ParSliceMath`] splits a slice across threads (1 MiB
+/// of `f32`). Up to it, the `par_` functions run on the calling thread.
+#[cfg(feature = "rayon")]
+pub const PARALLEL_SIMD_THRESHOLD: usize = 262_144;
+
+/// Length above which [`ParSliceExt`] splits a slice: twice
+/// [`PARALLEL_SIMD_THRESHOLD`], as arithmetic and comparisons do less work
+/// per element than the math functions.
+#[cfg(feature = "rayon")]
+pub(crate) const PARALLEL_EXT_THRESHOLD: usize = 2 * PARALLEL_SIMD_THRESHOLD;
+
+/// Elements per rayon task (64 KiB of `f32`): a multiple of every register
+/// width, so only the last chunk has a masked tail.
+#[cfg(feature = "rayon")]
+pub(crate) const PARALLEL_CHUNK_SIZE: usize = 16_384;
 
 cfg_simd! {
     mod simd;

@@ -26,6 +26,8 @@ mod float;
 mod floor;
 mod hypot;
 mod ln;
+#[cfg(feature = "rayon")]
+pub(crate) mod par;
 mod sqrt;
 pub(crate) mod trig;
 

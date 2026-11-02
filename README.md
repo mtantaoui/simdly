@@ -81,8 +81,22 @@ RUSTFLAGS="-C target-feature=+avx2,+fma" cargo build --release
 |---------|---------|-------------------------------------------------|
 | `std`   | yes     | runtime CPU detection; implies `alloc`          |
 | `alloc` | via `std` | `Vec`-returning slice APIs (`SliceExt::add`, …) |
+| `rayon` | no      | `ParSliceMath`, `ParSliceExt`: `par_sin`, `par_add`, … on several threads; implies `std` |
 
 With `default-features = false` the crate is `no_std`.
+
+With `rayon`, every math function, arithmetic operation and comparison
+has a `par_` twin that splits long slices across rayon's threads (above
+`PARALLEL_SIMD_THRESHOLD`, 262 144 elements, for math; twice that for
+arithmetic and comparisons), with the same results bit for bit:
+
+```rust
+use simdly::{ParSliceExt, ParSliceMath};
+
+let x: Vec<f32> = (0..4_000_000).map(|i| i as f32 * 1e-3).collect();
+let s = x.par_sin();
+let t = x.par_add(&s);
+```
 
 ## License
 

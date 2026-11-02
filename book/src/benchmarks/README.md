@@ -21,6 +21,18 @@ simdly time (criterion's mean): `2.00×` means simdly takes half the time.
 | 262 144     | 1 MiB      | L2 or L3  |
 | 4 194 304   | 16 MiB     | memory    |
 
+With `--features rayon`, every group also times the `par_` functions
+(`par`) and the rayon loop a user would write instead (`rayon`,
+`x.par_iter().map(|v| v.sin()).collect()`), at every length. Up to the
+thresholds where `par_` starts threads, it runs on one thread, so the
+small lengths show what rayon costs there and that `par_` does not pay
+it.
+
+In-place math benchmarks run each iteration on a fresh copy of the input
+(the copy is not timed), so every implementation sees the same values.
+In-place arithmetic reuses its slice: with `b` all ones, `a op= b` keeps
+`a` normal, so the timing does not depend on the pass.
+
 At 4 194 304 elements, cheap operations (`add`, `abs`, …) are limited by
 memory bandwidth, so the speed-up shrinks towards 1× whatever the
 instructions.
@@ -30,6 +42,7 @@ instructions.
 ```sh
 cargo bench                          # all benchmarks, about 20 minutes
 cargo bench --bench math -- acos     # one group
+cargo bench --features rayon         # with the parallel results
 python3 tools/bench_table.py         # the tables of these pages
 ```
 

@@ -29,8 +29,12 @@ default = ["std"]
 std = ["alloc"]
 # `Vec`-returning APIs (`SliceExt::add`, …).
 alloc = []
+# `ParSliceMath`, `ParSliceExt`: math, arithmetic and comparisons on several
+# threads, for long slices.
+rayon = ["std", "dep:rayon"]
 
 [dependencies]
+rayon = { version = "1.10", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
@@ -67,6 +71,10 @@ required-features = ["alloc"]
 [[example]]
 name = "math"
 required-features = ["alloc"]
+
+[[example]]
+name = "parallel"
+required-features = ["rayon"]
 
 [lints.rust]
 missing_docs = "warn"

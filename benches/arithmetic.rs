@@ -1,8 +1,11 @@
 //! `SliceExt` arithmetic against the plain scalar loop, from L1-resident to
-//! larger-than-cache slices.
+//! larger-than-cache slices. With `--features rayon`, the same groups also
+//! time `ParSliceExt` (`par`) and the rayon loop (`rayon`), at every length
+//! (`par_` runs on one thread up to twice `PARALLEL_SIMD_THRESHOLD`).
 //!
 //! ```sh
 //! cargo bench --bench arithmetic
+//! cargo bench --bench arithmetic --features rayon
 //! ```
 
 use std::hint::black_box;
@@ -12,13 +15,32 @@ use criterion::measurement::WallTime;
 use criterion::{
     BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
 };
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
+#[cfg(feature = "rayon")]
+use simdly::ParSliceExt;
 use simdly::SliceExt;
 
 const LENS: &[usize] = &[64, 4_096, 262_144, 4_194_304];
 
 type Group<'a> = BenchmarkGroup<'a, WallTime>;
 
-trait Float: Copy {
+/// `Some(f)` with the `rayon` feature, `None` (and `f` not compiled)
+/// without.
+#[cfg(feature = "rayon")]
+macro_rules! par {
+    ($f:expr) => {
+        Some($f)
+    };
+}
+#[cfg(not(feature = "rayon"))]
+macro_rules! par {
+    ($f:expr) => {
+        None
+    };
+}
+
+trait Float: Copy + Send + Sync {
     const NAME: &str;
     const ONE: Self;
     fn from_f64(x: f64) -> Self;
@@ -50,11 +72,16 @@ fn inputs<T: Float>(len: usize) -> (Vec<T>, Vec<T>) {
     (a, b)
 }
 
-/// `simdly(a, b)` vs `a.iter().zip(b).map(op).collect()`.
+type Binary<T> = fn(&[T], &[T]) -> Vec<T>;
+type Assign<T> = fn(&mut [T], &[T]);
+
+/// `simdly(a, b)` vs `a.iter().zip(b).map(op).collect()`; with `rayon`,
+/// `par(a, b)` vs the same with `par_iter`.
 fn out_of_place<T: Float>(
     group: &mut Group,
     simdly: impl Fn(&[T], &[T]) -> Vec<T>,
-    op: impl Fn(T, T) -> T + Copy,
+    par: Option<Binary<T>>,
+    op: impl Fn(T, T) -> T + Copy + Sync,
 ) {
     for &len in LENS {
         let (a, b) = inputs::<T>(len);
@@ -75,17 +102,39 @@ fn out_of_place<T: Float>(
                 })
             },
         );
+        #[cfg(feature = "rayon")]
+        if let Some(par) = par {
+            group.bench_function(BenchmarkId::new(format!("par/{}", T::NAME), len), |bench| {
+                bench.iter(|| par(black_box(&a), black_box(&b)))
+            });
+            group.bench_function(
+                BenchmarkId::new(format!("rayon/{}", T::NAME), len),
+                |bench| {
+                    bench.iter(|| {
+                        black_box(&a)
+                            .par_iter()
+                            .zip(black_box(&b))
+                            .map(|(&x, &y)| op(x, y))
+                            .collect::<Vec<T>>()
+                    })
+                },
+            );
+        }
     }
+    #[cfg(not(feature = "rayon"))]
+    let _ = par;
 }
 
-/// `simdly(a, b)` vs `for (x, y) in a.zip(b) { *x = op(*x, y) }`.
+/// `simdly(a, b)` vs `for (x, y) in a.zip(b) { *x = op(*x, y) }`; with
+/// `rayon`, `par(a, b)` vs the same with `par_iter_mut`.
 ///
 /// `b` is all ones so that repeating `a op= b` keeps `a` finite and normal:
 /// drifting into subnormals would slow both sides down and skew the result.
 fn in_place<T: Float>(
     group: &mut Group,
     simdly: impl Fn(&mut [T], &[T]),
-    op: impl Fn(T, T) -> T + Copy,
+    par: Option<Assign<T>>,
+    op: impl Fn(T, T) -> T + Copy + Sync,
 ) {
     for &len in LENS {
         let (mut a, b) = (inputs::<T>(len).0, vec![T::ONE; len]);
@@ -104,50 +153,119 @@ fn in_place<T: Float>(
                 })
             },
         );
+        #[cfg(feature = "rayon")]
+        if let Some(par) = par {
+            group.bench_function(BenchmarkId::new(format!("par/{}", T::NAME), len), |bench| {
+                bench.iter(|| par(black_box(&mut a), black_box(&b)))
+            });
+            group.bench_function(
+                BenchmarkId::new(format!("rayon/{}", T::NAME), len),
+                |bench| {
+                    bench.iter(|| {
+                        black_box(&mut a)
+                            .par_iter_mut()
+                            .zip(black_box(&b))
+                            .for_each(|(x, &y)| *x = op(*x, y))
+                    })
+                },
+            );
+        }
     }
+    #[cfg(not(feature = "rayon"))]
+    let _ = par;
 }
 
 /// `add` and `add_assign` for both element types; the other operations for
 /// `f32` only, to keep the run short.
 fn add(c: &mut Criterion) {
     let mut group = c.benchmark_group("add");
-    out_of_place::<f32>(&mut group, |a, b| a.add(b), |x, y| x + y);
-    out_of_place::<f64>(&mut group, |a, b| a.add(b), |x, y| x + y);
+    out_of_place::<f32>(
+        &mut group,
+        |a, b| a.add(b),
+        par!(|a, b| a.par_add(b)),
+        |x, y| x + y,
+    );
+    out_of_place::<f64>(
+        &mut group,
+        |a, b| a.add(b),
+        par!(|a, b| a.par_add(b)),
+        |x, y| x + y,
+    );
     group.finish();
 
     let mut group = c.benchmark_group("add_assign");
-    in_place::<f32>(&mut group, |a, b| a.add_assign(b), |x, y| x + y);
-    in_place::<f64>(&mut group, |a, b| a.add_assign(b), |x, y| x + y);
+    in_place::<f32>(
+        &mut group,
+        |a, b| a.add_assign(b),
+        par!(|a, b| a.par_add_assign(b)),
+        |x, y| x + y,
+    );
+    in_place::<f64>(
+        &mut group,
+        |a, b| a.add_assign(b),
+        par!(|a, b| a.par_add_assign(b)),
+        |x, y| x + y,
+    );
     group.finish();
 }
 
 fn sub(c: &mut Criterion) {
     let mut group = c.benchmark_group("sub");
-    out_of_place::<f32>(&mut group, |a, b| a.sub(b), |x, y| x - y);
+    out_of_place::<f32>(
+        &mut group,
+        |a, b| a.sub(b),
+        par!(|a, b| a.par_sub(b)),
+        |x, y| x - y,
+    );
     group.finish();
 
     let mut group = c.benchmark_group("sub_assign");
-    in_place::<f32>(&mut group, |a, b| a.sub_assign(b), |x, y| x - y);
+    in_place::<f32>(
+        &mut group,
+        |a, b| a.sub_assign(b),
+        par!(|a, b| a.par_sub_assign(b)),
+        |x, y| x - y,
+    );
     group.finish();
 }
 
 fn mul(c: &mut Criterion) {
     let mut group = c.benchmark_group("mul");
-    out_of_place::<f32>(&mut group, |a, b| a.mul(b), |x, y| x * y);
+    out_of_place::<f32>(
+        &mut group,
+        |a, b| a.mul(b),
+        par!(|a, b| a.par_mul(b)),
+        |x, y| x * y,
+    );
     group.finish();
 
     let mut group = c.benchmark_group("mul_assign");
-    in_place::<f32>(&mut group, |a, b| a.mul_assign(b), |x, y| x * y);
+    in_place::<f32>(
+        &mut group,
+        |a, b| a.mul_assign(b),
+        par!(|a, b| a.par_mul_assign(b)),
+        |x, y| x * y,
+    );
     group.finish();
 }
 
 fn div(c: &mut Criterion) {
     let mut group = c.benchmark_group("div");
-    out_of_place::<f32>(&mut group, |a, b| a.div(b), |x, y| x / y);
+    out_of_place::<f32>(
+        &mut group,
+        |a, b| a.div(b),
+        par!(|a, b| a.par_div(b)),
+        |x, y| x / y,
+    );
     group.finish();
 
     let mut group = c.benchmark_group("div_assign");
-    in_place::<f32>(&mut group, |a, b| a.div_assign(b), |x, y| x / y);
+    in_place::<f32>(
+        &mut group,
+        |a, b| a.div_assign(b),
+        par!(|a, b| a.par_div_assign(b)),
+        |x, y| x / y,
+    );
     group.finish();
 }
 
