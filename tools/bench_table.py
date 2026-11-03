@@ -9,7 +9,8 @@ scalar loop (criterion's mean time, scalar / simdly) for every operation,
 element type and length benchmarked. Then, from the same groups' `par` and
 `rayon` results (`--features rayon`), two more tables per category: the
 `par_` functions' speed-up over simdly on one thread, and over the rayon
-loop with `std`. Missing results print as "–".
+loop with `std`. Missing results print as "–"; rows with no result at all
+(`f64` for the operations benchmarked in `f32` only) are left out.
 """
 
 import json
@@ -49,7 +50,9 @@ def table(title: str, columns: list[str], groups: list[str], cells) -> None:
     print("|---|---|" + "---:|" * len(columns))
     for group in groups:
         for ty in TYPES:
-            print(f"| `{group}` | `{ty}` | {' | '.join(cells(group, ty))} |")
+            row = cells(group, ty)
+            if any(c != "–" for c in row):
+                print(f"| `{group}` | `{ty}` | {' | '.join(row)} |")
     print()
 
 

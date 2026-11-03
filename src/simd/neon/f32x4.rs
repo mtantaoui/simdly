@@ -46,6 +46,7 @@ impl F32x4 {
 impl SimdVector for F32x4 {
     type Scalar = f32;
     const LANES: usize = 4;
+    const UNROLL: bool = true;
 
     #[inline(always)]
     unsafe fn splat(x: f32) -> Self {

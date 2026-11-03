@@ -46,6 +46,7 @@ impl F64x2 {
 impl SimdVector for F64x2 {
     type Scalar = f64;
     const LANES: usize = 2;
+    const UNROLL: bool = true;
 
     #[inline(always)]
     unsafe fn splat(x: f64) -> Self {

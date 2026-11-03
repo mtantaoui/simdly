@@ -312,6 +312,26 @@ unsafe fn drive<S: SimdVector, const N: usize>(
 ) {
     let full = len - len % S::LANES;
     let mut i = 0;
+
+    // Four registers per iteration where `S::UNROLL` asks for it.
+    let step = 4 * S::LANES;
+    while S::UNROLL && i + step <= full {
+        // SAFETY: the caller guarantees the ISA, and `i + 4 * LANES <= len`.
+        // All four chunks are read before any is written, so `dst` may equal
+        // a `src` pointer.
+        unsafe {
+            let r0 = op.full(src, i);
+            let r1 = op.full(src, i + S::LANES);
+            let r2 = op.full(src, i + 2 * S::LANES);
+            let r3 = op.full(src, i + 3 * S::LANES);
+            r0.store(dst.add(i));
+            r1.store(dst.add(i + S::LANES));
+            r2.store(dst.add(i + 2 * S::LANES));
+            r3.store(dst.add(i + 3 * S::LANES));
+        }
+        i += step;
+    }
+
     while i < full {
         // SAFETY: the caller guarantees the ISA, and `i + LANES <= len`.
         unsafe { op.full(src, i).store(dst.add(i)) };
@@ -530,5 +550,59 @@ mod tests {
                 unsafe { binary_in_place::<F32x8, First>(&mut a, &x[..8]) }
             }));
         }
+    }
+
+    cfg_neon! {
+        /// Lengths 0..=40 cover the unrolled loop (16 `f32` / 8 `f64` per
+        /// iteration), the single registers after it and the tail.
+        macro_rules! neon_driver_test {
+            ($name:ident, $T:ty, $V:ty) => {
+                #[test]
+                fn $name() {
+                    use super::*;
+                    use crate::simd::SimdVector;
+                    use std::vec::Vec;
+
+                    struct Affine;
+                    impl UnaryFn<$V> for Affine {
+                        #[inline(always)]
+                        fn call(v: $V) -> $V {
+                            // SAFETY: a register exists, so NEON is available.
+                            v * unsafe { <$V>::splat(1.5) } + unsafe { <$V>::splat(0.25) }
+                        }
+                    }
+                    struct MulSub;
+                    impl BinaryFn<$V> for MulSub {
+                        #[inline(always)]
+                        fn call(a: $V, b: $V) -> $V {
+                            a * b - a
+                        }
+                    }
+
+                    for len in 0..=40 {
+                        let a: Vec<$T> = (0..len).map(|i| i as $T * 0.75 - 9.0).collect();
+                        let b: Vec<$T> = (0..len).map(|i| i as $T * -0.5 + 3.0).collect();
+                        let want_u: Vec<$T> = a.iter().map(|&x| x * 1.5 + 0.25).collect();
+                        let want_b: Vec<$T> = a.iter().zip(&b).map(|(&x, &y)| x * y - x).collect();
+                        let (mut out_u, mut out_b) = (std::vec![0.0; len], std::vec![0.0; len]);
+                        let (mut in_u, mut in_b) = (a.clone(), a.clone());
+                        // SAFETY: NEON is enabled at compile time.
+                        unsafe {
+                            unary::<$V, Affine>(&a, &mut out_u);
+                            unary_in_place::<$V, Affine>(&mut in_u);
+                            binary::<$V, MulSub>(&a, &b, &mut out_b);
+                            binary_in_place::<$V, MulSub>(&mut in_b, &b);
+                        }
+                        assert_eq!(out_u, want_u, "unary, len {len}");
+                        assert_eq!(in_u, want_u, "unary_in_place, len {len}");
+                        assert_eq!(out_b, want_b, "binary, len {len}");
+                        assert_eq!(in_b, want_b, "binary_in_place, len {len}");
+                    }
+                }
+            };
+        }
+
+        neon_driver_test!(neon_f32_matches_scalar, f32, crate::simd::neon::f32x4::F32x4);
+        neon_driver_test!(neon_f64_matches_scalar, f64, crate::simd::neon::f64x2::F64x2);
     }
 }

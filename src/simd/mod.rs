@@ -25,6 +25,11 @@ pub(crate) trait SimdVector: Copy {
     /// Number of lanes.
     const LANES: usize;
 
+    /// Whether the slice drivers handle four registers per loop iteration
+    /// instead of one. On 128-bit registers, one per iteration leaves the
+    /// loop overhead in the way of cheap operations; wider ones gain nothing.
+    const UNROLL: bool = false;
+
     /// Broadcasts `x` to every lane.
     ///
     /// # Safety
