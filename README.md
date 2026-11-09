@@ -22,6 +22,7 @@ let m = a.less(&b);  // [true, true, true]
 use simdly::SliceMath;
 
 let d = a.sub(&b).abs();  // [3.0, 3.0, 3.0]
+let e = a.sub_scalar(1.0); // [0.0, 1.0, 2.0]
 ```
 
 ## Implementation status
@@ -33,6 +34,7 @@ scalar).
 | Operation                                      | AVX-512 | AVX2 | NEON | scalar |
 |------------------------------------------------|---------|------|------|--------|
 | Arithmetic: `add` `sub` `mul` `div`, `_assign` | ✅      | ✅   | ✅   | ✅     |
+| Arithmetic with a scalar: `add_scalar` … `div_scalar`, `_assign` | ✅ | ✅ | ✅ | ✅ |
 | Comparisons: `less` … `not_equal`, `_scalar`   | ✅      | ✅   | ✅   | ✅     |
 | `abs`                                          | ✅      | ✅   | ✅   | ✅     |
 | `acos`                                         | ✅      | ✅   | ✅   | ✅     |

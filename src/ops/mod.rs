@@ -38,11 +38,12 @@ pub(crate) mod sealed {
 /// plain scalar loop, bit for bit.
 ///
 /// The `_assign` methods work in place, so they need no allocator; the others
-/// return a new `Vec` and need the `alloc` feature.
+/// return a new `Vec` and need the `alloc` feature. The `_scalar` variants
+/// take one value as the right operand of every element.
 ///
 /// Comparisons follow NumPy (`numpy.less`, …) and Rust's operators: any
 /// comparison with NaN is `false`, except `not_equal`, which is `true`, and
-/// `-0.0 == 0.0`. The `_scalar` variants compare every element with one value.
+/// `-0.0 == 0.0`.
 ///
 /// ```
 /// use simdly::SliceExt;
@@ -95,6 +96,45 @@ pub trait SliceExt<T>: sealed::Sealed {
 
     /// `self[i] /= rhs[i]`.
     fn div_assign(&mut self, rhs: &[T]);
+
+    /// `self[i] + rhs`.
+    #[cfg(feature = "alloc")]
+    fn add_scalar(&self, rhs: T) -> Vec<T>;
+
+    /// `self[i] - rhs`.
+    ///
+    /// ```
+    /// use simdly::SliceExt;
+    ///
+    /// let a = vec![1.0_f32, 2.0, 3.0];
+    /// assert_eq!(a.sub_scalar(0.5), [0.5, 1.5, 2.5]);
+    ///
+    /// let mut b = [1.0_f64, 2.0, 3.0];
+    /// b.sub_scalar_assign(1.0);
+    /// assert_eq!(b, [0.0, 1.0, 2.0]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn sub_scalar(&self, rhs: T) -> Vec<T>;
+
+    /// `self[i] * rhs`.
+    #[cfg(feature = "alloc")]
+    fn mul_scalar(&self, rhs: T) -> Vec<T>;
+
+    /// `self[i] / rhs`.
+    #[cfg(feature = "alloc")]
+    fn div_scalar(&self, rhs: T) -> Vec<T>;
+
+    /// `self[i] += rhs`.
+    fn add_scalar_assign(&mut self, rhs: T);
+
+    /// `self[i] -= rhs`.
+    fn sub_scalar_assign(&mut self, rhs: T);
+
+    /// `self[i] *= rhs`.
+    fn mul_scalar_assign(&mut self, rhs: T);
+
+    /// `self[i] /= rhs`.
+    fn div_scalar_assign(&mut self, rhs: T);
 
     /// `self[i] < rhs[i]`.
     ///
@@ -207,6 +247,50 @@ macro_rules! impl_slice_ext {
 
                 #[cfg(feature = "alloc")]
                 #[inline]
+                fn add_scalar(&self, rhs: $T) -> Vec<$T> {
+                    binary_scalar_to_vec::<AddOp, _>(self, rhs)
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn sub_scalar(&self, rhs: $T) -> Vec<$T> {
+                    binary_scalar_to_vec::<SubOp, _>(self, rhs)
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn mul_scalar(&self, rhs: $T) -> Vec<$T> {
+                    binary_scalar_to_vec::<MulOp, _>(self, rhs)
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn div_scalar(&self, rhs: $T) -> Vec<$T> {
+                    binary_scalar_to_vec::<DivOp, _>(self, rhs)
+                }
+
+                #[inline]
+                fn add_scalar_assign(&mut self, rhs: $T) {
+                    <$T as ArithElement>::binary_scalar_in_place::<AddOp>(self, rhs);
+                }
+
+                #[inline]
+                fn sub_scalar_assign(&mut self, rhs: $T) {
+                    <$T as ArithElement>::binary_scalar_in_place::<SubOp>(self, rhs);
+                }
+
+                #[inline]
+                fn mul_scalar_assign(&mut self, rhs: $T) {
+                    <$T as ArithElement>::binary_scalar_in_place::<MulOp>(self, rhs);
+                }
+
+                #[inline]
+                fn div_scalar_assign(&mut self, rhs: $T) {
+                    <$T as ArithElement>::binary_scalar_in_place::<DivOp>(self, rhs);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
                 fn less(&self, rhs: &[$T]) -> Vec<bool> {
                     cmp_to_vec::<LtOp, _>(self, rhs)
                 }
@@ -289,6 +373,15 @@ fn binary_to_vec<Op: BinaryOp, T: ArithElement>(a: &[T], b: &[T]) -> Vec<T> {
     let mut out = Vec::with_capacity(a.len());
     T::binary_uninit::<Op>(a, b, &mut out.spare_capacity_mut()[..a.len()]);
     // SAFETY: `binary_uninit` initialised the first `a.len()` elements.
+    unsafe { out.set_len(a.len()) };
+    out
+}
+
+#[cfg(feature = "alloc")]
+fn binary_scalar_to_vec<Op: BinaryOp, T: ArithElement>(a: &[T], b: T) -> Vec<T> {
+    let mut out = Vec::with_capacity(a.len());
+    T::binary_scalar_uninit::<Op>(a, b, &mut out.spare_capacity_mut()[..a.len()]);
+    // SAFETY: `binary_scalar_uninit` initialised the first `a.len()` elements.
     unsafe { out.set_len(a.len()) };
     out
 }

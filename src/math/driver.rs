@@ -162,6 +162,49 @@ pub(crate) unsafe fn binary_in_place<S: SimdVector, F: BinaryFn<S>>(
     unsafe { drive(a.len(), [ptr.cast_const(), b.as_ptr()], ptr, Binary::<F>(PhantomData)) }
 }
 
+/// `out[i] = F(a[i], b)`: on return all of `out` is initialised.
+///
+/// # Safety
+///
+/// The CPU must support `S`'s ISA.
+///
+/// # Panics
+///
+/// If `a` and `out` have different lengths.
+#[inline(always)]
+pub(crate) unsafe fn binary_scalar_uninit<S: SimdVector, F: BinaryFn<S>>(
+    a: &[S::Scalar],
+    b: S::Scalar,
+    out: &mut [MaybeUninit<S::Scalar>],
+) {
+    assert_eq!(a.len(), out.len(), "length mismatch");
+    // SAFETY: the caller guarantees the ISA, for `splat` too; both slices
+    // hold `a.len()` elements, and `MaybeUninit<T>` has the layout of `T`.
+    unsafe {
+        let op = BinaryScalar::<F, S>(S::splat(b), PhantomData);
+        drive(a.len(), [a.as_ptr()], out.as_mut_ptr().cast(), op)
+    }
+}
+
+/// `a[i] = F(a[i], b)`.
+///
+/// # Safety
+///
+/// The CPU must support `S`'s ISA.
+#[inline(always)]
+pub(crate) unsafe fn binary_scalar_in_place<S: SimdVector, F: BinaryFn<S>>(
+    a: &mut [S::Scalar],
+    b: S::Scalar,
+) {
+    let ptr = a.as_mut_ptr();
+    // SAFETY: the caller guarantees the ISA, for `splat` too; `ptr` is valid
+    // for `a.len()` elements, and each chunk is read before it is overwritten.
+    unsafe {
+        let op = BinaryScalar::<F, S>(S::splat(b), PhantomData);
+        drive(a.len(), [ptr.cast_const()], ptr, op)
+    }
+}
+
 /// `out[i] = F([src[0][i], .., src[N-1][i]])`: on return all of `out` is
 /// initialised.
 ///
@@ -266,6 +309,25 @@ impl<S: SimdVector, F: BinaryFn<S>> Op<S, 2> for Binary<F> {
     unsafe fn partial(&self, [a, b]: [*const S::Scalar; 2], i: usize, n: usize) -> S {
         // SAFETY: guaranteed by the caller.
         unsafe { F::call(S::load_partial(a.add(i), n), S::load_partial(b.add(i), n)) }
+    }
+}
+
+/// A [`BinaryFn`] whose right operand is one register for every chunk, as an
+/// [`Op`].
+struct BinaryScalar<F, S>(S, PhantomData<F>);
+
+impl<S: SimdVector, F: BinaryFn<S>> Op<S, 1> for BinaryScalar<F, S> {
+    #[inline(always)]
+    unsafe fn full(&self, [a]: [*const S::Scalar; 1], i: usize) -> S {
+        // SAFETY: guaranteed by the caller.
+        F::call(unsafe { S::load(a.add(i)) }, self.0)
+    }
+
+    #[inline(always)]
+    unsafe fn partial(&self, [a]: [*const S::Scalar; 1], i: usize, n: usize) -> S {
+        // SAFETY: guaranteed by the caller. Lanes past `n` (zero op `b`) are
+        // never stored.
+        F::call(unsafe { S::load_partial(a.add(i), n) }, self.0)
     }
 }
 
@@ -493,6 +555,33 @@ mod tests {
             }
         }
 
+        #[test]
+        fn binary_scalar_matches_scalar() {
+            if !has_avx2_fma() {
+                return;
+            }
+            let b = -2.5;
+            for len in lengths() {
+                let a = input(len, 1.0);
+                let want: Vec<f32> = a.iter().map(|&x| x * b - x).collect();
+                let mut got = Vec::with_capacity(len + 8);
+                got.resize(len + 8, SENTINEL);
+                let mut in_place = output(len);
+                in_place[..len].copy_from_slice(&a);
+                // SAFETY: AVX2 + FMA checked above; `MaybeUninit<f32>` has
+                // the layout of `f32`.
+                unsafe {
+                    let out = core::slice::from_raw_parts_mut(got.as_mut_ptr().cast(), len);
+                    binary_scalar_uninit::<F32x8, MulSub>(&a, b, out);
+                    binary_scalar_in_place::<F32x8, MulSub>(&mut in_place[..len], b);
+                }
+                assert_eq!(got[..len], want, "binary_scalar_uninit, len {len}");
+                assert_eq!(in_place[..len], want, "binary_scalar_in_place, len {len}");
+                assert_untouched_past(&got, len);
+                assert_untouched_past(&in_place, len);
+            }
+        }
+
         struct Fma3;
 
         impl NaryFn<F32x8, 3> for Fma3 {
@@ -584,19 +673,28 @@ mod tests {
                         let b: Vec<$T> = (0..len).map(|i| i as $T * -0.5 + 3.0).collect();
                         let want_u: Vec<$T> = a.iter().map(|&x| x * 1.5 + 0.25).collect();
                         let want_b: Vec<$T> = a.iter().zip(&b).map(|(&x, &y)| x * y - x).collect();
+                        let k: $T = -2.5;
+                        let want_s: Vec<$T> = a.iter().map(|&x| x * k - x).collect();
                         let (mut out_u, mut out_b) = (std::vec![0.0; len], std::vec![0.0; len]);
                         let (mut in_u, mut in_b) = (a.clone(), a.clone());
-                        // SAFETY: NEON is enabled at compile time.
+                        let (mut out_s, mut in_s) = (Vec::with_capacity(len), a.clone());
+                        // SAFETY: NEON is enabled at compile time, and
+                        // `binary_scalar_uninit` initialises `out_s[..len]`.
                         unsafe {
                             unary::<$V, Affine>(&a, &mut out_u);
                             unary_in_place::<$V, Affine>(&mut in_u);
                             binary::<$V, MulSub>(&a, &b, &mut out_b);
                             binary_in_place::<$V, MulSub>(&mut in_b, &b);
+                            binary_scalar_uninit::<$V, MulSub>(&a, k, &mut out_s.spare_capacity_mut()[..len]);
+                            out_s.set_len(len);
+                            binary_scalar_in_place::<$V, MulSub>(&mut in_s, k);
                         }
                         assert_eq!(out_u, want_u, "unary, len {len}");
                         assert_eq!(in_u, want_u, "unary_in_place, len {len}");
                         assert_eq!(out_b, want_b, "binary, len {len}");
                         assert_eq!(in_b, want_b, "binary_in_place, len {len}");
+                        assert_eq!(out_s, want_s, "binary_scalar_uninit, len {len}");
+                        assert_eq!(in_s, want_s, "binary_scalar_in_place, len {len}");
                     }
                 }
             };

@@ -71,12 +71,30 @@ pub(crate) trait ArithElement: Arith + Sized {
     /// If `a` and `b` have different lengths.
     fn binary_in_place<Op: BinaryOp>(a: &mut [Self], b: &[Self]);
 
+    /// `out[i] = Op(a[i], b)`; on return all of `out` is initialised.
+    ///
+    /// # Panics
+    ///
+    /// If `a` and `out` have different lengths.
+    #[cfg(any(feature = "alloc", test))]
+    fn binary_scalar_uninit<Op: BinaryOp>(a: &[Self], b: Self, out: &mut [MaybeUninit<Self>]);
+
+    /// `a[i] = Op(a[i], b)`.
+    fn binary_scalar_in_place<Op: BinaryOp>(a: &mut [Self], b: Self);
+
     /// `Op(a, b)` on every backend this CPU supports, scalar included,
     /// whatever dispatch would pick: `(backend, result)` pairs.
     #[cfg(test)]
     fn every_backend<Op: BinaryOp>(
         a: &[Self],
         b: &[Self],
+    ) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)>;
+
+    /// [`every_backend`](Self::every_backend) with a scalar `b`.
+    #[cfg(test)]
+    fn every_backend_scalar<Op: BinaryOp>(
+        a: &[Self],
+        b: Self,
     ) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)>;
 }
 
@@ -110,6 +128,63 @@ macro_rules! arith_element {
                         neon => neon::binary_in_place::<neon::$neon, Op>(a, b),
                         scalar => scalar_binary_in_place::<Op, Self>(a, b),
                     }
+                }
+
+                #[cfg(any(feature = "alloc", test))]
+                #[inline]
+                fn binary_scalar_uninit<Op: BinaryOp>(
+                    a: &[Self],
+                    b: Self,
+                    out: &mut [MaybeUninit<Self>],
+                ) {
+                    assert_eq!(a.len(), out.len(), "length mismatch");
+                    dispatch! {
+                        avx512 => x86::avx512_binary_scalar_uninit::<x86::$avx512, Op>(a, b, out),
+                        avx2 => x86::avx2_binary_scalar_uninit::<x86::$avx2, Op>(a, b, out),
+                        neon => neon::binary_scalar_uninit::<neon::$neon, Op>(a, b, out),
+                        scalar => scalar_binary_scalar_uninit::<Op, Self>(a, b, out),
+                    }
+                }
+
+                #[inline]
+                fn binary_scalar_in_place<Op: BinaryOp>(a: &mut [Self], b: Self) {
+                    dispatch! {
+                        avx512 => x86::avx512_binary_scalar_in_place::<x86::$avx512, Op>(a, b),
+                        avx2 => x86::avx2_binary_scalar_in_place::<x86::$avx2, Op>(a, b),
+                        neon => neon::binary_scalar_in_place::<neon::$neon, Op>(a, b),
+                        scalar => scalar_binary_scalar_in_place::<Op, Self>(a, b),
+                    }
+                }
+
+                #[cfg(test)]
+                fn every_backend_scalar<Op: BinaryOp>(
+                    a: &[Self],
+                    b: Self,
+                ) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)> {
+                    let mut x = a.to_vec();
+                    scalar_binary_scalar_in_place::<Op, Self>(&mut x, b);
+                    #[allow(unused_mut, reason = "only scalar on some targets")]
+                    let mut results = std::vec![("scalar", x)];
+                    cfg_x86!(if {
+                        if crate::detect::has_avx2_fma() {
+                            let mut x = a.to_vec();
+                            // SAFETY: AVX2 + FMA checked just above.
+                            unsafe { x86::avx2_binary_scalar_in_place::<x86::$avx2, Op>(&mut x, b) };
+                            results.push(("avx2", x));
+                        }
+                        if crate::detect::has_avx512f() {
+                            let mut x = a.to_vec();
+                            // SAFETY: AVX-512F checked just above.
+                            unsafe { x86::avx512_binary_scalar_in_place::<x86::$avx512, Op>(&mut x, b) };
+                            results.push(("avx512", x));
+                        }
+                    } else {});
+                    cfg_neon!(if {
+                        let mut x = a.to_vec();
+                        neon::binary_scalar_in_place::<neon::$neon, Op>(&mut x, b);
+                        results.push(("neon", x));
+                    } else {});
+                    results
                 }
 
                 #[cfg(test)]
@@ -159,6 +234,19 @@ fn scalar_binary_uninit<Op: BinaryOp, T: Arith>(a: &[T], b: &[T], out: &mut [May
 fn scalar_binary_in_place<Op: BinaryOp, T: Arith>(a: &mut [T], b: &[T]) {
     for (x, &y) in a.iter_mut().zip(b) {
         *x = Op::apply(*x, y);
+    }
+}
+
+#[cfg(any(feature = "alloc", test))]
+fn scalar_binary_scalar_uninit<Op: BinaryOp, T: Arith>(a: &[T], b: T, out: &mut [MaybeUninit<T>]) {
+    for (o, &x) in out.iter_mut().zip(a) {
+        o.write(Op::apply(x, b));
+    }
+}
+
+fn scalar_binary_scalar_in_place<Op: BinaryOp, T: Arith>(a: &mut [T], b: T) {
+    for x in a {
+        *x = Op::apply(*x, b);
     }
 }
 
@@ -213,6 +301,50 @@ cfg_x86! {
             // AVX-512 register type.
             unsafe { driver::binary_in_place::<V, Op>(a, b) }
         }
+
+        #[cfg(any(feature = "alloc", test))]
+        #[target_feature(enable = "avx2,fma")]
+        pub(super) fn avx2_binary_scalar_uninit<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &[V::Scalar],
+            b: V::Scalar,
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
+            // AVX2 register type.
+            unsafe { driver::binary_scalar_uninit::<V, Op>(a, b, out) }
+        }
+
+        #[target_feature(enable = "avx2,fma")]
+        pub(super) fn avx2_binary_scalar_in_place<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &mut [V::Scalar],
+            b: V::Scalar,
+        ) {
+            // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
+            // AVX2 register type.
+            unsafe { driver::binary_scalar_in_place::<V, Op>(a, b) }
+        }
+
+        #[cfg(any(feature = "alloc", test))]
+        #[target_feature(enable = "avx512f")]
+        pub(super) fn avx512_binary_scalar_uninit<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &[V::Scalar],
+            b: V::Scalar,
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: AVX-512F is enabled in this function, and `V` is an
+            // AVX-512 register type.
+            unsafe { driver::binary_scalar_uninit::<V, Op>(a, b, out) }
+        }
+
+        #[target_feature(enable = "avx512f")]
+        pub(super) fn avx512_binary_scalar_in_place<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &mut [V::Scalar],
+            b: V::Scalar,
+        ) {
+            // SAFETY: AVX-512F is enabled in this function, and `V` is an
+            // AVX-512 register type.
+            unsafe { driver::binary_scalar_in_place::<V, Op>(a, b) }
+        }
     }
 }
 
@@ -243,6 +375,28 @@ cfg_neon! {
             // SAFETY: NEON is enabled at compile time, and `V` is a NEON
             // register type.
             unsafe { driver::binary_in_place::<V, Op>(a, b) }
+        }
+
+        #[cfg(any(feature = "alloc", test))]
+        #[inline]
+        pub(super) fn binary_scalar_uninit<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &[V::Scalar],
+            b: V::Scalar,
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: NEON is enabled at compile time, and `V` is a NEON
+            // register type.
+            unsafe { driver::binary_scalar_uninit::<V, Op>(a, b, out) }
+        }
+
+        #[inline]
+        pub(super) fn binary_scalar_in_place<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &mut [V::Scalar],
+            b: V::Scalar,
+        ) {
+            // SAFETY: NEON is enabled at compile time, and `V` is a NEON
+            // register type.
+            unsafe { driver::binary_scalar_in_place::<V, Op>(a, b) }
         }
     }
 }
@@ -294,6 +448,31 @@ mod tests {
 
             for (backend, x) in T::every_backend::<Op>(&a, &b) {
                 assert_same(&x, &want, &std::format!("{name} {backend}, len {len}"));
+            }
+
+            // `_scalar`: finite operands plus signed zeros, infinities, NaN
+            // and subnormals, so division hits `x / 0` and `inf / inf`.
+            let scalars = [T::from_f64(1.5), T::from_f64(-0.37)]
+                .into_iter()
+                .chain(T::SPECIAL);
+            for s in scalars {
+                let want: Vec<T> = a.iter().map(|&x| Op::apply(x, s)).collect();
+                let what = |v: &str| std::format!("{name}_scalar {v} {s:?}, len {len}");
+
+                let mut out = Vec::with_capacity(len);
+                T::binary_scalar_uninit::<Op>(&a, s, &mut out.spare_capacity_mut()[..len]);
+                // SAFETY: `binary_scalar_uninit` initialised the first `len`
+                // elements.
+                unsafe { out.set_len(len) };
+                assert_same(&out, &want, &what("dispatch"));
+
+                let mut x = a.clone();
+                T::binary_scalar_in_place::<Op>(&mut x, s);
+                assert_same(&x, &want, &what("in place"));
+
+                for (backend, x) in T::every_backend_scalar::<Op>(&a, s) {
+                    assert_same(&x, &want, &what(backend));
+                }
             }
         }
     }

@@ -74,6 +74,8 @@ fn inputs<T: Float>(len: usize) -> (Vec<T>, Vec<T>) {
 
 type Binary<T> = fn(&[T], &[T]) -> Vec<T>;
 type Assign<T> = fn(&mut [T], &[T]);
+type BinaryScalar<T> = fn(&[T], T) -> Vec<T>;
+type AssignScalar<T> = fn(&mut [T], T);
 
 /// `simdly(a, b)` vs `a.iter().zip(b).map(op).collect()`; with `rayon`,
 /// `par(a, b)` vs the same with `par_iter`.
@@ -166,6 +168,102 @@ fn in_place<T: Float>(
                             .par_iter_mut()
                             .zip(black_box(&b))
                             .for_each(|(x, &y)| *x = op(*x, y))
+                    })
+                },
+            );
+        }
+    }
+    #[cfg(not(feature = "rayon"))]
+    let _ = par;
+}
+
+/// The `_scalar` variants: `simdly(a, 1)` vs `a.iter().map(op).collect()`
+/// (out of place) or `for x in a { *x = op(*x, 1) }` (in place); with
+/// `rayon`, `par` vs the same with `par_iter` / `par_iter_mut`. A right
+/// operand of one keeps repeated in-place runs finite and normal.
+fn with_scalar<T: Float>(
+    group: &mut Group,
+    simdly: impl Fn(&[T], T) -> Vec<T>,
+    par: Option<BinaryScalar<T>>,
+    op: impl Fn(T, T) -> T + Copy + Sync,
+) {
+    for &len in LENS {
+        let (a, k) = (inputs::<T>(len).0, T::ONE);
+        group.throughput(Throughput::Elements(len as u64));
+        group.bench_function(
+            BenchmarkId::new(format!("simdly/{}", T::NAME), len),
+            |bench| bench.iter(|| simdly(black_box(&a), black_box(k))),
+        );
+        group.bench_function(
+            BenchmarkId::new(format!("scalar/{}", T::NAME), len),
+            |bench| {
+                bench.iter(|| {
+                    let k = black_box(k);
+                    black_box(&a).iter().map(|&x| op(x, k)).collect::<Vec<T>>()
+                })
+            },
+        );
+        #[cfg(feature = "rayon")]
+        if let Some(par) = par {
+            group.bench_function(BenchmarkId::new(format!("par/{}", T::NAME), len), |bench| {
+                bench.iter(|| par(black_box(&a), black_box(k)))
+            });
+            group.bench_function(
+                BenchmarkId::new(format!("rayon/{}", T::NAME), len),
+                |bench| {
+                    bench.iter(|| {
+                        let k = black_box(k);
+                        black_box(&a)
+                            .par_iter()
+                            .map(|&x| op(x, k))
+                            .collect::<Vec<T>>()
+                    })
+                },
+            );
+        }
+    }
+    #[cfg(not(feature = "rayon"))]
+    let _ = par;
+}
+
+/// [`with_scalar`], in place.
+fn with_scalar_in_place<T: Float>(
+    group: &mut Group,
+    simdly: impl Fn(&mut [T], T),
+    par: Option<AssignScalar<T>>,
+    op: impl Fn(T, T) -> T + Copy + Sync,
+) {
+    for &len in LENS {
+        let (mut a, k) = (inputs::<T>(len).0, T::ONE);
+        group.throughput(Throughput::Elements(len as u64));
+        group.bench_function(
+            BenchmarkId::new(format!("simdly/{}", T::NAME), len),
+            |bench| bench.iter(|| simdly(black_box(&mut a), black_box(k))),
+        );
+        group.bench_function(
+            BenchmarkId::new(format!("scalar/{}", T::NAME), len),
+            |bench| {
+                bench.iter(|| {
+                    let k = black_box(k);
+                    for x in black_box(&mut a).iter_mut() {
+                        *x = op(*x, k);
+                    }
+                })
+            },
+        );
+        #[cfg(feature = "rayon")]
+        if let Some(par) = par {
+            group.bench_function(BenchmarkId::new(format!("par/{}", T::NAME), len), |bench| {
+                bench.iter(|| par(black_box(&mut a), black_box(k)))
+            });
+            group.bench_function(
+                BenchmarkId::new(format!("rayon/{}", T::NAME), len),
+                |bench| {
+                    bench.iter(|| {
+                        let k = black_box(k);
+                        black_box(&mut a)
+                            .par_iter_mut()
+                            .for_each(|x| *x = op(*x, k))
                     })
                 },
             );
@@ -269,6 +367,50 @@ fn div(c: &mut Criterion) {
     group.finish();
 }
 
+/// `sub_scalar` and `sub_scalar_assign` for both element types, and
+/// `div_scalar` for `f32`: `add_scalar` and `mul_scalar` run the same loop as
+/// `sub_scalar`.
+fn scalar(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sub_scalar");
+    with_scalar::<f32>(
+        &mut group,
+        |a, k| a.sub_scalar(k),
+        par!(|a, k| a.par_sub_scalar(k)),
+        |x, y| x - y,
+    );
+    with_scalar::<f64>(
+        &mut group,
+        |a, k| a.sub_scalar(k),
+        par!(|a, k| a.par_sub_scalar(k)),
+        |x, y| x - y,
+    );
+    group.finish();
+
+    let mut group = c.benchmark_group("sub_scalar_assign");
+    with_scalar_in_place::<f32>(
+        &mut group,
+        |a, k| a.sub_scalar_assign(k),
+        par!(|a, k| a.par_sub_scalar_assign(k)),
+        |x, y| x - y,
+    );
+    with_scalar_in_place::<f64>(
+        &mut group,
+        |a, k| a.sub_scalar_assign(k),
+        par!(|a, k| a.par_sub_scalar_assign(k)),
+        |x, y| x - y,
+    );
+    group.finish();
+
+    let mut group = c.benchmark_group("div_scalar");
+    with_scalar::<f32>(
+        &mut group,
+        |a, k| a.div_scalar(k),
+        par!(|a, k| a.par_div_scalar(k)),
+        |x, y| x / y,
+    );
+    group.finish();
+}
+
 /// Shorter than criterion's defaults, which would take ~20 minutes here.
 fn config() -> Criterion {
     Criterion::default()
@@ -280,6 +422,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = add, sub, mul, div
+    targets = add, sub, mul, div, scalar
 }
 criterion_main!(benches);

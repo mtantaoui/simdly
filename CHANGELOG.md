@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `SliceExt` arithmetic with a scalar right operand: `add_scalar`,
+  `sub_scalar`, `mul_scalar`, `div_scalar` (returning a `Vec`, with `alloc`)
+  and their in-place `_scalar_assign` variants, bit for bit equal to the
+  scalar loop; AVX-512, AVX2, NEON and scalar backends. `ParSliceExt` gets
+  their `par_` versions.
+- Slice drivers `binary_scalar_uninit` and `binary_scalar_in_place`: a binary
+  operation with one register as its right operand.
+
 ## [0.1.1] - 2026-11-02
 
 ### Added

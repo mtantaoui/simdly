@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use super::arith::BinaryOp;
 use super::{
     AddOp, ArithElement, CmpElement, CmpOp, DivOp, EqOp, GeOp, GtOp, LeOp, LtOp, MulOp, NeOp,
-    SubOp, binary_to_vec, check_lengths, cmp_scalar_to_vec, cmp_to_vec,
+    SubOp, binary_scalar_to_vec, binary_to_vec, check_lengths, cmp_scalar_to_vec, cmp_to_vec,
 };
 use crate::{PARALLEL_CHUNK_SIZE, PARALLEL_EXT_THRESHOLD};
 
@@ -59,6 +59,24 @@ pub trait ParSliceExt<T>: super::sealed::Sealed {
     /// [`SliceExt::div_assign`](crate::SliceExt::div_assign) on several threads.
     fn par_div_assign(&mut self, rhs: &[T]);
 
+    /// [`SliceExt::add_scalar`](crate::SliceExt::add_scalar) on several threads.
+    fn par_add_scalar(&self, rhs: T) -> Vec<T>;
+    /// [`SliceExt::sub_scalar`](crate::SliceExt::sub_scalar) on several threads.
+    fn par_sub_scalar(&self, rhs: T) -> Vec<T>;
+    /// [`SliceExt::mul_scalar`](crate::SliceExt::mul_scalar) on several threads.
+    fn par_mul_scalar(&self, rhs: T) -> Vec<T>;
+    /// [`SliceExt::div_scalar`](crate::SliceExt::div_scalar) on several threads.
+    fn par_div_scalar(&self, rhs: T) -> Vec<T>;
+
+    /// [`SliceExt::add_scalar_assign`](crate::SliceExt::add_scalar_assign) on several threads.
+    fn par_add_scalar_assign(&mut self, rhs: T);
+    /// [`SliceExt::sub_scalar_assign`](crate::SliceExt::sub_scalar_assign) on several threads.
+    fn par_sub_scalar_assign(&mut self, rhs: T);
+    /// [`SliceExt::mul_scalar_assign`](crate::SliceExt::mul_scalar_assign) on several threads.
+    fn par_mul_scalar_assign(&mut self, rhs: T);
+    /// [`SliceExt::div_scalar_assign`](crate::SliceExt::div_scalar_assign) on several threads.
+    fn par_div_scalar_assign(&mut self, rhs: T);
+
     /// [`SliceExt::less`](crate::SliceExt::less) on several threads.
     fn par_less(&self, rhs: &[T]) -> Vec<bool>;
     /// [`SliceExt::less_equal`](crate::SliceExt::less_equal) on several threads.
@@ -94,6 +112,10 @@ macro_rules! impl_par_slice_ext {
                     arith: par_add AddOp, par_sub SubOp, par_mul MulOp, par_div DivOp;
                     assign: par_add_assign AddOp, par_sub_assign SubOp,
                         par_mul_assign MulOp, par_div_assign DivOp;
+                    arith_scalar: par_add_scalar AddOp, par_sub_scalar SubOp,
+                        par_mul_scalar MulOp, par_div_scalar DivOp;
+                    assign_scalar: par_add_scalar_assign AddOp, par_sub_scalar_assign SubOp,
+                        par_mul_scalar_assign MulOp, par_div_scalar_assign DivOp;
                     cmp: par_less LtOp, par_less_equal LeOp, par_greater GtOp,
                         par_greater_equal GeOp, par_equal EqOp, par_not_equal NeOp;
                     scalar: par_less_scalar LtOp, par_less_equal_scalar LeOp,
@@ -109,6 +131,8 @@ macro_rules! par_methods {
     ($T:ty;
         arith: $($a:ident $AOp:ident),*;
         assign: $($s:ident $SOp:ident),*;
+        arith_scalar: $($as:ident $ASOp:ident),*;
+        assign_scalar: $($ss:ident $SSOp:ident),*;
         cmp: $($c:ident $COp:ident),*;
         scalar: $($k:ident $KOp:ident),*;
     ) => {
@@ -122,6 +146,18 @@ macro_rules! par_methods {
             #[inline]
             fn $s(&mut self, rhs: &[$T]) {
                 par_binary_in_place::<$SOp, _>(self, rhs);
+            }
+        )*
+        $(
+            #[inline]
+            fn $as(&self, rhs: $T) -> Vec<$T> {
+                par_binary_scalar_to_vec::<$ASOp, _>(self, rhs)
+            }
+        )*
+        $(
+            #[inline]
+            fn $ss(&mut self, rhs: $T) {
+                par_binary_scalar_in_place::<$SSOp, _>(self, rhs);
             }
         )*
         $(
@@ -168,6 +204,29 @@ fn par_binary_in_place<Op: BinaryOp, T: ArithElement + Send + Sync>(a: &mut [T],
     a.par_chunks_mut(PARALLEL_CHUNK_SIZE)
         .zip(b.par_chunks(PARALLEL_CHUNK_SIZE))
         .for_each(|(a, b)| T::binary_in_place::<Op>(a, b));
+}
+
+fn par_binary_scalar_to_vec<Op: BinaryOp, T: ArithElement + Send + Sync>(a: &[T], b: T) -> Vec<T> {
+    if a.len() <= PARALLEL_EXT_THRESHOLD {
+        return binary_scalar_to_vec::<Op, T>(a, b);
+    }
+    let mut out = Vec::with_capacity(a.len());
+    out.spare_capacity_mut()[..a.len()]
+        .par_chunks_mut(PARALLEL_CHUNK_SIZE)
+        .zip(a.par_chunks(PARALLEL_CHUNK_SIZE))
+        .for_each(|(out, a)| T::binary_scalar_uninit::<Op>(a, b, out));
+    // SAFETY: the chunks cover the first `a.len()` elements, and
+    // `binary_scalar_uninit` initialised each of them.
+    unsafe { out.set_len(a.len()) };
+    out
+}
+
+fn par_binary_scalar_in_place<Op: BinaryOp, T: ArithElement + Send + Sync>(a: &mut [T], b: T) {
+    if a.len() <= PARALLEL_EXT_THRESHOLD {
+        return T::binary_scalar_in_place::<Op>(a, b);
+    }
+    a.par_chunks_mut(PARALLEL_CHUNK_SIZE)
+        .for_each(|a| T::binary_scalar_in_place::<Op>(a, b));
 }
 
 fn par_cmp_to_vec<Op: CmpOp, T: CmpElement + Send + Sync>(a: &[T], b: &[T]) -> Vec<bool> {
@@ -271,6 +330,67 @@ mod tests {
             let (mut x, mut y) = (a.clone(), a.clone());
             seq(&mut x, &b);
             par(&mut y, &b);
+            assert_same(&y, &x, &what(f));
+        }
+
+        type ArithScalar<T> = (fn(&[T], T) -> Vec<T>, fn(&[T], T) -> Vec<T>);
+        let arith_scalar: [(&str, ArithScalar<T>); 4] = [
+            (
+                "add_scalar",
+                (|a, b| a.add_scalar(b), |a, b| a.par_add_scalar(b)),
+            ),
+            (
+                "sub_scalar",
+                (|a, b| a.sub_scalar(b), |a, b| a.par_sub_scalar(b)),
+            ),
+            (
+                "mul_scalar",
+                (|a, b| a.mul_scalar(b), |a, b| a.par_mul_scalar(b)),
+            ),
+            (
+                "div_scalar",
+                (|a, b| a.div_scalar(b), |a, b| a.par_div_scalar(b)),
+            ),
+        ];
+        type AssignScalar<T> = (fn(&mut [T], T), fn(&mut [T], T));
+        let assign_scalar: [(&str, AssignScalar<T>); 4] = [
+            (
+                "add_scalar_assign",
+                (
+                    |a, b| a.add_scalar_assign(b),
+                    |a, b| a.par_add_scalar_assign(b),
+                ),
+            ),
+            (
+                "sub_scalar_assign",
+                (
+                    |a, b| a.sub_scalar_assign(b),
+                    |a, b| a.par_sub_scalar_assign(b),
+                ),
+            ),
+            (
+                "mul_scalar_assign",
+                (
+                    |a, b| a.mul_scalar_assign(b),
+                    |a, b| a.par_mul_scalar_assign(b),
+                ),
+            ),
+            (
+                "div_scalar_assign",
+                (
+                    |a, b| a.div_scalar_assign(b),
+                    |a, b| a.par_div_scalar_assign(b),
+                ),
+            ),
+        ];
+        let s = T::from_f64(-1.75);
+        for (f, (seq, par)) in arith_scalar {
+            assert_same(&par(&a, s), &seq(&a, s), &what(f));
+        }
+        for (f, (seq, par)) in assign_scalar {
+            let (mut x, mut y) = (a.clone(), a.clone());
+            seq(&mut x, s);
+            par(&mut y, s);
             assert_same(&y, &x, &what(f));
         }
 

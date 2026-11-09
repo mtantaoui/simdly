@@ -18,11 +18,16 @@ fn main() {
     println!("a * b = {:?}", a.mul(&b));
     println!("a / b = {:?}", a.div(&b));
 
+    // One value on the right of every element.
+    println!("\na - 1   = {:?}", a.sub_scalar(1.0));
+    println!("a / 4   = {:?}", a.div_scalar(4.0));
+
     // In place: no allocation.
     let mut c = a.clone();
     c.mul_assign(&b);
     c.sub_assign(&a);
-    println!("\na * b - a, in place = {c:?}");
+    c.add_scalar_assign(0.5);
+    println!("\na * b - a + 0.5, in place = {c:?}");
 
     // `f64` works the same way.
     let x = vec![0.1_f64, 0.2, 0.3];
