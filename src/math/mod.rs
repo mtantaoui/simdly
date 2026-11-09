@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`ceil`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`ln`], [`trig`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`ln`], [`sigmoid`], [`trig`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -28,6 +28,7 @@ mod hypot;
 mod ln;
 #[cfg(feature = "rayon")]
 pub(crate) mod par;
+mod sigmoid;
 mod sqrt;
 pub(crate) mod trig;
 
@@ -47,18 +48,19 @@ use float::Float;
 use floor::Floor;
 use hypot::{Hypot, Norm};
 use ln::Ln;
+use sigmoid::Sigmoid;
 use sqrt::Sqrt;
 use trig::Trig;
 
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
 pub(crate) trait Math:
-    Float + Acos + Asin + Atan + Atan2 + Cbrt + Ceil + Exp + Hypot + Norm + Ln + Trig
+    Float + Acos + Asin + Atan + Atan2 + Cbrt + Ceil + Exp + Hypot + Norm + Ln + Sigmoid + Trig
 {
 }
 
-impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Ceil + Exp + Hypot + Norm + Ln + Trig> Math
-    for T
+impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Ceil + Exp + Hypot + Norm + Ln + Sigmoid + Trig>
+    Math for T
 {
 }
 
@@ -234,6 +236,16 @@ impl UnaryOp for LnOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.ln()
+    }
+}
+
+/// `σ(x) = 1/(1 + e⁻ˣ)`.
+pub(crate) struct SigmoidOp;
+
+impl UnaryOp for SigmoidOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.sigmoid()
     }
 }
 
@@ -1076,6 +1088,25 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = ln self[i]`.
     fn ln_in_place(&mut self);
 
+    /// `σ(self[i]) = 1/(1 + e^−self[i])`, the logistic function, in
+    /// `[0, 1]`. Error ≤ 1 ULP, subnormal results included: `σ(x) ≈ eˣ`
+    /// far below 0 rounds to `+0` only past `exp`'s underflow threshold.
+    /// `σ(±0) = 0.5`, `σ(+∞) = 1`, `σ(−∞) = +0`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![0.0_f32, f32::INFINITY, f32::NEG_INFINITY, 1.0];
+    /// let s = a.sigmoid();
+    /// assert_eq!(s[..3], [0.5, 1.0, 0.0]);
+    /// assert_eq!(s[3], 1.0 / (1.0 + (-1.0_f32).exp()));
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn sigmoid(&self) -> Vec<T>;
+
+    /// `self[i] = σ(self[i])`.
+    fn sigmoid_in_place(&mut self);
+
     /// `sin self[i]`, in radians. Error ≤ 1 ULP for every finite input, huge
     /// ones included; NaN for `±∞`.
     ///
@@ -1281,6 +1312,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn ln_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<LnOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn sigmoid(&self) -> Vec<$T> {
+                    unary_to_vec::<SigmoidOp, _>(self)
+                }
+
+                #[inline]
+                fn sigmoid_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<SigmoidOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]

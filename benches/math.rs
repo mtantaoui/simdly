@@ -496,6 +496,26 @@ fn exp(c: &mut Criterion) {
     group.finish();
 }
 
+/// Against the formula as a user would write it, `1/(1 + e⁻ˣ)`.
+fn sigmoid(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sigmoid");
+    out_of_place::<f32>(
+        &mut group,
+        moderate,
+        |x| x.sigmoid(),
+        par!(|x| x.par_sigmoid()),
+        |x| 1.0 / (1.0 + (-x).exp()),
+    );
+    out_of_place::<f64>(
+        &mut group,
+        moderate,
+        |x| x.sigmoid(),
+        par!(|x| x.par_sigmoid()),
+        |x| 1.0 / (1.0 + (-x).exp()),
+    );
+    group.finish();
+}
+
 fn floor(c: &mut Criterion) {
     let mut group = c.benchmark_group("floor");
     out_of_place::<f32>(
@@ -789,6 +809,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, asin, atan, atan2, cbrt, ceil, cos, exp, floor, hypot, hypot3, hypot4, ln, sin, sqrt, tan
+    targets = abs, acos, asin, atan, atan2, cbrt, ceil, cos, exp, floor, hypot, hypot3, hypot4, ln, sigmoid, sin, sqrt, tan
 }
 criterion_main!(benches);

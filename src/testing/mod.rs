@@ -247,6 +247,26 @@ pub(crate) mod dd {
         (s.0, s.1, k as i32)
     }
 
+    /// `σ(x) = 1/(1 + e⁻ˣ) = (hi + lo) · 2^k` to about 100 bits: `e^−|x|`
+    /// from [`exp_dd`], then `1/(1 + e)` (`x ≥ 0`) or `e/(1 + e)` divided in
+    /// double-double. `|x|` is capped at 800, past which `e` is below every
+    /// `f64`.
+    pub(crate) fn sigmoid_dd(x: f64) -> (f64, f64, i32) {
+        let (h, l, k) = exp_dd(-x.abs().min(800.0));
+        let s = 2f64.powi(k / 2) * 2f64.powi(k - k / 2);
+        // `1 + e`; `e`'s bits that `s` drops (subnormal) are far below 2⁻¹⁰⁶.
+        let (dh, dl) = dd_add((1.0, 0.0), (h * s, l * s));
+        // `n / (dh + dl) = (n / dh) · (1 − dl/dh)`, to 2⁻¹⁰⁶.
+        let (n, k) = if x < 0.0 {
+            ((h, l), k)
+        } else {
+            ((1.0, 0.0), 0)
+        };
+        let q = dd_div(n, dh);
+        let (qh, ql) = dd_add(q, (-q.0 * (dl / dh), 0.0));
+        (qh, ql, k)
+    }
+
     /// `√(x² + y²) = (hi + lo) · 2^k`: both scaled by a power of 2 near the
     /// larger one, the squares summed exactly in double-double, then one
     /// Newton step of the square root.

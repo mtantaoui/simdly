@@ -18,6 +18,7 @@ fn main() {
     println!("⌊x⌋    = {:?}", x.floor());
     println!("eˣ     = {:?}", x.exp());
     println!("ln x   = {:?}", x.ln());
+    println!("σ(x)   = {:?}", x.sigmoid());
     println!("sin x  = {:?}", x.sin());
     println!("cos x  = {:?}", x.cos());
     println!("tan x  = {:?}", x.tan());

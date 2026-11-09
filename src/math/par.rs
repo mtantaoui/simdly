@@ -12,8 +12,8 @@ use rayon::prelude::*;
 
 use super::{
     AbsOp, AcosOp, AsinOp, Atan2Op, AtanOp, BinaryOp, CbrtOp, CeilOp, CosOp, ExpOp, FloorOp,
-    Hypot3Op, Hypot4Op, HypotOp, LnOp, MathElement, NaryOp, SinOp, SqrtOp, TanOp, UnaryOp,
-    binary_to_vec, nary_to_vec, unary_to_vec,
+    Hypot3Op, Hypot4Op, HypotOp, LnOp, MathElement, NaryOp, SigmoidOp, SinOp, SqrtOp, TanOp,
+    UnaryOp, binary_to_vec, nary_to_vec, unary_to_vec,
 };
 use crate::{PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD};
 
@@ -135,6 +135,11 @@ pub trait ParSliceMath<T>: crate::ops::sealed::Sealed {
     /// [`SliceMath::ln_in_place`](crate::SliceMath::ln_in_place) on several threads.
     fn par_ln_in_place(&mut self);
 
+    /// [`SliceMath::sigmoid`](crate::SliceMath::sigmoid) on several threads.
+    fn par_sigmoid(&self) -> Vec<T>;
+    /// [`SliceMath::sigmoid_in_place`](crate::SliceMath::sigmoid_in_place) on several threads.
+    fn par_sigmoid_in_place(&mut self);
+
     /// [`SliceMath::sin`](crate::SliceMath::sin) on several threads.
     fn par_sin(&self) -> Vec<T>;
     /// [`SliceMath::sin_in_place`](crate::SliceMath::sin_in_place) on several threads.
@@ -183,6 +188,7 @@ macro_rules! impl_par_slice_math {
                     par_ceil par_ceil_in_place CeilOp,
                     par_floor par_floor_in_place FloorOp,
                     par_ln par_ln_in_place LnOp,
+                    par_sigmoid par_sigmoid_in_place SigmoidOp,
                     par_sin par_sin_in_place SinOp,
                     par_tan par_tan_in_place TanOp,
                     par_sqrt par_sqrt_in_place SqrtOp,
@@ -354,7 +360,7 @@ mod tests {
             fn(&mut [T]),
             fn(&mut [T]),
         );
-        let unary: [(&str, Pair<T>); 13] = [
+        let unary: [(&str, Pair<T>); 14] = [
             (
                 "abs",
                 (
@@ -443,6 +449,15 @@ mod tests {
                     |x| x.par_ln(),
                     |x| x.ln_in_place(),
                     |x| x.par_ln_in_place(),
+                ),
+            ),
+            (
+                "sigmoid",
+                (
+                    |x| x.sigmoid(),
+                    |x| x.par_sigmoid(),
+                    |x| x.sigmoid_in_place(),
+                    |x| x.par_sigmoid_in_place(),
                 ),
             ),
             (

@@ -19,7 +19,7 @@
 #![allow(clippy::excessive_precision, reason = "fdlibm's constants, verbatim")]
 
 use super::atan::ks;
-use super::float::{Element, Float};
+use super::float::{Element, Float, two_sum};
 
 /// A lane type with an exponential.
 pub(crate) trait Exp {
@@ -34,35 +34,57 @@ where
     #[inline(always)]
     fn exp(self) -> Self {
         let x = self;
-        let [zero, half, one, two] = ks(x, [0.0, 0.5, 1.0, 2.0].map(V::Elem::from_f32));
-        let [ln2_hi, ln2_lo, inv_ln2, round] = ks(
-            x,
-            [
-                V::Elem::LN2[0],
-                V::Elem::LN2[1],
-                V::Elem::INV_LN2,
-                V::Elem::ROUND,
-            ],
-        );
+        let [zero, half] = ks(x, [0.0, 0.5].map(V::Elem::from_f32));
+        let round = x.constant(V::Elem::ROUND);
         let [over, under, inf] = ks(x, V::Elem::LIMITS);
-
-        // x = k·ln2 + r.
-        let k = x.mul_add(inv_ln2, round) - round;
-        let hi = (-k).mul_add(ln2_hi, x);
-        let lo = k * ln2_lo;
-        let r = hi - lo;
-
-        // eʳ = 1 + r + r·c/(2 − c).
-        let z = r * r;
-        let c = (-z).mul_add(V::Elem::p(z), r);
-        let y = one + ((r * c / (two - c) - lo) + hi);
-
-        // · 2^k, in two normal factors.
-        let k1 = k.mul_add(half, round) - round;
-        let y = y.ldexp(k1).ldexp(k - k1);
-
+        let (y, _, k) = exp_parts(x);
+        let y = scale(y, k, half, round);
         V::select(x.gt(over), inf, V::select(x.lt(under), zero, y))
     }
+}
+
+/// `eˣ = (hi + lo) · 2^k`, `hi + lo ≈ eʳ` in `[1/√2, √2]` to a few bits
+/// more than the element type, `k` an integer (as a float). `hi` alone is
+/// [`Exp::exp`]'s result before scaling. No special cases: `x` beyond
+/// [`Kernel::LIMITS`] or NaN gives garbage.
+#[inline(always)]
+pub(crate) fn exp_parts<V: Float>(x: V) -> (V, V, V)
+where
+    V::Elem: Kernel,
+{
+    let [one, two] = ks(x, [1.0, 2.0].map(V::Elem::from_f32));
+    let [ln2_hi, ln2_lo, inv_ln2, round] = ks(
+        x,
+        [
+            V::Elem::LN2[0],
+            V::Elem::LN2[1],
+            V::Elem::INV_LN2,
+            V::Elem::ROUND,
+        ],
+    );
+
+    // x = k·ln2 + r.
+    let k = x.mul_add(inv_ln2, round) - round;
+    let hi = (-k).mul_add(ln2_hi, x);
+    let lo = k * ln2_lo;
+    let r = hi - lo;
+
+    // eʳ = 1 + r + r·c/(2 − c) = 1 + t, t = (r·c/(2 − c) − lo) + hi;
+    // `t`'s rounding error and then `1 + t`'s, both exact, make up `lo`.
+    let z = r * r;
+    let c = (-z).mul_add(V::Elem::p(z), r);
+    let (t, t_err) = two_sum(r * c / (two - c) - lo, hi);
+    let y = one + t;
+    // |t| < 1, so `(1 − y) + t` is exact.
+    (y, ((one - y) + t) + t_err, k)
+}
+
+/// `y · 2^k` in two normal factors: `k` reaches 128 / 1024 and −150 / −1075
+/// in `exp`, and the second product rounds subnormal results once.
+#[inline(always)]
+pub(crate) fn scale<V: Float>(y: V, k: V, half: V, round: V) -> V {
+    let k1 = k.mul_add(half, round) - round;
+    y.ldexp(k1).ldexp(k - k1)
 }
 
 /// fdlibm's constants and polynomial for one element type.

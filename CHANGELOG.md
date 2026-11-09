@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and their in-place `_scalar_assign` variants, bit for bit equal to the
   scalar loop; AVX-512, AVX2, NEON and scalar backends. `ParSliceExt` gets
   their `par_` versions.
+- `SliceMath::sigmoid` and `sigmoid_in_place`, the logistic function
+  `1/(1 + e⁻ˣ)`, ≤ 1 ULP on every backend, subnormal results included
+  (measured 0.782 for `f32`, every input, and 0.801 for `f64`): `e^−|x|`
+  and `1 + e^−|x|` to a few extra bits, one division and one correction
+  step. `ParSliceMath::par_sigmoid` and `par_sigmoid_in_place`.
+- Internal: `exp_parts`, `eˣ` before scaling as a two-float sum, which `exp`
+  shares (its results are unchanged).
 - Slice drivers `binary_scalar_uninit` and `binary_scalar_in_place`: a binary
   operation with one register as its right operand.
 
