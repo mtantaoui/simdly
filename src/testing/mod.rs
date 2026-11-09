@@ -346,4 +346,23 @@ pub(crate) mod dd {
         let d = ((q - h) - l) / h;
         two_sum(y, d)
     }
+
+    /// `ln(1 + x)` as `hi + lo`, to about 100 bits of the result. Below
+    /// `|x| = 2⁻⁶` [`ln_dd`]'s absolute error (about 2⁻¹⁰⁰) would show in
+    /// the small result, so the series `x − x²/2 + x³/3 − …` (30 terms, to
+    /// 2⁻¹⁸⁰) runs instead. Above, `1 + x = u + c` exactly, and
+    /// `ln(u + c) = ln u + c/u` to `(c/u)²/2 < 2⁻¹⁰⁵`.
+    pub(crate) fn log1p_dd(x: f64) -> (f64, f64) {
+        if x.abs() < 1.0 / 64.0 {
+            // x · (1 − x·(1/2 − x·(1/3 − …))), from the innermost term out.
+            let mut p = (0.0, 0.0);
+            for n in (1..=30).rev() {
+                let sign = if n % 2 == 1 { 1.0 } else { -1.0 };
+                p = dd_add(dd_div((sign, 0.0), f64::from(n)), dd_mul(p, (x, 0.0)));
+            }
+            return dd_mul(p, (x, 0.0));
+        }
+        let (u, c) = two_sum(1.0, x);
+        dd_add(ln_dd(u), (c / u, 0.0))
+    }
 }

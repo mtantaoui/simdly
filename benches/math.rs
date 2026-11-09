@@ -496,6 +496,26 @@ fn exp(c: &mut Criterion) {
     group.finish();
 }
 
+/// Against `std`'s, on `[−1, 1]`: both branches of the reduction.
+fn log1p(c: &mut Criterion) {
+    let mut group = c.benchmark_group("log1p");
+    out_of_place::<f32>(
+        &mut group,
+        unit,
+        |x| x.log1p(),
+        par!(|x| x.par_log1p()),
+        f32::ln_1p,
+    );
+    out_of_place::<f64>(
+        &mut group,
+        unit,
+        |x| x.log1p(),
+        par!(|x| x.par_log1p()),
+        f64::ln_1p,
+    );
+    group.finish();
+}
+
 /// Against the formula as a user would write it, `1/(1 + e⁻ˣ)`.
 fn sigmoid(c: &mut Criterion) {
     let mut group = c.benchmark_group("sigmoid");
@@ -809,6 +829,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, asin, atan, atan2, cbrt, ceil, cos, exp, floor, hypot, hypot3, hypot4, ln, sigmoid, sin, sqrt, tan
+    targets = abs, acos, asin, atan, atan2, cbrt, ceil, cos, exp, floor, hypot, hypot3, hypot4, ln, log1p, sigmoid, sin, sqrt, tan
 }
 criterion_main!(benches);

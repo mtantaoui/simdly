@@ -12,8 +12,8 @@ use rayon::prelude::*;
 
 use super::{
     AbsOp, AcosOp, AsinOp, Atan2Op, AtanOp, BinaryOp, CbrtOp, CeilOp, CosOp, ExpOp, FloorOp,
-    Hypot3Op, Hypot4Op, HypotOp, LnOp, MathElement, NaryOp, SigmoidOp, SinOp, SqrtOp, TanOp,
-    UnaryOp, binary_to_vec, nary_to_vec, unary_to_vec,
+    Hypot3Op, Hypot4Op, HypotOp, LnOp, Log1pOp, MathElement, NaryOp, SigmoidOp, SinOp, SqrtOp,
+    TanOp, UnaryOp, binary_to_vec, nary_to_vec, unary_to_vec,
 };
 use crate::{PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD};
 
@@ -135,6 +135,11 @@ pub trait ParSliceMath<T>: crate::ops::sealed::Sealed {
     /// [`SliceMath::ln_in_place`](crate::SliceMath::ln_in_place) on several threads.
     fn par_ln_in_place(&mut self);
 
+    /// [`SliceMath::log1p`](crate::SliceMath::log1p) on several threads.
+    fn par_log1p(&self) -> Vec<T>;
+    /// [`SliceMath::log1p_in_place`](crate::SliceMath::log1p_in_place) on several threads.
+    fn par_log1p_in_place(&mut self);
+
     /// [`SliceMath::sigmoid`](crate::SliceMath::sigmoid) on several threads.
     fn par_sigmoid(&self) -> Vec<T>;
     /// [`SliceMath::sigmoid_in_place`](crate::SliceMath::sigmoid_in_place) on several threads.
@@ -188,6 +193,7 @@ macro_rules! impl_par_slice_math {
                     par_ceil par_ceil_in_place CeilOp,
                     par_floor par_floor_in_place FloorOp,
                     par_ln par_ln_in_place LnOp,
+                    par_log1p par_log1p_in_place Log1pOp,
                     par_sigmoid par_sigmoid_in_place SigmoidOp,
                     par_sin par_sin_in_place SinOp,
                     par_tan par_tan_in_place TanOp,
@@ -360,7 +366,7 @@ mod tests {
             fn(&mut [T]),
             fn(&mut [T]),
         );
-        let unary: [(&str, Pair<T>); 14] = [
+        let unary: [(&str, Pair<T>); 15] = [
             (
                 "abs",
                 (
@@ -449,6 +455,15 @@ mod tests {
                     |x| x.par_ln(),
                     |x| x.ln_in_place(),
                     |x| x.par_ln_in_place(),
+                ),
+            ),
+            (
+                "log1p",
+                (
+                    |x| x.log1p(),
+                    |x| x.par_log1p(),
+                    |x| x.log1p_in_place(),
+                    |x| x.par_log1p_in_place(),
                 ),
             ),
             (

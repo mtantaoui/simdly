@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and their in-place `_scalar_assign` variants, bit for bit equal to the
   scalar loop; AVX-512, AVX2, NEON and scalar backends. `ParSliceExt` gets
   their `par_` versions.
+- `SliceMath::log1p` and `log1p_in_place`, `ln(1 + x)` accurate where
+  `1 + x` rounds, ≤ 1 ULP on every backend (measured 0.835 for `f32`, every
+  input, and 0.844 for `f64`): fdlibm's approach on `ln`'s reduction and
+  series, `1 + x` formed exactly. `ParSliceMath::par_log1p` and
+  `par_log1p_in_place`.
 - `SliceMath::sigmoid` and `sigmoid_in_place`, the logistic function
   `1/(1 + e⁻ˣ)`, ≤ 1 ULP on every backend, subnormal results included
   (measured 0.782 for `f32`, every input, and 0.801 for `f64`): `e^−|x|`

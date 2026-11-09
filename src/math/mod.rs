@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`ceil`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`ln`], [`sigmoid`], [`trig`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`ln`], [`log1p`], [`sigmoid`], [`trig`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -26,6 +26,7 @@ mod float;
 mod floor;
 mod hypot;
 mod ln;
+mod log1p;
 #[cfg(feature = "rayon")]
 pub(crate) mod par;
 mod sigmoid;
@@ -48,6 +49,7 @@ use float::Float;
 use floor::Floor;
 use hypot::{Hypot, Norm};
 use ln::Ln;
+use log1p::Log1p;
 use sigmoid::Sigmoid;
 use sqrt::Sqrt;
 use trig::Trig;
@@ -55,12 +57,26 @@ use trig::Trig;
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
 pub(crate) trait Math:
-    Float + Acos + Asin + Atan + Atan2 + Cbrt + Ceil + Exp + Hypot + Norm + Ln + Sigmoid + Trig
+    Float + Acos + Asin + Atan + Atan2 + Cbrt + Ceil + Exp + Hypot + Norm + Ln + Log1p + Sigmoid + Trig
 {
 }
 
-impl<T: Float + Acos + Asin + Atan + Atan2 + Cbrt + Ceil + Exp + Hypot + Norm + Ln + Sigmoid + Trig>
-    Math for T
+impl<
+    T: Float
+        + Acos
+        + Asin
+        + Atan
+        + Atan2
+        + Cbrt
+        + Ceil
+        + Exp
+        + Hypot
+        + Norm
+        + Ln
+        + Log1p
+        + Sigmoid
+        + Trig,
+> Math for T
 {
 }
 
@@ -236,6 +252,16 @@ impl UnaryOp for LnOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.ln()
+    }
+}
+
+/// `ln(1 + x)`.
+pub(crate) struct Log1pOp;
+
+impl UnaryOp for Log1pOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.log1p()
     }
 }
 
@@ -1088,6 +1114,23 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = ln self[i]`.
     fn ln_in_place(&mut self);
 
+    /// `ln(1 + self[i])`, accurate where `1 + self[i]` would round: near 0,
+    /// `log1p(x) ≈ x`. Error ≤ 1 ULP; `log1p(±0) = ±0`, `log1p(−1) = −∞`,
+    /// NaN below `−1`, `log1p(+∞) = +∞`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![0.0_f64, 1.0, -1.0, 1e-20];
+    /// // `(1.0 + 1e-20).ln()` would be 0.
+    /// assert_eq!(a.log1p(), [0.0, core::f64::consts::LN_2, f64::NEG_INFINITY, 1e-20]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn log1p(&self) -> Vec<T>;
+
+    /// `self[i] = ln(1 + self[i])`.
+    fn log1p_in_place(&mut self);
+
     /// `σ(self[i]) = 1/(1 + e^−self[i])`, the logistic function, in
     /// `[0, 1]`. Error ≤ 1 ULP, subnormal results included: `σ(x) ≈ eˣ`
     /// far below 0 rounds to `+0` only past `exp`'s underflow threshold.
@@ -1312,6 +1355,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn ln_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<LnOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn log1p(&self) -> Vec<$T> {
+                    unary_to_vec::<Log1pOp, _>(self)
+                }
+
+                #[inline]
+                fn log1p_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<Log1pOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]
