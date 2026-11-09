@@ -347,22 +347,56 @@ pub(crate) mod dd {
         two_sum(y, d)
     }
 
-    /// `ln(1 + x)` as `hi + lo`, to about 100 bits of the result. Below
+    /// `ln(1 + x)` as `hi + lo`, to about 100 bits of the result.
+    pub(crate) fn log1p_dd(x: f64) -> (f64, f64) {
+        log1p_dd2((x, 0.0))
+    }
+
+    /// `ln(1 + xh + xl)` as `hi + lo`, to about 100 bits of the result. Below
     /// `|x| = 2⁻⁶` [`ln_dd`]'s absolute error (about 2⁻¹⁰⁰) would show in
     /// the small result, so the series `x − x²/2 + x³/3 − …` (30 terms, to
-    /// 2⁻¹⁸⁰) runs instead. Above, `1 + x = u + c` exactly, and
-    /// `ln(u + c) = ln u + c/u` to `(c/u)²/2 < 2⁻¹⁰⁵`.
-    pub(crate) fn log1p_dd(x: f64) -> (f64, f64) {
-        if x.abs() < 1.0 / 64.0 {
+    /// 2⁻¹⁸⁰) runs instead. Above, `1 + x = u + c` exactly (to `xl`'s
+    /// rounding), and `ln(u + c) = ln u + c/u` to `(c/u)²/2 < 2⁻¹⁰⁵`.
+    pub(crate) fn log1p_dd2(x: (f64, f64)) -> (f64, f64) {
+        if x.0.abs() < 1.0 / 64.0 {
             // x · (1 − x·(1/2 − x·(1/3 − …))), from the innermost term out.
             let mut p = (0.0, 0.0);
             for n in (1..=30).rev() {
                 let sign = if n % 2 == 1 { 1.0 } else { -1.0 };
-                p = dd_add(dd_div((sign, 0.0), f64::from(n)), dd_mul(p, (x, 0.0)));
+                p = dd_add(dd_div((sign, 0.0), f64::from(n)), dd_mul(p, x));
             }
-            return dd_mul(p, (x, 0.0));
+            return dd_mul(p, x);
         }
-        let (u, c) = two_sum(1.0, x);
-        dd_add(ln_dd(u), (c / u, 0.0))
+        let (u, c) = two_sum(1.0, x.0);
+        dd_add(ln_dd(u), ((c + x.1) / u, 0.0))
+    }
+
+    /// `ln(1 + eˣ) = (hi + lo) · 2^k` to about 100 bits:
+    /// `max(x, 0) + ln(1 + e^−|x|)`, `e^−|x|` from [`exp_dd`] and the
+    /// logarithm from [`log1p_dd2`]. For `x < 0` the result is `e·S(e)`,
+    /// `S(e) = ln(1 + e)/e`, kept scaled by `e`'s `2^k` (it may be
+    /// subnormal). `|x|` is capped at 800, past which `e` is below every
+    /// `f64`.
+    pub(crate) fn softplus_dd(x: f64) -> (f64, f64, i32) {
+        let (h, l, k) = exp_dd(-x.abs().min(800.0));
+        let s = 2f64.powi(k / 2) * 2f64.powi(k - k / 2);
+        let e = dd_mul((h, l), (s, 0.0));
+        if x >= 0.0 {
+            let (hi, lo) = dd_add((x, 0.0), log1p_dd2(e));
+            return (hi, lo, 0);
+        }
+        if e.0 >= 1.0 / 64.0 {
+            let (hi, lo) = log1p_dd2(e);
+            return (hi, lo, 0);
+        }
+        // S(e) = 1 − e/2 + e²/3 − …; `e`'s bits lost to subnormals weigh
+        // below 2⁻¹⁰⁶ of S.
+        let mut p = (0.0, 0.0);
+        for n in (1..=30).rev() {
+            let sign = if n % 2 == 1 { 1.0 } else { -1.0 };
+            p = dd_add(dd_div((sign, 0.0), f64::from(n)), dd_mul(p, e));
+        }
+        let (hi, lo) = dd_mul((h, l), p);
+        (hi, lo, k)
     }
 }

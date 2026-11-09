@@ -536,6 +536,44 @@ fn sigmoid(c: &mut Criterion) {
     group.finish();
 }
 
+fn log_sigmoid(c: &mut Criterion) {
+    let mut group = c.benchmark_group("log_sigmoid");
+    out_of_place::<f32>(
+        &mut group,
+        moderate,
+        |x| x.log_sigmoid(),
+        par!(|x| x.par_log_sigmoid()),
+        |x| x.min(0.0) - (-x.abs()).exp().ln_1p(),
+    );
+    out_of_place::<f64>(
+        &mut group,
+        moderate,
+        |x| x.log_sigmoid(),
+        par!(|x| x.par_log_sigmoid()),
+        |x| x.min(0.0) - (-x.abs()).exp().ln_1p(),
+    );
+    group.finish();
+}
+
+fn softplus(c: &mut Criterion) {
+    let mut group = c.benchmark_group("softplus");
+    out_of_place::<f32>(
+        &mut group,
+        moderate,
+        |x| x.softplus(),
+        par!(|x| x.par_softplus()),
+        |x| x.max(0.0) + (-x.abs()).exp().ln_1p(),
+    );
+    out_of_place::<f64>(
+        &mut group,
+        moderate,
+        |x| x.softplus(),
+        par!(|x| x.par_softplus()),
+        |x| x.max(0.0) + (-x.abs()).exp().ln_1p(),
+    );
+    group.finish();
+}
+
 fn floor(c: &mut Criterion) {
     let mut group = c.benchmark_group("floor");
     out_of_place::<f32>(
@@ -829,6 +867,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, asin, atan, atan2, cbrt, ceil, cos, exp, floor, hypot, hypot3, hypot4, ln, log1p, sigmoid, sin, sqrt, tan
+    targets = abs, acos, asin, atan, atan2, cbrt, ceil, cos, exp, floor, hypot, hypot3, hypot4, ln, log1p, log_sigmoid, sigmoid, sin, softplus, sqrt, tan
 }
 criterion_main!(benches);

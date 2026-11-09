@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`ceil`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`ln`], [`log1p`], [`sigmoid`], [`trig`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`ln`], [`log1p`], [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -30,6 +30,7 @@ mod log1p;
 #[cfg(feature = "rayon")]
 pub(crate) mod par;
 mod sigmoid;
+mod softplus;
 mod sqrt;
 pub(crate) mod trig;
 
@@ -51,13 +52,29 @@ use hypot::{Hypot, Norm};
 use ln::Ln;
 use log1p::Log1p;
 use sigmoid::Sigmoid;
+use softplus::{LogSigmoid, Softplus};
 use sqrt::Sqrt;
 use trig::Trig;
 
 /// A lane type with every math function: a float or a SIMD register of
 /// floats.
 pub(crate) trait Math:
-    Float + Acos + Asin + Atan + Atan2 + Cbrt + Ceil + Exp + Hypot + Norm + Ln + Log1p + Sigmoid + Trig
+    Float
+    + Acos
+    + Asin
+    + Atan
+    + Atan2
+    + Cbrt
+    + Ceil
+    + Exp
+    + Hypot
+    + Norm
+    + Ln
+    + Log1p
+    + LogSigmoid
+    + Sigmoid
+    + Softplus
+    + Trig
 {
 }
 
@@ -74,7 +91,9 @@ impl<
         + Norm
         + Ln
         + Log1p
+        + LogSigmoid
         + Sigmoid
+        + Softplus
         + Trig,
 > Math for T
 {
@@ -272,6 +291,26 @@ impl UnaryOp for SigmoidOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.sigmoid()
+    }
+}
+
+/// `ln σ(x) = −ln(1 + e⁻ˣ)`.
+pub(crate) struct LogSigmoidOp;
+
+impl UnaryOp for LogSigmoidOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.log_sigmoid()
+    }
+}
+
+/// `ln(1 + eˣ)`.
+pub(crate) struct SoftplusOp;
+
+impl UnaryOp for SoftplusOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.softplus()
     }
 }
 
@@ -1150,6 +1189,43 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = σ(self[i])`.
     fn sigmoid_in_place(&mut self);
 
+    /// `ln σ(self[i]) = −ln(1 + e^−self[i])`, the log of the logistic
+    /// function, in `[−∞, 0]`, without overflow or cancellation: `≈ x` far
+    /// below 0, `≈ −e⁻ˣ` far above. Error ≤ 1 ULP;
+    /// `log_sigmoid(0) = −ln 2`, `log_sigmoid(−∞) = −∞`,
+    /// `log_sigmoid(+∞) = −0`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![0.0_f64, -1000.0, 1000.0];
+    /// // `σ(-1000.0).ln()` would be −∞.
+    /// assert_eq!(a.log_sigmoid(), [-core::f64::consts::LN_2, -1000.0, -0.0]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn log_sigmoid(&self) -> Vec<T>;
+
+    /// `self[i] = ln σ(self[i])`.
+    fn log_sigmoid_in_place(&mut self);
+
+    /// `softplus(self[i]) = ln(1 + e^self[i])`, a smooth `max(x, 0)`, in
+    /// `[0, ∞]`, without overflow or cancellation: `≈ eˣ` far below 0, `x`
+    /// far above. Error ≤ 1 ULP, subnormal results included;
+    /// `softplus(0) = ln 2`, `softplus(−∞) = +0`, `softplus(+∞) = +∞`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![0.0_f32, 1000.0, -1000.0];
+    /// // `(1.0 + 1000.0_f32.exp()).ln()` would be ∞.
+    /// assert_eq!(a.softplus(), [core::f32::consts::LN_2, 1000.0, 0.0]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn softplus(&self) -> Vec<T>;
+
+    /// `self[i] = ln(1 + e^self[i])`.
+    fn softplus_in_place(&mut self);
+
     /// `sin self[i]`, in radians. Error ≤ 1 ULP for every finite input, huge
     /// ones included; NaN for `±∞`.
     ///
@@ -1377,6 +1453,28 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn sigmoid_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<SigmoidOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn log_sigmoid(&self) -> Vec<$T> {
+                    unary_to_vec::<LogSigmoidOp, _>(self)
+                }
+
+                #[inline]
+                fn log_sigmoid_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<LogSigmoidOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn softplus(&self) -> Vec<$T> {
+                    unary_to_vec::<SoftplusOp, _>(self)
+                }
+
+                #[inline]
+                fn softplus_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<SoftplusOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]

@@ -12,8 +12,8 @@ use rayon::prelude::*;
 
 use super::{
     AbsOp, AcosOp, AsinOp, Atan2Op, AtanOp, BinaryOp, CbrtOp, CeilOp, CosOp, ExpOp, FloorOp,
-    Hypot3Op, Hypot4Op, HypotOp, LnOp, Log1pOp, MathElement, NaryOp, SigmoidOp, SinOp, SqrtOp,
-    TanOp, UnaryOp, binary_to_vec, nary_to_vec, unary_to_vec,
+    Hypot3Op, Hypot4Op, HypotOp, LnOp, Log1pOp, LogSigmoidOp, MathElement, NaryOp, SigmoidOp,
+    SinOp, SoftplusOp, SqrtOp, TanOp, UnaryOp, binary_to_vec, nary_to_vec, unary_to_vec,
 };
 use crate::{PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD};
 
@@ -145,6 +145,16 @@ pub trait ParSliceMath<T>: crate::ops::sealed::Sealed {
     /// [`SliceMath::sigmoid_in_place`](crate::SliceMath::sigmoid_in_place) on several threads.
     fn par_sigmoid_in_place(&mut self);
 
+    /// [`SliceMath::log_sigmoid`](crate::SliceMath::log_sigmoid) on several threads.
+    fn par_log_sigmoid(&self) -> Vec<T>;
+    /// [`SliceMath::log_sigmoid_in_place`](crate::SliceMath::log_sigmoid_in_place) on several threads.
+    fn par_log_sigmoid_in_place(&mut self);
+
+    /// [`SliceMath::softplus`](crate::SliceMath::softplus) on several threads.
+    fn par_softplus(&self) -> Vec<T>;
+    /// [`SliceMath::softplus_in_place`](crate::SliceMath::softplus_in_place) on several threads.
+    fn par_softplus_in_place(&mut self);
+
     /// [`SliceMath::sin`](crate::SliceMath::sin) on several threads.
     fn par_sin(&self) -> Vec<T>;
     /// [`SliceMath::sin_in_place`](crate::SliceMath::sin_in_place) on several threads.
@@ -195,6 +205,8 @@ macro_rules! impl_par_slice_math {
                     par_ln par_ln_in_place LnOp,
                     par_log1p par_log1p_in_place Log1pOp,
                     par_sigmoid par_sigmoid_in_place SigmoidOp,
+                    par_log_sigmoid par_log_sigmoid_in_place LogSigmoidOp,
+                    par_softplus par_softplus_in_place SoftplusOp,
                     par_sin par_sin_in_place SinOp,
                     par_tan par_tan_in_place TanOp,
                     par_sqrt par_sqrt_in_place SqrtOp,
@@ -366,7 +378,7 @@ mod tests {
             fn(&mut [T]),
             fn(&mut [T]),
         );
-        let unary: [(&str, Pair<T>); 15] = [
+        let unary: [(&str, Pair<T>); 17] = [
             (
                 "abs",
                 (
@@ -473,6 +485,24 @@ mod tests {
                     |x| x.par_sigmoid(),
                     |x| x.sigmoid_in_place(),
                     |x| x.par_sigmoid_in_place(),
+                ),
+            ),
+            (
+                "log_sigmoid",
+                (
+                    |x| x.log_sigmoid(),
+                    |x| x.par_log_sigmoid(),
+                    |x| x.log_sigmoid_in_place(),
+                    |x| x.par_log_sigmoid_in_place(),
+                ),
+            ),
+            (
+                "softplus",
+                (
+                    |x| x.softplus(),
+                    |x| x.par_softplus(),
+                    |x| x.softplus_in_place(),
+                    |x| x.par_softplus_in_place(),
                 ),
             ),
             (

@@ -20,6 +20,8 @@ fn main() {
     println!("ln x   = {:?}", x.ln());
     println!("ln(1+x) = {:?}", x.log1p());
     println!("σ(x)   = {:?}", x.sigmoid());
+    println!("ln σ(x) = {:?}", x.log_sigmoid());
+    println!("ln(1+eˣ) = {:?}", x.softplus());
     println!("sin x  = {:?}", x.sin());
     println!("cos x  = {:?}", x.cos());
     println!("tan x  = {:?}", x.tan());
