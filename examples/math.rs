@@ -26,6 +26,7 @@ fn main() {
     println!("rem 0.75 = {:?}", x.remainder_scalar(0.75));
     println!("eˣ     = {:?}", x.exp());
     println!("erf x  = {:?}", x.erf());
+    println!("gelu x = {:?}", x.gelu());
     println!("x^2.5  = {:?}", x.powf_scalar(2.5));
     println!("x^3    = {:?}", x.powi(3));
     println!("ln x   = {:?}", x.ln());

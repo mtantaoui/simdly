@@ -45,7 +45,12 @@ pub(crate) trait Erf {
 
 /// `Σ c[i]·t^i` (Horner), `c` = `a` in lanes where `m`, else `b`.
 #[inline(always)]
-fn poly<V: Float, const N: usize>(t: V, m: V::Mask, a: &[V::Elem; N], b: &[V::Elem; N]) -> V {
+pub(super) fn poly<V: Float, const N: usize>(
+    t: V,
+    m: V::Mask,
+    a: &[V::Elem; N],
+    b: &[V::Elem; N],
+) -> V {
     let mut i = N - 1;
     let mut p = V::select(m, t.constant(a[i]), t.constant(b[i]));
     while i > 0 {
@@ -57,7 +62,7 @@ fn poly<V: Float, const N: usize>(t: V, m: V::Mask, a: &[V::Elem; N], b: &[V::El
 
 /// `Σ c[i]·t^i` (Horner), the same `c` in every lane.
 #[inline(always)]
-fn horner<V: Float, const N: usize>(t: V, c: &[V::Elem; N]) -> V {
+pub(super) fn horner<V: Float, const N: usize>(t: V, c: &[V::Elem; N]) -> V {
     let mut i = N - 1;
     let mut p = t.constant(c[i]);
     while i > 0 {

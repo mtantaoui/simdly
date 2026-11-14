@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `SliceMath::gelu` and `gelu_in_place`, `x·Φ(x) = (x/2)·(1 + erf(x/√2))`
+  in one pass, ≤ 1 ULP on every backend, negative inputs included, where
+  `1 + erf` cancels (measured 0.500 for `f32`, every input, and 0.838 for
+  `f64`). fdlibm's `erf` rational functions regrouped in `x`, so that
+  `x/√2` is never rounded, `erfc` through `e^(−x²/2)` with `x²` exact; for
+  `f64` the last Horner steps compensated and everything after in two
+  parts; `f32` runs in `f64`. `gelu(−∞) = −0`. `ParSliceMath::par_gelu` and
+  `par_gelu_in_place`.
 - `SliceExt` arithmetic with a scalar right operand: `add_scalar`,
   `sub_scalar`, `mul_scalar`, `div_scalar` (returning a `Vec`, with `alloc`)
   and their in-place `_scalar_assign` variants, bit for bit equal to the

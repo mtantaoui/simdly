@@ -19,6 +19,7 @@
 - [Cosine `cos`](./functions/cos.md)
 - [Exponential `exp`](./functions/exp.md)
 - [Error function `erf`](./functions/erf.md)
+- [Activation `gelu`](./functions/gelu.md)
 - [Powers `powf` and `powi`](./functions/pow.md)
 - [Floor `floor`](./functions/floor.md)
 - [Rounding, sign and clamping](./functions/rounding.md)

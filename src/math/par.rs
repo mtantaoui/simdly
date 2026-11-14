@@ -12,10 +12,10 @@ use rayon::prelude::*;
 
 use super::{
     AbsOp, AcosOp, AcoshOp, AsinOp, AsinhOp, Atan2Op, AtanOp, AtanhOp, BinaryOp, CbrtOp, CeilOp,
-    ClampOp, CosOp, CoshOp, ErfOp, ExpOp, FloorOp, FmodOp, FmodScalarOp, Hypot3Op, Hypot4Op,
-    HypotOp, LnOp, Log1pOp, LogSigmoidOp, MathElement, NaryOp, NegOp, PowOp, PowScalarOp, RecipOp,
-    RemainderOp, RemainderScalarOp, RoundOp, RoundTiesEvenOp, SigmoidOp, SignOp, SinOp, SinhOp,
-    SoftplusOp, SqrtOp, TanOp, TanhOp, TruncOp, UnaryOp, binary_to_vec, nary_to_vec,
+    ClampOp, CosOp, CoshOp, ErfOp, ExpOp, FloorOp, FmodOp, FmodScalarOp, GeluOp, Hypot3Op,
+    Hypot4Op, HypotOp, LnOp, Log1pOp, LogSigmoidOp, MathElement, NaryOp, NegOp, PowOp, PowScalarOp,
+    RecipOp, RemainderOp, RemainderScalarOp, RoundOp, RoundTiesEvenOp, SigmoidOp, SignOp, SinOp,
+    SinhOp, SoftplusOp, SqrtOp, TanOp, TanhOp, TruncOp, UnaryOp, binary_to_vec, nary_to_vec,
     scalars_to_vec, unary_to_vec,
 };
 use crate::{PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD};
@@ -269,6 +269,11 @@ pub trait ParSliceMath<T>: crate::ops::sealed::Sealed {
     /// [`SliceMath::erf_in_place`](crate::SliceMath::erf_in_place) on several threads.
     fn par_erf_in_place(&mut self);
 
+    /// [`SliceMath::gelu`](crate::SliceMath::gelu) on several threads.
+    fn par_gelu(&self) -> Vec<T>;
+    /// [`SliceMath::gelu_in_place`](crate::SliceMath::gelu_in_place) on several threads.
+    fn par_gelu_in_place(&mut self);
+
     /// [`SliceMath::sin`](crate::SliceMath::sin) on several threads.
     fn par_sin(&self) -> Vec<T>;
     /// [`SliceMath::sin_in_place`](crate::SliceMath::sin_in_place) on several threads.
@@ -334,6 +339,7 @@ macro_rules! impl_par_slice_math {
                     par_asinh par_asinh_in_place AsinhOp,
                     par_acosh par_acosh_in_place AcoshOp,
                     par_erf par_erf_in_place ErfOp,
+                    par_gelu par_gelu_in_place GeluOp,
                     par_sin par_sin_in_place SinOp,
                     par_tan par_tan_in_place TanOp,
                     par_sqrt par_sqrt_in_place SqrtOp,
@@ -619,7 +625,7 @@ mod tests {
             fn(&mut [T]),
             fn(&mut [T]),
         );
-        let unary: [(&str, Pair<T>); 30] = [
+        let unary: [(&str, Pair<T>); 31] = [
             (
                 "abs",
                 (
@@ -807,6 +813,15 @@ mod tests {
                     |x| x.par_erf(),
                     |x| x.erf_in_place(),
                     |x| x.par_erf_in_place(),
+                ),
+            ),
+            (
+                "gelu",
+                (
+                    |x| x.gelu(),
+                    |x| x.par_gelu(),
+                    |x| x.gelu_in_place(),
+                    |x| x.par_gelu_in_place(),
                 ),
             ),
             (

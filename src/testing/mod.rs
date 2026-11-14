@@ -439,6 +439,80 @@ pub(crate) mod dd {
         if x < 0.0 { (-hi, -lo, 0) } else { (hi, lo, 0) }
     }
 
+    /// `gelu x = x·Φ(x) = (hi + lo)·2^k`, to about 100 bits, in `x` itself
+    /// (no `x/√2` to round). `φ(x) = e^(−x²/2)/√(2π)` from [`exp_dd`],
+    /// `x²` exact; then, for `|x| ≤ 6`, `Φ(x) = ½ + φ(x)·Σ x^(2n+1)/(2n+1)!!`
+    /// (positive terms in `|x|`; for `x < 0`, `½ − …` loses at most 30 of
+    /// the 106 bits), and beyond, `Φ(−|x|) = φ(x)·M(|x|)`, the Mills ratio
+    /// `M(t) = 1/(t + 1/(t + 2/(t + 3/(t + …))))` evaluated backward from
+    /// 300 terms. Tiny `x` is kept scaled by 2²⁰⁰ (`k = −200`).
+    pub(crate) fn gelu_dd(x: f64) -> (f64, f64, i32) {
+        const INV_SQRT_2PI: (f64, f64) = (
+            f64::from_bits(0x3fd9_8845_33d4_3651),
+            f64::from_bits(0xbc7c_bc0d_30eb_fd15),
+        );
+        if x == 0.0 || x.is_nan() {
+            return (x, 0.0, 0);
+        }
+        if x.is_infinite() {
+            return if x > 0.0 { (x, 0.0, 0) } else { (-0.0, 0.0, 0) };
+        }
+        let t = x.abs().min(60.0);
+        // φ(t) = (ph + pl)·2^pk.
+        let q = dd_mul((t, 0.0), (t, 0.0));
+        let (eh, el, pk) = exp_dd(-0.5 * q.0);
+        let phi = dd_mul(dd_mul((eh, el), two_sum(1.0, -0.5 * q.1)), INV_SQRT_2PI);
+        let s = 2f64.powi(pk);
+        // Φ(t) and 1 − Φ(t) = Φ(−t), as (hi, lo)·2^k.
+        let (upper, lower, lk) = if t <= 6.0 {
+            let (mut term, mut sum) = ((t, 0.0), (t, 0.0));
+            let mut n = 0.0;
+            while term.0 > sum.0 * 2f64.powi(-110) {
+                n += 1.0;
+                term = dd_div(dd_mul(term, q), 2.0 * n + 1.0);
+                sum = dd_add(sum, term);
+            }
+            let ps = dd_mul(phi, sum);
+            let ps = (ps.0 * s, ps.1 * s);
+            (
+                dd_add((0.5, 0.0), ps),
+                dd_add((0.5, 0.0), (-ps.0, -ps.1)),
+                0,
+            )
+        } else {
+            let mut v = (t, 0.0);
+            for j in (1..=300).rev() {
+                // v = t + j/v
+                let r = dd_div((f64::from(j), 0.0), v.0);
+                let r = dd_add(r, (-(f64::from(j) / v.0) * v.1 / v.0, 0.0));
+                v = dd_add((t, 0.0), r);
+            }
+            let m = dd_div((1.0, 0.0), v.0);
+            let m = dd_add(m, (-m.0 * v.1 / v.0, 0.0));
+            let low = dd_mul(phi, m);
+            let up = dd_add((1.0, 0.0), (-low.0 * s, -low.1 * s));
+            (up, low, pk)
+        };
+        let (hi, lo, k) = if x > 0.0 {
+            let (h, l) = dd_mul((x, 0.0), upper);
+            (h, l, 0)
+        } else {
+            let (h, l) = dd_mul((x, 0.0), lower);
+            (h, l, lk)
+        };
+        if x.abs() < 2f64.powi(-900) {
+            // x·Φ(x) ≈ x/2: scaled, so subnormal results keep their bits.
+            let (h, l) = dd_mul((x * 2f64.powi(200), 0.0), upper);
+            return if x > 0.0 {
+                (h, l, -200)
+            } else {
+                let (h, l) = dd_mul((x * 2f64.powi(200), 0.0), lower);
+                (h, l, -200)
+            };
+        }
+        (hi, lo, k)
+    }
+
     /// `xʸ = (hi + lo)·2^k` for positive finite `x` and finite `y`, to
     /// about 100 bits: `y·ln x` in double-double ([`ln_dd`]), then
     /// [`exp_dd`] of its high part times `e^lo = 1 + lo + lo²/2`. `y·ln x`

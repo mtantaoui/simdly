@@ -16,7 +16,7 @@
 //! With the `alloc` feature (on by default), `add` and friends return a new
 //! `Vec` instead; `add_scalar`, `sub_scalar`, … take one value as the right
 //! operand of every element. Math functions are in [`SliceMath`]: `abs`, `acos`,
-//! `asin`, `atan`, `atan2`, `cbrt`, `ceil`, `cos`, `erf`, `exp`, `floor`, `trunc`, `round`, `round_ties_even`, `neg`, `recip`, `sign`, `clamp`, `fmod`, `remainder`, `hypot`, `hypot3`, `hypot4`, `ln`, `log1p`, `log_sigmoid`, `powf`, `powf_scalar`, `powi`, `sigmoid`, `sin`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `softplus`, `sqrt`, `tan`, …, each with an `_in_place`
+//! `asin`, `atan`, `atan2`, `cbrt`, `ceil`, `cos`, `erf`, `exp`, `gelu`, `floor`, `trunc`, `round`, `round_ties_even`, `neg`, `recip`, `sign`, `clamp`, `fmod`, `remainder`, `hypot`, `hypot3`, `hypot4`, `ln`, `log1p`, `log_sigmoid`, `powf`, `powf_scalar`, `powi`, `sigmoid`, `sin`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `softplus`, `sqrt`, `tan`, …, each with an `_in_place`
 //! variant.
 //!
 //! ## Backends

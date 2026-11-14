@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`ceil`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`erf`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`hyperbolic`] (`sinh`, `cosh`, `tanh`), [`inverse_hyperbolic`] (`atanh`, `asinh`, `acosh`), [`ln`], [`log1p`], [`pow`] (`powf`, `powi`), [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`erf`], [`exp`], [`gelu`], [`hypot`] (and `hypot3`, `hypot4`), [`hyperbolic`] (`sinh`, `cosh`, `tanh`), [`inverse_hyperbolic`] (`atanh`, `asinh`, `acosh`), [`ln`], [`log1p`], [`pow`] (`powf`, `powi`), [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -27,6 +27,7 @@ mod exp;
 mod float;
 mod floor;
 mod fmod;
+mod gelu;
 mod hyperbolic;
 mod hypot;
 mod inverse_hyperbolic;
@@ -57,6 +58,7 @@ use exp::Exp;
 use float::Float;
 use floor::Floor;
 use fmod::Fmod;
+use gelu::Gelu;
 use hyperbolic::{Cosh, Sinh, Tanh};
 use hypot::{Hypot, Norm};
 use inverse_hyperbolic::{Acosh, Asinh, Atanh};
@@ -94,6 +96,7 @@ pub(crate) trait Math:
     + Asinh
     + Acosh
     + Erf
+    + Gelu
     + Pow
     + Trunc
     + RoundTiesEven
@@ -126,6 +129,7 @@ impl<
         + Asinh
         + Acosh
         + Erf
+        + Gelu
         + Pow
         + Trunc
         + RoundTiesEven
@@ -590,6 +594,16 @@ impl UnaryOp for ErfOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.erf()
+    }
+}
+
+/// `gelu x = x·Φ(x)`.
+pub(crate) struct GeluOp;
+
+impl UnaryOp for GeluOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.gelu()
     }
 }
 
@@ -2036,6 +2050,27 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = erf self[i]`.
     fn erf_in_place(&mut self);
 
+    /// `gelu self[i] = x·Φ(x) = (x/2)·(1 + erf(x/√2))`, the Gaussian error
+    /// linear unit, `Φ` the standard normal CDF, in one pass. Error ≤ 1 ULP,
+    /// negative inputs included, where `1 + erf(x/√2)` would cancel;
+    /// `gelu(±0) = ±0`, `gelu(+∞) = +∞`, `gelu(−∞) = −0` (the limit).
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![0.0_f32, -0.0, 1.0, -1.0, f32::INFINITY, f32::NEG_INFINITY];
+    /// let g = a.gelu();
+    /// assert_eq!(g[..2], [0.0, -0.0]);
+    /// assert_eq!(g[2], 0.841_344_75); // Φ(1)
+    /// assert_eq!(g[3], -0.158_655_26); // 1 − Φ(1), not cancelled
+    /// assert_eq!(g[4..], [f32::INFINITY, -0.0]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn gelu(&self) -> Vec<T>;
+
+    /// `self[i] = gelu self[i]`.
+    fn gelu_in_place(&mut self);
+
     /// `sin self[i]`, in radians. Error ≤ 1 ULP for every finite input, huge
     /// ones included; NaN for `±∞`.
     ///
@@ -2536,6 +2571,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn erf_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<ErfOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn gelu(&self) -> Vec<$T> {
+                    unary_to_vec::<GeluOp, _>(self)
+                }
+
+                #[inline]
+                fn gelu_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<GeluOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]

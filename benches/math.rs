@@ -764,6 +764,26 @@ fn erf(c: &mut Criterion) {
     group.finish();
 }
 
+/// burn's GELU, `(x/2)·(1 + erf(x/√2))`, on `libm`'s `erf`.
+fn gelu(c: &mut Criterion) {
+    let mut group = c.benchmark_group("gelu");
+    out_of_place::<f32>(
+        &mut group,
+        activation,
+        |x| x.gelu(),
+        par!(|x| x.par_gelu()),
+        |x| 0.5 * x * (1.0 + libm::erff(x * core::f32::consts::FRAC_1_SQRT_2)),
+    );
+    out_of_place::<f64>(
+        &mut group,
+        activation,
+        |x| x.gelu(),
+        par!(|x| x.par_gelu()),
+        |x| 0.5 * x * (1.0 + libm::erf(x * core::f64::consts::FRAC_1_SQRT_2)),
+    );
+    group.finish();
+}
+
 fn powf(c: &mut Criterion) {
     let mut group = c.benchmark_group("powf");
     binary_inputs_vs_scalar::<f32>(
@@ -1307,6 +1327,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, ceil, clamp, cos, cosh, erf, exp, floor, fmod, neg, recip, round, round_ties_even, sign, trunc, hypot, hypot3, hypot4, ln, remainder, log1p, log_sigmoid, powf, powf_scalar, powi, sigmoid, sin, sinh, softplus, sqrt, tan, tanh
+    targets = abs, acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, ceil, clamp, cos, cosh, erf, exp, gelu, floor, fmod, neg, recip, round, round_ties_even, sign, trunc, hypot, hypot3, hypot4, ln, remainder, log1p, log_sigmoid, powf, powf_scalar, powi, sigmoid, sin, sinh, softplus, sqrt, tan, tanh
 }
 criterion_main!(benches);
