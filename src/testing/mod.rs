@@ -328,6 +328,59 @@ pub(crate) mod dd {
         if x < 0.0 { (-hi, -lo) } else { (hi, lo) }
     }
 
+    /// `√(wh + wl)` as `hi + lo`: one Newton step, `r²` exact.
+    fn dd_sqrt((wh, wl): (f64, f64)) -> (f64, f64) {
+        let r = wh.sqrt();
+        let (ph, pl) = dd_mul((r, 0.0), (r, 0.0));
+        two_sum(r, ((wh - ph) - pl + wl) / (2.0 * r))
+    }
+
+    /// `ln(2t) + c` as `hi + lo` for `t ≥ 2⁴⁰`: [`ln_dd`] plus `ln 2`.
+    fn ln2t_dd(t: f64, c: f64) -> (f64, f64) {
+        const LN2: (f64, f64) = (
+            f64::from_bits(0x3fe6_2e42_fefa_39ef),
+            f64::from_bits(0x3c7a_bc9e_3b39_803f),
+        );
+        dd_add(dd_add(ln_dd(t), LN2), (c, 0.0))
+    }
+
+    /// `asinh x` as `hi + lo`, to about 100 bits: `ln(1 + p)` from
+    /// [`log1p_dd2`], `p = t + t²/(1 + √(1 + t²))` in double-double,
+    /// `t = |x|`; above `2⁴⁰`, `ln(2t) + 1/(4t²)`.
+    pub(crate) fn asinh_dd(x: f64) -> (f64, f64) {
+        if x == 0.0 {
+            return (x, 0.0); // ±0, its sign kept
+        }
+        let t = x.abs();
+        let (hi, lo) = if t >= 1_099_511_627_776.0 {
+            ln2t_dd(t, 0.25 / t / t)
+        } else {
+            let t2 = dd_mul((t, 0.0), (t, 0.0));
+            let r = dd_sqrt(dd_add((1.0, 0.0), t2));
+            let d = dd_add((1.0, 0.0), r);
+            // t² / (dh + dl) = (t² / dh)·(1 − dl/dh), to 2⁻¹⁰⁶.
+            let q = dd_div(t2, d.0);
+            let q = dd_add(q, (-q.0 * (d.1 / d.0), 0.0));
+            log1p_dd2(dd_add((t, 0.0), q))
+        };
+        if x < 0.0 { (-hi, -lo) } else { (hi, lo) }
+    }
+
+    /// `acosh x` as `hi + lo` for `x ≥ 1`, to about 100 bits: `ln(1 + p)`
+    /// from [`log1p_dd2`], `p = t + √(t² + 2t)` in double-double, `t = x − 1`
+    /// (exact); above `2⁴⁰`, `ln(2x) − 1/(4x²)`.
+    pub(crate) fn acosh_dd(x: f64) -> (f64, f64) {
+        if x >= 1_099_511_627_776.0 {
+            return ln2t_dd(x, -0.25 / x / x);
+        }
+        let t = x - 1.0;
+        if t == 0.0 {
+            return (0.0, 0.0);
+        }
+        let w = dd_add(dd_mul((t, 0.0), (t, 0.0)), (2.0 * t, 0.0));
+        log1p_dd2(dd_add((t, 0.0), dd_sqrt(w)))
+    }
+
     /// `√(x² + y²) = (hi + lo) · 2^k`: both scaled by a power of 2 near the
     /// larger one, the squares summed exactly in double-double, then one
     /// Newton step of the square root.

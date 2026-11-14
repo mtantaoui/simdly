@@ -27,7 +27,7 @@
 - [Logistic function `sigmoid`](./functions/sigmoid.md)
 - [`softplus` and `log_sigmoid`](./functions/softplus.md)
 - [Hyperbolic functions `sinh` and `cosh`](./functions/hyperbolic.md)
-- [Inverse hyperbolic function `atanh`](./functions/inverse-hyperbolic.md)
+- [Inverse hyperbolic functions `asinh`, `acosh` and `atanh`](./functions/inverse-hyperbolic.md)
 - [Sine `sin`](./functions/sin.md)
 - [Tangent `tan`](./functions/tan.md)
 

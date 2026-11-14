@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`ceil`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`hyperbolic`] (`sinh`, `cosh`), [`inverse_hyperbolic`] (`atanh`), [`ln`], [`log1p`], [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`hyperbolic`] (`sinh`, `cosh`), [`inverse_hyperbolic`] (`atanh`, `asinh`, `acosh`), [`ln`], [`log1p`], [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -52,7 +52,7 @@ use float::Float;
 use floor::Floor;
 use hyperbolic::{Cosh, Sinh};
 use hypot::{Hypot, Norm};
-use inverse_hyperbolic::Atanh;
+use inverse_hyperbolic::{Acosh, Asinh, Atanh};
 use ln::Ln;
 use log1p::Log1p;
 use sigmoid::Sigmoid;
@@ -81,6 +81,8 @@ pub(crate) trait Math:
     + Sinh
     + Cosh
     + Atanh
+    + Asinh
+    + Acosh
     + Trig
 {
 }
@@ -104,6 +106,8 @@ impl<
         + Sinh
         + Cosh
         + Atanh
+        + Asinh
+        + Acosh
         + Trig,
 > Math for T
 {
@@ -351,6 +355,26 @@ impl UnaryOp for AtanhOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.atanh()
+    }
+}
+
+/// `asinh x`.
+pub(crate) struct AsinhOp;
+
+impl UnaryOp for AsinhOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.asinh()
+    }
+}
+
+/// `acosh x`.
+pub(crate) struct AcoshOp;
+
+impl UnaryOp for AcoshOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.acosh()
     }
 }
 
@@ -1319,6 +1343,44 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = atanh self[i]`.
     fn atanh_in_place(&mut self);
 
+    /// `asinh self[i] = ln(x + √(x² + 1))`, the inverse hyperbolic sine.
+    /// Error ≤ 1 ULP, without cancellation for `x < 0` or overflow of `x²`;
+    /// `asinh(±0) = ±0`, `asinh(±∞) = ±∞`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![0.0_f32, -0.0, 1e-20, -1e30];
+    /// let s = a.asinh();
+    /// assert_eq!(s[..3], [0.0, -0.0, 1e-20]);
+    /// // `(x + (x * x + 1.0).sqrt()).ln()` would be +∞: `x²` overflows.
+    /// // asinh(−10³⁰) ≈ −ln(2·10³⁰).
+    /// assert!((s[3] + 69.770_7).abs() < 1e-4);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn asinh(&self) -> Vec<T>;
+
+    /// `self[i] = asinh self[i]`.
+    fn asinh_in_place(&mut self);
+
+    /// `acosh self[i] = ln(x + √(x² − 1))`, the inverse hyperbolic cosine,
+    /// for `x ≥ 1`. Error ≤ 1 ULP; `acosh(1) = +0`, `acosh(+∞) = +∞`, NaN
+    /// below 1.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![1.0_f64, f64::INFINITY, 0.5];
+    /// let c = a.acosh();
+    /// assert_eq!(c[..2], [0.0, f64::INFINITY]);
+    /// assert!(c[2].is_nan());
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn acosh(&self) -> Vec<T>;
+
+    /// `self[i] = acosh self[i]`.
+    fn acosh_in_place(&mut self);
+
     /// `sin self[i]`, in radians. Error ≤ 1 ULP for every finite input, huge
     /// ones included; NaN for `±∞`.
     ///
@@ -1601,6 +1663,28 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn atanh_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<AtanhOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn asinh(&self) -> Vec<$T> {
+                    unary_to_vec::<AsinhOp, _>(self)
+                }
+
+                #[inline]
+                fn asinh_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<AsinhOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn acosh(&self) -> Vec<$T> {
+                    unary_to_vec::<AcoshOp, _>(self)
+                }
+
+                #[inline]
+                fn acosh_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<AcoshOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]

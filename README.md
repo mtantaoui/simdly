@@ -8,7 +8,7 @@ SIMD implementations of mathematical functions for Rust, with a documented
 worst-case ULP bound for every function.
 
 > **Status:** early development. Element-wise arithmetic, comparisons (like
-> NumPy's), `abs`, `ceil`, `floor`, `sqrt`, `cbrt`, `exp`, `ln`, `log1p`, `sigmoid`, `log_sigmoid`, `softplus`, `acos`, `asin`, `atan`, `atan2`, `hypot`, `hypot3`, `hypot4`, `sin`, `cos`, `tan`, `sinh`, `cosh` and `atanh` on `f32` and `f64` slices are implemented; see
+> NumPy's), `abs`, `ceil`, `floor`, `sqrt`, `cbrt`, `exp`, `ln`, `log1p`, `sigmoid`, `log_sigmoid`, `softplus`, `acos`, `asin`, `atan`, `atan2`, `hypot`, `hypot3`, `hypot4`, `sin`, `cos`, `tan`, `sinh`, `cosh`, `asinh`, `acosh` and `atanh` on `f32` and `f64` slices are implemented; see
 > [Implementation status](#implementation-status).
 
 ```rust
@@ -52,6 +52,8 @@ scalar).
 | `softplus`                                     | ✅      | ✅   | ✅   | ✅     |
 | `sinh`                                         | ✅      | ✅   | ✅   | ✅     |
 | `cosh`                                         | ✅      | ✅   | ✅   | ✅     |
+| `asinh`                                        | ✅      | ✅   | ✅   | ✅     |
+| `acosh`                                        | ✅      | ✅   | ✅   | ✅     |
 | `atanh`                                        | ✅      | ✅   | ✅   | ✅     |
 | `hypot`                                        | ✅      | ✅   | ✅   | ✅     |
 | `hypot3`                                       | ✅      | ✅   | ✅   | ✅     |

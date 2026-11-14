@@ -25,6 +25,8 @@ fn main() {
     println!("sinh x = {:?}", x.sinh());
     println!("cosh x = {:?}", x.cosh());
     println!("atanh x = {:?}", x.atanh());
+    println!("asinh x = {:?}", x.asinh());
+    println!("acosh x = {:?}", x.acosh());
     println!("sin x  = {:?}", x.sin());
     println!("cos x  = {:?}", x.cos());
     println!("tan x  = {:?}", x.tan());

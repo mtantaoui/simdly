@@ -98,6 +98,13 @@ fn moderate<T: Float>(len: usize) -> Vec<T> {
         .collect()
 }
 
+/// `[1, 81]`: `acosh`'s domain.
+fn above_one<T: Float>(len: usize) -> Vec<T> {
+    (0..len)
+        .map(|i| T::from_f64(1.0 + (i as f64 * 0.37).sin().abs() * 80.0))
+        .collect()
+}
+
 type Input<T> = fn(usize) -> Vec<T>;
 type Unary<T> = fn(&[T]) -> Vec<T>;
 type Binary<T> = fn(&[T], &[T]) -> Vec<T>;
@@ -631,6 +638,44 @@ fn atanh(c: &mut Criterion) {
     group.finish();
 }
 
+fn asinh(c: &mut Criterion) {
+    let mut group = c.benchmark_group("asinh");
+    out_of_place::<f32>(
+        &mut group,
+        moderate,
+        |x| x.asinh(),
+        par!(|x| x.par_asinh()),
+        f32::asinh,
+    );
+    out_of_place::<f64>(
+        &mut group,
+        moderate,
+        |x| x.asinh(),
+        par!(|x| x.par_asinh()),
+        f64::asinh,
+    );
+    group.finish();
+}
+
+fn acosh(c: &mut Criterion) {
+    let mut group = c.benchmark_group("acosh");
+    out_of_place::<f32>(
+        &mut group,
+        above_one,
+        |x| x.acosh(),
+        par!(|x| x.par_acosh()),
+        f32::acosh,
+    );
+    out_of_place::<f64>(
+        &mut group,
+        above_one,
+        |x| x.acosh(),
+        par!(|x| x.par_acosh()),
+        f64::acosh,
+    );
+    group.finish();
+}
+
 fn floor(c: &mut Criterion) {
     let mut group = c.benchmark_group("floor");
     out_of_place::<f32>(
@@ -924,6 +969,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, asin, atan, atan2, atanh, cbrt, ceil, cos, cosh, exp, floor, hypot, hypot3, hypot4, ln, log1p, log_sigmoid, sigmoid, sin, sinh, softplus, sqrt, tan
+    targets = abs, acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, ceil, cos, cosh, exp, floor, hypot, hypot3, hypot4, ln, log1p, log_sigmoid, sigmoid, sin, sinh, softplus, sqrt, tan
 }
 criterion_main!(benches);
