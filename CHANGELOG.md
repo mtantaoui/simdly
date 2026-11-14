@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   input, and 0.844 for `f64`): fdlibm's approach on `ln`'s reduction and
   series, `1 + x` formed exactly. `ParSliceMath::par_log1p` and
   `par_log1p_in_place`.
+- `SliceMath::tanh` and `tanh_in_place`, ≤ 1 ULP on every backend
+  (measured 0.684 for `f32`, every input, and 0.689 for `f64`):
+  `(E − 1/E)/(E + 1/E)` on `sinh` and `cosh`'s exponential parts, `sinh`'s
+  series as the numerator below 0.5, one division and one correction step.
+  `ParSliceMath::par_tanh` and `par_tanh_in_place`.
 - `SliceMath::asinh`, `acosh` and their `_in_place` variants, ≤ 1 ULP on
   every backend (measured 0.846 and 0.841 for `f32`, every input, and
   0.858 and 0.851 for `f64`): `ln(1 + p)` with `p = t + (√(1 + t²) − 1)`

@@ -13,7 +13,7 @@ use rayon::prelude::*;
 use super::{
     AbsOp, AcosOp, AcoshOp, AsinOp, AsinhOp, Atan2Op, AtanOp, AtanhOp, BinaryOp, CbrtOp, CeilOp,
     CosOp, CoshOp, ExpOp, FloorOp, Hypot3Op, Hypot4Op, HypotOp, LnOp, Log1pOp, LogSigmoidOp,
-    MathElement, NaryOp, SigmoidOp, SinOp, SinhOp, SoftplusOp, SqrtOp, TanOp, UnaryOp,
+    MathElement, NaryOp, SigmoidOp, SinOp, SinhOp, SoftplusOp, SqrtOp, TanOp, TanhOp, UnaryOp,
     binary_to_vec, nary_to_vec, unary_to_vec,
 };
 use crate::{PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD};
@@ -166,6 +166,11 @@ pub trait ParSliceMath<T>: crate::ops::sealed::Sealed {
     /// [`SliceMath::cosh_in_place`](crate::SliceMath::cosh_in_place) on several threads.
     fn par_cosh_in_place(&mut self);
 
+    /// [`SliceMath::tanh`](crate::SliceMath::tanh) on several threads.
+    fn par_tanh(&self) -> Vec<T>;
+    /// [`SliceMath::tanh_in_place`](crate::SliceMath::tanh_in_place) on several threads.
+    fn par_tanh_in_place(&mut self);
+
     /// [`SliceMath::atanh`](crate::SliceMath::atanh) on several threads.
     fn par_atanh(&self) -> Vec<T>;
     /// [`SliceMath::atanh_in_place`](crate::SliceMath::atanh_in_place) on several threads.
@@ -235,6 +240,7 @@ macro_rules! impl_par_slice_math {
                     par_softplus par_softplus_in_place SoftplusOp,
                     par_sinh par_sinh_in_place SinhOp,
                     par_cosh par_cosh_in_place CoshOp,
+                    par_tanh par_tanh_in_place TanhOp,
                     par_atanh par_atanh_in_place AtanhOp,
                     par_asinh par_asinh_in_place AsinhOp,
                     par_acosh par_acosh_in_place AcoshOp,
@@ -409,7 +415,7 @@ mod tests {
             fn(&mut [T]),
             fn(&mut [T]),
         );
-        let unary: [(&str, Pair<T>); 22] = [
+        let unary: [(&str, Pair<T>); 23] = [
             (
                 "abs",
                 (
@@ -552,6 +558,15 @@ mod tests {
                     |x| x.par_cosh(),
                     |x| x.cosh_in_place(),
                     |x| x.par_cosh_in_place(),
+                ),
+            ),
+            (
+                "tanh",
+                (
+                    |x| x.tanh(),
+                    |x| x.par_tanh(),
+                    |x| x.tanh_in_place(),
+                    |x| x.par_tanh_in_place(),
                 ),
             ),
             (

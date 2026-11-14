@@ -24,6 +24,7 @@ fn main() {
     println!("ln(1+eˣ) = {:?}", x.softplus());
     println!("sinh x = {:?}", x.sinh());
     println!("cosh x = {:?}", x.cosh());
+    println!("tanh x = {:?}", x.tanh());
     println!("atanh x = {:?}", x.atanh());
     println!("asinh x = {:?}", x.asinh());
     println!("acosh x = {:?}", x.acosh());

@@ -98,6 +98,14 @@ fn moderate<T: Float>(len: usize) -> Vec<T> {
         .collect()
 }
 
+/// `[−5, 5]`: where `tanh` has not yet rounded to `±1`, as activations
+/// mostly are.
+fn activation<T: Float>(len: usize) -> Vec<T> {
+    (0..len)
+        .map(|i| T::from_f64((i as f64 * 0.37).sin() * 5.0))
+        .collect()
+}
+
 /// `[1, 81]`: `acosh`'s domain.
 fn above_one<T: Float>(len: usize) -> Vec<T> {
     (0..len)
@@ -676,6 +684,25 @@ fn acosh(c: &mut Criterion) {
     group.finish();
 }
 
+fn tanh(c: &mut Criterion) {
+    let mut group = c.benchmark_group("tanh");
+    out_of_place::<f32>(
+        &mut group,
+        activation,
+        |x| x.tanh(),
+        par!(|x| x.par_tanh()),
+        f32::tanh,
+    );
+    out_of_place::<f64>(
+        &mut group,
+        activation,
+        |x| x.tanh(),
+        par!(|x| x.par_tanh()),
+        f64::tanh,
+    );
+    group.finish();
+}
+
 fn floor(c: &mut Criterion) {
     let mut group = c.benchmark_group("floor");
     out_of_place::<f32>(
@@ -969,6 +996,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, ceil, cos, cosh, exp, floor, hypot, hypot3, hypot4, ln, log1p, log_sigmoid, sigmoid, sin, sinh, softplus, sqrt, tan
+    targets = abs, acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, ceil, cos, cosh, exp, floor, hypot, hypot3, hypot4, ln, log1p, log_sigmoid, sigmoid, sin, sinh, softplus, sqrt, tan, tanh
 }
 criterion_main!(benches);

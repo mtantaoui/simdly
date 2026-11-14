@@ -298,6 +298,22 @@ pub(crate) mod dd {
         exp_parts_dd(x.abs(), 1.0)
     }
 
+    /// `tanh x` as `hi + lo`, to about 100 bits: [`sinh_dd`] /
+    /// [`cosh_dd`], divided in double-double.
+    pub(crate) fn tanh_dd(x: f64) -> (f64, f64) {
+        if x == 0.0 {
+            return (x, 0.0); // ±0, its sign kept
+        }
+        let (sh, sl, sk) = sinh_dd(x);
+        let (ch, cl, ck) = cosh_dd(x);
+        // (sh + sl) / (ch + cl) = (sh + sl)/ch · (1 − cl/ch), to 2⁻¹⁰⁶;
+        // the scale 2^(sk − ck) is exact on a result in [−1, 1].
+        let q = dd_div((sh, sl), ch);
+        let (qh, ql) = dd_add(q, (-q.0 * (cl / ch), 0.0));
+        let s = 2f64.powi(sk - ck);
+        (qh * s, ql * s)
+    }
+
     /// `(E + sign/E)/2 = (hi + lo)·2^k` for `E = eᵃ`, `a ≥ 0` capped at
     /// 800 (past every `f64`).
     fn exp_parts_dd(a: f64, sign: f64) -> (f64, f64, i32) {

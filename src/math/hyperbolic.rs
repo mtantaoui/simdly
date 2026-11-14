@@ -1,4 +1,4 @@
-//! `sinh x` and `cosh x`, ≤ 1 ULP on every backend, written once over
+//! `sinh x`, `cosh x` and `tanh x`, ≤ 1 ULP on every backend, written once over
 //! [`Float`].
 //!
 //! With `a = |x|` and `E = eᵃ = (yh + yl)·2^k` to a few bits more than the
@@ -16,8 +16,14 @@
 //! `z = x²`, `P` the Taylor series (to `x⁹` for `f32`, `x¹⁵` for `f64`):
 //! `x` exact and the rest below 5% of the result.
 //!
-//! `sinh(±0) = ±0`, `sinh(±∞) = ±∞`, `cosh(±0) = 1`, `cosh(±∞) = +∞`; NaN
-//! propagates.
+//! `tanh = N/D`, both scaled by `2^(1−k)`, which cancels: `D = E + 1/E` as
+//! above, `N = E − 1/E` from 0.5 on and `sinh`'s series below, kept as two
+//! floats `(t, t·z·P(z))`; one division and one correction step with an
+//! exact residual, as in [`sigmoid`](super::sigmoid). Below
+//! [`Kernel::LINEAR`], `tanh x = x`.
+//!
+//! `sinh(±0) = ±0`, `sinh(±∞) = ±∞`, `cosh(±0) = 1`, `cosh(±∞) = +∞`,
+//! `tanh(±0) = ±0`, `tanh(±∞) = ±1`; NaN propagates.
 
 use super::atan::{k, ks};
 use super::exp::{self, exp_parts, scale};
@@ -31,6 +37,11 @@ pub(crate) trait Sinh {
 /// A lane type with the hyperbolic cosine.
 pub(crate) trait Cosh {
     fn cosh(self) -> Self;
+}
+
+/// A lane type with the hyperbolic tangent.
+pub(crate) trait Tanh {
+    fn tanh(self) -> Self;
 }
 
 /// `e^a = (yh + yl)·2^k` and `e^−a·2^k = (th + tl)`, for `a = |x|` capped
@@ -96,7 +107,49 @@ where
     }
 }
 
-/// `sinh`'s and `cosh`'s constants and series, per element type.
+/// No closures or `impl Fn`: see [`acos`](super::acos).
+impl<V: Float> Tanh for V
+where
+    V::Elem: Kernel,
+{
+    #[inline(always)]
+    fn tanh(self) -> Self {
+        let x = self;
+        let [zero, half, one] = [k(x, 0.0), k(x, 0.5), k(x, 1.0)];
+        let linear = x.constant(V::Elem::LINEAR);
+        let a = x.abs();
+        let t = V::select(a.lt(linear), linear, a);
+
+        // tanh t = N/D, both scaled by 2^(1−k): D = (E + 1/E) = dh + dl.
+        let (yh, yl, th, tl, kk) = parts(t);
+        let (dh, e) = two_sum(yh, th);
+        let dl = e + (yl + tl);
+
+        // N = E − 1/E above 0.5; below, where that cancels, sinh's series
+        // as `t + t·z·P(z)`, kept as two floats, times 2^(1−k), k ∈ {0, 1}.
+        let small = t.lt(half);
+        let (bh, be) = two_sum(yh, -th);
+        let z = t * t;
+        let s = V::select(small, one - kk, zero);
+        let nh = V::select(small, t.ldexp(s), bh);
+        let nl = V::select(
+            small,
+            ((t * z) * V::Elem::series(z)).ldexp(s),
+            be + (yl - tl),
+        );
+
+        // q + (n − q·d)/d, with `nh − q·dh` exact, as in `sigmoid`.
+        let inv = one / dh;
+        let q = nh * inv;
+        let r = q.residual(dh, nh) + (-q).mul_add(dl, nl);
+        let y = r.mul_add(inv, q);
+
+        // tanh is odd; tiny x, ±0 included, is its own result.
+        V::select(a.lt(linear), x, V::select(x.lt(zero), -y, y))
+    }
+}
+
+/// `sinh`'s, `cosh`'s and `tanh`'s constants and series, per element type.
 pub(crate) trait Kernel: exp::Kernel {
     /// Above `ln(2·MAX)`: `|x|` is capped there, and the result overflows
     /// to `∞` by itself. Its `k` still splits into two normal powers of 2.
@@ -104,6 +157,9 @@ pub(crate) trait Kernel: exp::Kernel {
     /// Where `2^−2k` is capped: `e^−a` is then about 2⁻⁶⁰ (`f32`) and
     /// 2⁻¹²⁰ (`f64`) of `eᵃ`, far below an ULP, and `ql·2^j` stays normal.
     const J_MIN: Self;
+    /// Below `LINEAR`, `tanh x = x·(1 − x²/3 + …)` rounds to `x`; `tanh`'s
+    /// input is capped there, so `x·z` stays normal.
+    const LINEAR: Self;
 
     /// `P(z) = (sinh x − x)/x³`, `z = x²`, `|x| < 0.5`: the Taylor series
     /// `1/3! + z/5! + …`, truncated below 2⁻³⁵ (`f32`) and 2⁻⁶⁴ (`f64`)
@@ -114,6 +170,7 @@ pub(crate) trait Kernel: exp::Kernel {
 impl Kernel for f32 {
     const CAP: f32 = 90.0;
     const J_MIN: f32 = -60.0;
+    const LINEAR: f32 = 1.0 / 4096.0; // 2^−12
 
     #[inline(always)]
     fn series<V: Float<Elem = f32>>(z: V) -> V {
@@ -125,6 +182,7 @@ impl Kernel for f32 {
 impl Kernel for f64 {
     const CAP: f64 = 711.0;
     const J_MIN: f64 = -120.0;
+    const LINEAR: f64 = 1.0 / 268_435_456.0; // 2^−28
 
     #[inline(always)]
     fn series<V: Float<Elem = f64>>(z: V) -> V {
@@ -147,10 +205,10 @@ impl Kernel for f64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::math::{CoshOp, MathElement, SinhOp, UnaryOp};
-    use crate::testing::dd::{cosh_dd, sinh_dd};
+    use crate::math::{CoshOp, MathElement, SinhOp, TanhOp, UnaryOp};
+    use crate::testing::dd::{cosh_dd, sinh_dd, tanh_dd};
     use crate::testing::{
-        TestFloat, assert_exact, assert_ulps_every_f32, samples, ulp_error_scaled,
+        TestFloat, assert_exact, assert_ulps_dd, assert_ulps_every_f32, samples, ulp_error_scaled,
     };
     use std::vec::Vec;
 
@@ -244,6 +302,62 @@ mod tests {
         ];
         assert_exact::<f64, CoshOp>("cosh", &cosh);
         assert_exact::<f32, CoshOp>("cosh", &cosh.map(|(x, y)| (x as f32, y as f32)));
+    }
+
+    /// Around 0.5 (the series' end), ln 2 / 2 (`k`'s first step), the
+    /// `LINEAR` cut-offs, and where `tanh` rounds to 1 (9.01, 19.06).
+    #[test]
+    fn tanh_within_1_ulp() {
+        let around = [1.0, 0.5, 0.3466, 1.0 / 4096.0, 3.725e-9, 9.01, 19.06];
+        let x32: Vec<f32> = samples::<f32>(150_000, 200.0, &around)
+            .into_iter()
+            .filter(|v| v.is_finite())
+            .collect();
+        let x64: Vec<f64> = samples::<f64>(150_000, 1000.0, &around)
+            .into_iter()
+            .filter(|v| v.is_finite())
+            .collect();
+        assert_ulps_dd::<f32, TanhOp>("tanh", &x32, tanh_dd, 1.0);
+        assert_ulps_dd::<f64, TanhOp>("tanh", &x64, tanh_dd, 1.0);
+    }
+
+    /// The reference itself, against values computed at 300 bits.
+    #[test]
+    fn tanh_reference_is_precise() {
+        for (x, want) in [
+            (1e-10, 1e-10),
+            (0.25, 0.244_918_662_403_709_13),
+            (-0.5, -0.462_117_157_260_009_74),
+            (3.0, 0.995_054_753_686_730_5),
+            (20.0, 1.0),
+        ] {
+            let (hi, lo) = tanh_dd(x);
+            assert_eq!(hi + lo, want, "tanh_dd({x:e})");
+        }
+    }
+
+    #[test]
+    fn tanh_special_values() {
+        let (inf, nan) = (f64::INFINITY, f64::NAN);
+        let cases = [
+            (0.0, 0.0),
+            (-0.0, -0.0),
+            (inf, 1.0),
+            (-inf, -1.0),
+            (nan, nan),
+            (1e-30, 1e-30),
+            (-1e-310, -1e-310),
+            (1000.0, 1.0),
+            (-1000.0, -1.0),
+        ];
+        assert_exact::<f64, TanhOp>("tanh", &cases);
+        assert_exact::<f32, TanhOp>("tanh", &cases.map(|(x, y)| (x as f32, y as f32)));
+    }
+
+    #[test]
+    #[ignore = "slow: 2^32 inputs per backend"]
+    fn tanh_f32_exhaustive() {
+        assert_ulps_every_f32::<TanhOp>("tanh", f64::tanh, 1.0);
     }
 
     /// Every `f32`, on every backend:

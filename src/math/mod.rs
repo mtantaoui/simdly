@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`ceil`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`hyperbolic`] (`sinh`, `cosh`), [`inverse_hyperbolic`] (`atanh`, `asinh`, `acosh`), [`ln`], [`log1p`], [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`hyperbolic`] (`sinh`, `cosh`, `tanh`), [`inverse_hyperbolic`] (`atanh`, `asinh`, `acosh`), [`ln`], [`log1p`], [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -50,7 +50,7 @@ use ceil::Ceil;
 use exp::Exp;
 use float::Float;
 use floor::Floor;
-use hyperbolic::{Cosh, Sinh};
+use hyperbolic::{Cosh, Sinh, Tanh};
 use hypot::{Hypot, Norm};
 use inverse_hyperbolic::{Acosh, Asinh, Atanh};
 use ln::Ln;
@@ -80,6 +80,7 @@ pub(crate) trait Math:
     + Softplus
     + Sinh
     + Cosh
+    + Tanh
     + Atanh
     + Asinh
     + Acosh
@@ -105,6 +106,7 @@ impl<
         + Softplus
         + Sinh
         + Cosh
+        + Tanh
         + Atanh
         + Asinh
         + Acosh
@@ -345,6 +347,16 @@ impl UnaryOp for CoshOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.cosh()
+    }
+}
+
+/// `tanh x`.
+pub(crate) struct TanhOp;
+
+impl UnaryOp for TanhOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.tanh()
     }
 }
 
@@ -1324,6 +1336,23 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = cosh self[i]`.
     fn cosh_in_place(&mut self);
 
+    /// `tanh self[i] = sinh x / cosh x`, the hyperbolic tangent, in
+    /// `[−1, 1]`. Error ≤ 1 ULP, without cancellation near 0 or overflow
+    /// far from it; `tanh(±0) = ±0`, `tanh(±∞) = ±1`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![0.0_f32, -0.0, 1e-20, 100.0, f32::NEG_INFINITY];
+    /// // `(e^100 − e^−100)/(e^100 + e^−100)` would be ∞/∞ = NaN.
+    /// assert_eq!(a.tanh(), [0.0, -0.0, 1e-20, 1.0, -1.0]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn tanh(&self) -> Vec<T>;
+
+    /// `self[i] = tanh self[i]`.
+    fn tanh_in_place(&mut self);
+
     /// `atanh self[i] = ½·ln((1 + x)/(1 − x))`, the inverse hyperbolic
     /// tangent. Error ≤ 1 ULP; `atanh(±0) = ±0`, `atanh(±1) = ±∞`, NaN
     /// beyond `±1`.
@@ -1652,6 +1681,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn cosh_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<CoshOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn tanh(&self) -> Vec<$T> {
+                    unary_to_vec::<TanhOp, _>(self)
+                }
+
+                #[inline]
+                fn tanh_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<TanhOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]
