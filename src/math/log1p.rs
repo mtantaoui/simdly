@@ -9,6 +9,10 @@
 //! c/u`: `c/u` joins `n·ln2_lo` among the small terms.
 //!
 //! `log1p(±0) = ±0`, `log1p(−1) = −∞`, NaN below `−1`, `log1p(+∞) = +∞`.
+//!
+//! The reduction and the series are [`reduce`] and [`ln_sum`], shared with
+//! the kernels that take the logarithm of a sum formed exactly
+//! ([`softplus`](super::softplus)): each picks its own `f` and correction.
 
 use super::atan::{k, ks};
 use super::float::{Element, Float, two_sum};
@@ -27,29 +31,16 @@ where
     #[inline(always)]
     fn log1p(self) -> Self {
         let x = self;
-        let [zero, half, one, two] = ks(x, [0.0, 0.5, 1.0, 2.0].map(V::Elem::from_f32));
-        let [ln2_hi, ln2_lo, sqrt2] = ks(x, [V::Elem::LN2[0], V::Elem::LN2[1], V::Elem::SQRT2]);
+        let [zero, one] = ks(x, [0.0, 1.0].map(V::Elem::from_f32));
 
         // 1 + x = u + c, exactly; `u` is positive and normal for x > −1.
         let (u, c) = two_sum(one, x);
-
-        // u = m · 2^n, m ∈ [√2/2, √2).
-        let (m, e) = u.frexp();
-        let big = m.ge(sqrt2);
-        let m = V::select(big, m * half, m);
-        let n = e + V::select(big, one, zero);
+        let (m, n) = reduce(u);
 
         // ln(1 + f) + c/u, with `f = x` and no correction for n = 0.
         let near = n.eq(zero);
         let f = V::select(near, x, m - one);
-        let cu = V::select(near, zero, c / u);
-
-        // ln(1 + f) = f − hfsq + s·(hfsq + R), as in `ln`.
-        let s = f / (two + f);
-        let z = s * s;
-        let r = V::Elem::r(z, z * z);
-        let hfsq = half * f * f;
-        let y = ((s.mul_add(hfsq + r, n.mul_add(ln2_lo, cu)) - hfsq) + f) + n * ln2_hi;
+        let y = ln_sum(f, V::select(near, zero, c), u, n);
 
         let [neg_one, inf] = [k(x, -1.0), k(x, f32::INFINITY)];
         V::select(
@@ -59,6 +50,40 @@ where
             V::select(x.eq(neg_one), -inf, k(x, f32::NAN)),
         )
     }
+}
+
+/// `w = m·2^n`, `m ∈ [√2/2, √2)`, for a positive normal `w`: `ln`'s
+/// reduction, with musl's `√2` threshold.
+#[inline(always)]
+pub(crate) fn reduce<V: Float>(w: V) -> (V, V)
+where
+    V::Elem: Kernel,
+{
+    let [zero, half, one] = [k(w, 0.0), k(w, 0.5), k(w, 1.0)];
+    let sqrt2 = w.constant(V::Elem::SQRT2);
+    let (m, e) = w.frexp();
+    let big = m.ge(sqrt2);
+    (V::select(big, m * half, m), e + V::select(big, one, zero))
+}
+
+/// `n·ln 2 + ln(1 + f) + lo/w`, for `|f| < √2 − 1` and a small correction
+/// `lo`: `ln`'s series and reconstruction, small terms first, with `lo/w`
+/// next to `n·ln2_lo`. `f` must be exact: for `w = m·2^n` from [`reduce`],
+/// `f = m − 1` is.
+#[inline(always)]
+pub(crate) fn ln_sum<V: Float>(f: V, lo: V, w: V, n: V) -> V
+where
+    V::Elem: Kernel,
+{
+    let [half, two] = [k(f, 0.5), k(f, 2.0)];
+    let [ln2_hi, ln2_lo] = ks(f, V::Elem::LN2);
+
+    // ln(1 + f) = f − hfsq + s·(hfsq + R), as in `ln`.
+    let s = f / (two + f);
+    let z = s * s;
+    let r = V::Elem::r(z, z * z);
+    let hfsq = half * f * f;
+    ((s.mul_add(hfsq + r, n.mul_add(ln2_lo, lo / w)) - hfsq) + f) + n * ln2_hi
 }
 
 #[cfg(test)]

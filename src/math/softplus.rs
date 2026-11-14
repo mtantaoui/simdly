@@ -25,6 +25,7 @@ use super::atan::ks;
 use super::exp::{self, exp_parts, scale};
 use super::float::{Element, Float, two_sum};
 use super::ln;
+use super::log1p::{ln_sum, reduce};
 
 /// A lane type with `ln(1 + eˣ)`.
 pub(crate) trait Softplus {
@@ -54,13 +55,11 @@ where
     #[inline(always)]
     fn softplus(self) -> Self {
         let x = self;
-        let [zero, half, one, two] = ks(x, [0.0, 0.5, 1.0, 2.0].map(V::Elem::from_f32));
+        let [zero, half, one] = ks(x, [0.0, 0.5, 1.0].map(V::Elem::from_f32));
         let [round, cap, big, k_min] = ks(
             x,
             [V::Elem::ROUND, V::Elem::CAP, V::Elem::BIG, V::Elem::K_MIN],
         );
-        let ln2 = <V::Elem as ln::Kernel>::LN2;
-        let [ln2_hi, ln2_lo, sqrt2] = ks(x, [ln2[0], ln2[1], <V::Elem as ln::Kernel>::SQRT2]);
 
         // eˣ = (yh + yl)·2^k, `x` clamped to [CAP, BIG]: outside, the result
         // is selected below.
@@ -75,11 +74,7 @@ where
         let (p, l) = (yh.ldexp(s), yl.ldexp(s));
         let (wh, c) = two_sum(p, one.ldexp(-kk));
 
-        // wh = m·2^n, m ∈ [√2/2, √2).
-        let (m, e) = wh.frexp();
-        let big_m = m.ge(sqrt2);
-        let m = V::select(big_m, m * half, m);
-        let n = e + V::select(big_m, one, zero);
+        let (m, n) = reduce(wh);
 
         // ln(1 + f) + lo/wh. For x < 0 and n = 0, `1 + f = 1 + p` exactly
         // with `f = p`, so `lo = l` alone: `f = wh − 1` and `(c + l)/wh`
@@ -88,14 +83,7 @@ where
         let near = V::select(neg, n, one).eq(zero);
         let f = V::select(near, p, m - one);
         let lo = V::select(near, l, c + l);
-        let n = n + kk;
-
-        // ln(1 + f) = f − hfsq + s·(hfsq + R), as in `ln`.
-        let sf = f / (two + f);
-        let z = sf * sf;
-        let r = <V::Elem as ln::Kernel>::r(z, z * z);
-        let hfsq = half * f * f;
-        let y = ((sf.mul_add(hfsq + r, n.mul_add(ln2_lo, lo / wh)) - hfsq) + f) + n * ln2_hi;
+        let y = ln_sum(f, lo, wh, n + kk);
 
         // ln(1 + e) = e for tiny e.
         let tiny = scale(yh + yl, k, half, round);
