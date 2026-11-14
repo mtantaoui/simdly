@@ -13,8 +13,8 @@ use rayon::prelude::*;
 use super::{
     AbsOp, AcosOp, AcoshOp, AsinOp, AsinhOp, Atan2Op, AtanOp, AtanhOp, BinaryOp, CbrtOp, CeilOp,
     CosOp, CoshOp, ErfOp, ExpOp, FloorOp, Hypot3Op, Hypot4Op, HypotOp, LnOp, Log1pOp, LogSigmoidOp,
-    MathElement, NaryOp, SigmoidOp, SinOp, SinhOp, SoftplusOp, SqrtOp, TanOp, TanhOp, UnaryOp,
-    binary_to_vec, nary_to_vec, unary_to_vec,
+    MathElement, NaryOp, PowOp, PowScalarOp, SigmoidOp, SinOp, SinhOp, SoftplusOp, SqrtOp, TanOp,
+    TanhOp, UnaryOp, binary_to_vec, nary_to_vec, scalars_to_vec, unary_to_vec,
 };
 use crate::{PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD};
 
@@ -66,6 +66,21 @@ pub trait ParSliceMath<T>: crate::ops::sealed::Sealed {
     ///
     /// If `self` and `x` have different lengths.
     fn par_atan2_in_place(&mut self, x: &[T]);
+
+    /// [`SliceMath::powf`](crate::SliceMath::powf) on several threads.
+    fn par_powf(&self, y: &[T]) -> Vec<T>;
+    /// [`SliceMath::powf_in_place`](crate::SliceMath::powf_in_place) on several threads.
+    fn par_powf_in_place(&mut self, y: &[T]);
+
+    /// [`SliceMath::powf_scalar`](crate::SliceMath::powf_scalar) on several threads.
+    fn par_powf_scalar(&self, y: T) -> Vec<T>;
+    /// [`SliceMath::powf_scalar_in_place`](crate::SliceMath::powf_scalar_in_place) on several threads.
+    fn par_powf_scalar_in_place(&mut self, y: T);
+
+    /// [`SliceMath::powi`](crate::SliceMath::powi) on several threads.
+    fn par_powi(&self, n: i32) -> Vec<T>;
+    /// [`SliceMath::powi_in_place`](crate::SliceMath::powi_in_place) on several threads.
+    fn par_powi_in_place(&mut self, n: i32);
 
     /// [`SliceMath::cbrt`](crate::SliceMath::cbrt) on several threads.
     fn par_cbrt(&self) -> Vec<T>;
@@ -261,6 +276,45 @@ macro_rules! impl_par_slice_math {
                 }
 
                 #[inline]
+                fn par_powf(&self, y: &[$T]) -> Vec<$T> {
+                    par_binary_to_vec::<PowOp, _>(self, y)
+                }
+
+                #[inline]
+                fn par_powf_in_place(&mut self, y: &[$T]) {
+                    par_binary_in_place::<PowOp, _>(self, y);
+                }
+
+                #[inline]
+                fn par_powf_scalar(&self, y: $T) -> Vec<$T> {
+                    par_scalars_to_vec::<PowScalarOp, _>(self, [y, 0.0])
+                }
+
+                #[inline]
+                fn par_powf_scalar_in_place(&mut self, y: $T) {
+                    par_scalars_in_place::<PowScalarOp, _>(self, [y, 0.0]);
+                }
+
+                #[inline]
+                fn par_powi(&self, n: i32) -> Vec<$T> {
+                    if self.len() <= PARALLEL_SIMD_THRESHOLD {
+                        return crate::SliceMath::powi(self, n);
+                    }
+                    let mut out = self.to_vec();
+                    out.par_powi_in_place(n);
+                    out
+                }
+
+                #[inline]
+                fn par_powi_in_place(&mut self, n: i32) {
+                    if self.len() <= PARALLEL_SIMD_THRESHOLD {
+                        return crate::SliceMath::powi_in_place(self, n);
+                    }
+                    self.par_chunks_mut(PARALLEL_CHUNK_SIZE)
+                        .for_each(|c| crate::SliceMath::powi_in_place(c, n));
+                }
+
+                #[inline]
                 fn par_atan2_in_place(&mut self, x: &[$T]) {
                     par_binary_in_place::<Atan2Op, _>(self, x);
                 }
@@ -350,6 +404,29 @@ fn par_binary_in_place<F: BinaryOp, T: MathElement + Send + Sync>(y: &mut [T], x
     y.par_chunks_mut(PARALLEL_CHUNK_SIZE)
         .zip(x.par_chunks(PARALLEL_CHUNK_SIZE))
         .for_each(|(y, x)| T::binary_in_place::<F>(y, x));
+}
+
+fn par_scalars_to_vec<F: NaryOp<3>, T: MathElement + Send + Sync>(x: &[T], b: [T; 2]) -> Vec<T> {
+    if x.len() <= PARALLEL_SIMD_THRESHOLD {
+        return scalars_to_vec::<F, T>(x, b);
+    }
+    let mut out = Vec::with_capacity(x.len());
+    out.spare_capacity_mut()[..x.len()]
+        .par_chunks_mut(PARALLEL_CHUNK_SIZE)
+        .zip(x.par_chunks(PARALLEL_CHUNK_SIZE))
+        .for_each(|(out, x)| T::scalars_uninit::<F>(x, b, out));
+    // SAFETY: the chunks cover the first `x.len()` elements, and
+    // `scalars_uninit` initialised each of them.
+    unsafe { out.set_len(x.len()) };
+    out
+}
+
+fn par_scalars_in_place<F: NaryOp<3>, T: MathElement + Send + Sync>(x: &mut [T], b: [T; 2]) {
+    if x.len() <= PARALLEL_SIMD_THRESHOLD {
+        return T::scalars_in_place::<F>(x, b);
+    }
+    x.par_chunks_mut(PARALLEL_CHUNK_SIZE)
+        .for_each(|x| T::scalars_in_place::<F>(x, b));
 }
 
 fn par_nary_to_vec<F: NaryOp<N>, T: MathElement + Send + Sync, const N: usize>(
@@ -650,6 +727,16 @@ mod tests {
 
         let what = |f: &str| std::format!("par_{f} {} len {len}", T::NAME);
         assert_same(&y.par_atan2(&x), &y.atan2(&x), &what("atan2"));
+        assert_same(&x.par_powf(&y), &x.powf(&y), &what("powf"));
+        let p = T::from_f64(1.7);
+        assert_same(
+            &x.par_powf_scalar(p),
+            &x.powf_scalar(p),
+            &what("powf_scalar"),
+        );
+        for n in [-3, 7, 19] {
+            assert_same(&x.par_powi(n), &x.powi(n), &what("powi"));
+        }
         assert_same(&x.par_hypot(&y), &x.hypot(&y), &what("hypot"));
         assert_same(&x.par_hypot3(&y, &z), &x.hypot3(&y, &z), &what("hypot3"));
         assert_same(
@@ -670,6 +757,18 @@ mod tests {
             |x| x.par_atan2_in_place(&input(x.len(), 1.0)),
             "atan2",
         );
+        in_place(
+            |x| x.powf_in_place(&input(x.len(), 1.0)),
+            |x| x.par_powf_in_place(&input(x.len(), 1.0)),
+            "powf",
+        );
+        in_place(
+            |x| x.powf_scalar_in_place(T::from_f64(1.7)),
+            |x| x.par_powf_scalar_in_place(T::from_f64(1.7)),
+            "powf_scalar",
+        );
+        in_place(|x| x.powi_in_place(-3), |x| x.par_powi_in_place(-3), "powi");
+        in_place(|x| x.powi_in_place(19), |x| x.par_powi_in_place(19), "powi");
         in_place(
             |x| x.hypot_in_place(&input(x.len(), 1.0)),
             |x| x.par_hypot_in_place(&input(x.len(), 1.0)),

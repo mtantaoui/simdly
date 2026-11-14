@@ -439,6 +439,18 @@ pub(crate) mod dd {
         if x < 0.0 { (-hi, -lo, 0) } else { (hi, lo, 0) }
     }
 
+    /// `xʸ = (hi + lo)·2^k` for positive finite `x` and finite `y`, to
+    /// about 100 bits: `y·ln x` in double-double ([`ln_dd`]), then
+    /// [`exp_dd`] of its high part times `e^lo = 1 + lo + lo²/2`. `y·ln x`
+    /// is capped to `[−1200, 1200]`, past every `f64`.
+    pub(crate) fn pow_dd(x: f64, y: f64) -> (f64, f64, i32) {
+        let (ph, pl) = dd_mul((y, 0.0), ln_dd(x));
+        let ph = ph.clamp(-1200.0, 1200.0);
+        let (eh, el, k) = exp_dd(ph);
+        let (hi, lo) = dd_mul((eh, el), two_sum(1.0, pl + 0.5 * pl * pl));
+        (hi, lo, k)
+    }
+
     /// `√(x² + y²) = (hi + lo) · 2^k`: both scaled by a power of 2 near the
     /// larger one, the squares summed exactly in double-double, then one
     /// Newton step of the square root.

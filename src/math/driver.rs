@@ -205,6 +205,50 @@ pub(crate) unsafe fn binary_scalar_in_place<S: SimdVector, F: BinaryFn<S>>(
     }
 }
 
+/// `out[i] = F([a[i], b[0], b[1]])`, the same `b` for every element: on
+/// return all of `out` is initialised.
+///
+/// # Safety
+///
+/// The CPU must support `S`'s ISA.
+///
+/// # Panics
+///
+/// If `a` and `out` have different lengths.
+#[inline(always)]
+pub(crate) unsafe fn scalars_uninit<S: SimdVector, F: NaryFn<S, 3>>(
+    a: &[S::Scalar],
+    [b0, b1]: [S::Scalar; 2],
+    out: &mut [MaybeUninit<S::Scalar>],
+) {
+    assert_eq!(a.len(), out.len(), "length mismatch");
+    // SAFETY: the caller guarantees the ISA, for `splat` too; both slices
+    // hold `a.len()` elements, and `MaybeUninit<T>` has the layout of `T`.
+    unsafe {
+        let op = Scalars::<F, S>([S::splat(b0), S::splat(b1)], PhantomData);
+        drive(a.len(), [a.as_ptr()], out.as_mut_ptr().cast(), op)
+    }
+}
+
+/// `a[i] = F([a[i], b[0], b[1]])`.
+///
+/// # Safety
+///
+/// The CPU must support `S`'s ISA.
+#[inline(always)]
+pub(crate) unsafe fn scalars_in_place<S: SimdVector, F: NaryFn<S, 3>>(
+    a: &mut [S::Scalar],
+    [b0, b1]: [S::Scalar; 2],
+) {
+    let ptr = a.as_mut_ptr();
+    // SAFETY: the caller guarantees the ISA, for `splat` too; `ptr` is valid
+    // for `a.len()` elements, and each chunk is read before it is overwritten.
+    unsafe {
+        let op = Scalars::<F, S>([S::splat(b0), S::splat(b1)], PhantomData);
+        drive(a.len(), [ptr.cast_const()], ptr, op)
+    }
+}
+
 /// `out[i] = F([src[0][i], .., src[N-1][i]])`: on return all of `out` is
 /// initialised.
 ///
@@ -315,6 +359,24 @@ impl<S: SimdVector, F: BinaryFn<S>> Op<S, 2> for Binary<F> {
 /// A [`BinaryFn`] whose right operand is one register for every chunk, as an
 /// [`Op`].
 struct BinaryScalar<F, S>(S, PhantomData<F>);
+
+/// A ternary operation whose last two operands are the same registers for
+/// every chunk.
+struct Scalars<F, S>([S; 2], PhantomData<F>);
+
+impl<S: SimdVector, F: NaryFn<S, 3>> Op<S, 1> for Scalars<F, S> {
+    #[inline(always)]
+    unsafe fn full(&self, [a]: [*const S::Scalar; 1], i: usize) -> S {
+        // SAFETY: guaranteed by the caller.
+        F::call([unsafe { S::load(a.add(i)) }, self.0[0], self.0[1]])
+    }
+
+    #[inline(always)]
+    unsafe fn partial(&self, [a]: [*const S::Scalar; 1], i: usize, n: usize) -> S {
+        // SAFETY: guaranteed by the caller. Lanes past `n` are never stored.
+        F::call([unsafe { S::load_partial(a.add(i), n) }, self.0[0], self.0[1]])
+    }
+}
 
 impl<S: SimdVector, F: BinaryFn<S>> Op<S, 1> for BinaryScalar<F, S> {
     #[inline(always)]

@@ -322,13 +322,34 @@ fn binary_vs_scalar<T: Float>(
     par: Option<Binary<T>>,
     f: impl Fn(T, T) -> T + Sync,
 ) {
+    binary_inputs_vs_scalar(group, signed, wave, simdly, par, f);
+}
+
+/// `cos(0.73·i)·30`: the second operand of the binary benchmarks.
+fn wave<T: Float>(len: usize) -> Vec<T> {
+    (0..len)
+        .map(|i| T::from_f64((i as f64 * 0.73).cos() * 30.0))
+        .collect()
+}
+
+/// `cos(0.73·i)·6`: exponents for `powf`.
+fn exponents<T: Float>(len: usize) -> Vec<T> {
+    (0..len)
+        .map(|i| T::from_f64((i as f64 * 0.73).cos() * 6.0))
+        .collect()
+}
+
+/// [`binary_vs_scalar`] on inputs from `first` and `second`.
+fn binary_inputs_vs_scalar<T: Float>(
+    group: &mut Group,
+    first: Input<T>,
+    second: Input<T>,
+    simdly: impl Fn(&[T], &[T]) -> Vec<T>,
+    par: Option<Binary<T>>,
+    f: impl Fn(T, T) -> T + Sync,
+) {
     for &len in LENS {
-        let (y, x) = (
-            signed::<T>(len),
-            (0..len)
-                .map(|i| T::from_f64((i as f64 * 0.73).cos() * 30.0))
-                .collect::<Vec<T>>(),
-        );
+        let (y, x) = (first(len), second(len));
         group.throughput(Throughput::Elements(len as u64));
         group.bench_function(id::<T>("simdly", len), |bench| {
             bench.iter(|| simdly(black_box(&y), black_box(&x)))
@@ -722,6 +743,65 @@ fn erf(c: &mut Criterion) {
     group.finish();
 }
 
+fn powf(c: &mut Criterion) {
+    let mut group = c.benchmark_group("powf");
+    binary_inputs_vs_scalar::<f32>(
+        &mut group,
+        above_one,
+        exponents,
+        |x, y| x.powf(y),
+        par!(|x, y| x.par_powf(y)),
+        f32::powf,
+    );
+    binary_inputs_vs_scalar::<f64>(
+        &mut group,
+        above_one,
+        exponents,
+        |x, y| x.powf(y),
+        par!(|x, y| x.par_powf(y)),
+        f64::powf,
+    );
+    group.finish();
+}
+
+fn powf_scalar(c: &mut Criterion) {
+    let mut group = c.benchmark_group("powf_scalar");
+    out_of_place::<f32>(
+        &mut group,
+        above_one,
+        |x| x.powf_scalar(2.5),
+        par!(|x| x.par_powf_scalar(2.5)),
+        |v| v.powf(2.5),
+    );
+    out_of_place::<f64>(
+        &mut group,
+        above_one,
+        |x| x.powf_scalar(2.5),
+        par!(|x| x.par_powf_scalar(2.5)),
+        |v| v.powf(2.5),
+    );
+    group.finish();
+}
+
+fn powi(c: &mut Criterion) {
+    let mut group = c.benchmark_group("powi");
+    out_of_place::<f32>(
+        &mut group,
+        activation,
+        |x| x.powi(3),
+        par!(|x| x.par_powi(3)),
+        |v| v.powi(3),
+    );
+    out_of_place::<f64>(
+        &mut group,
+        activation,
+        |x| x.powi(3),
+        par!(|x| x.par_powi(3)),
+        |v| v.powi(3),
+    );
+    group.finish();
+}
+
 fn floor(c: &mut Criterion) {
     let mut group = c.benchmark_group("floor");
     out_of_place::<f32>(
@@ -1015,6 +1095,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, ceil, cos, cosh, erf, exp, floor, hypot, hypot3, hypot4, ln, log1p, log_sigmoid, sigmoid, sin, sinh, softplus, sqrt, tan, tanh
+    targets = abs, acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, ceil, cos, cosh, erf, exp, floor, hypot, hypot3, hypot4, ln, log1p, log_sigmoid, powf, powf_scalar, powi, sigmoid, sin, sinh, softplus, sqrt, tan, tanh
 }
 criterion_main!(benches);

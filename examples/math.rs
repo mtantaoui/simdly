@@ -18,6 +18,8 @@ fn main() {
     println!("⌊x⌋    = {:?}", x.floor());
     println!("eˣ     = {:?}", x.exp());
     println!("erf x  = {:?}", x.erf());
+    println!("x^2.5  = {:?}", x.powf_scalar(2.5));
+    println!("x^3    = {:?}", x.powi(3));
     println!("ln x   = {:?}", x.ln());
     println!("ln(1+x) = {:?}", x.log1p());
     println!("σ(x)   = {:?}", x.sigmoid());

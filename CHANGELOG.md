@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   input, and 0.844 for `f64`): fdlibm's approach on `ln`'s reduction and
   series, `1 + x` formed exactly. `ParSliceMath::par_log1p` and
   `par_log1p_in_place`.
+- `SliceMath::powf` (element-wise exponents), `powf_scalar` (one exponent)
+  and `powi` (an `i32` exponent), with `_in_place` variants, ≤ 1 ULP on
+  every backend, overflow and subnormal results included (measured 0.804
+  for `f32` and 0.797 for `f64`, 30 million pairs each): `e^(y·ln x)` with
+  `ln x` in two parts to about twice the precision, no tables; C99's
+  special cases, as `f64::powf`. `powi` takes binary powering in two-part
+  arithmetic for `|n| ≤ 8` and `n` exact past 2²⁴ otherwise, where
+  `f32::powi` loses about `log₂|n|` ULPs. `ParSliceMath::par_powf`,
+  `par_powf_scalar`, `par_powi` and their `_in_place` variants.
 - `SliceMath::erf` and `erf_in_place`, the error function, ≤ 1 ULP on
   every backend, subnormal results included (measured 0.896 for `f32`,
   every input, and 0.867 for `f64`): fdlibm's rational approximations,

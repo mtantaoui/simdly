@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`ceil`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`erf`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`hyperbolic`] (`sinh`, `cosh`, `tanh`), [`inverse_hyperbolic`] (`atanh`, `asinh`, `acosh`), [`ln`], [`log1p`], [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`erf`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`hyperbolic`] (`sinh`, `cosh`, `tanh`), [`inverse_hyperbolic`] (`atanh`, `asinh`, `acosh`), [`ln`], [`log1p`], [`pow`] (`powf`, `powi`), [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -32,6 +32,7 @@ mod ln;
 mod log1p;
 #[cfg(feature = "rayon")]
 pub(crate) mod par;
+mod pow;
 mod sigmoid;
 mod softplus;
 mod sqrt;
@@ -57,6 +58,7 @@ use hypot::{Hypot, Norm};
 use inverse_hyperbolic::{Acosh, Asinh, Atanh};
 use ln::Ln;
 use log1p::Log1p;
+use pow::Pow;
 use sigmoid::Sigmoid;
 use softplus::{LogSigmoid, Softplus};
 use sqrt::Sqrt;
@@ -87,6 +89,7 @@ pub(crate) trait Math:
     + Asinh
     + Acosh
     + Erf
+    + Pow
     + Trig
 {
 }
@@ -114,6 +117,7 @@ impl<
         + Asinh
         + Acosh
         + Erf
+        + Pow
         + Trig,
 > Math for T
 {
@@ -212,6 +216,67 @@ impl BinaryOp for Atan2Op {
     fn apply<V: Math>(y: V, x: V) -> V {
         y.atan2(x)
     }
+}
+
+/// `xʸ`, element-wise.
+pub(crate) struct PowOp;
+
+impl BinaryOp for PowOp {
+    #[inline(always)]
+    fn apply<V: Math>(x: V, y: V) -> V {
+        let zero = x.constant(<V::Elem as float::Element>::from_f32(0.0));
+        x.pow(y, zero)
+    }
+}
+
+/// `xʸ` with `y = yh + yl` the same in every lane: `powf_scalar` (`yl = 0`)
+/// and `powi`, whose exponent `f32` may not hold exactly.
+pub(crate) struct PowScalarOp;
+
+impl NaryOp<3> for PowScalarOp {
+    #[inline(always)]
+    fn apply<V: Math>([x, yh, yl]: [V; 3]) -> V {
+        x.pow(yh, yl)
+    }
+}
+
+/// `x^N` for a small integer `N`, by binary powering.
+pub(crate) struct PowiOp<const N: i32>;
+
+impl<const N: i32> UnaryOp for PowiOp<N> {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.powi_small::<N>()
+    }
+}
+
+/// `x[i] = x[i]^n` with [`PowiOp`] for `n` in `3..=8` and `−8..=−2`;
+/// `false`, `x` untouched, otherwise.
+fn powi_small_in_place<T: MathElement>(x: &mut [T], n: i32) -> bool {
+    macro_rules! small {
+        ($($n:literal)*) => {
+            match n {
+                $($n => T::unary_in_place::<PowiOp<$n>>(x),)*
+                _ => return false,
+            }
+        };
+    }
+    small!(3 4 5 6 7 8 -2 -3 -4 -5 -6 -7 -8);
+    true
+}
+
+/// [`powi_small_in_place`] into a new vector.
+#[cfg(feature = "alloc")]
+fn powi_small_to_vec<T: MathElement>(x: &[T], n: i32) -> Option<Vec<T>> {
+    macro_rules! small {
+        ($($n:literal)*) => {
+            match n {
+                $($n => Some(unary_to_vec::<PowiOp<$n>, T>(x)),)*
+                _ => None,
+            }
+        };
+    }
+    small!(3 4 5 6 7 8 -2 -3 -4 -5 -6 -7 -8)
 }
 
 /// `∛x`.
@@ -509,6 +574,25 @@ pub(crate) trait MathElement: Math + Sized {
         x: &[Self],
         rest: [&[Self]; M],
     ) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)>;
+
+    /// `out[i] = F([x[i], b[0], b[1]])`; on return all of `out` is
+    /// initialised.
+    ///
+    /// # Panics
+    ///
+    /// If `x` and `out` have different lengths.
+    #[cfg(feature = "alloc")]
+    fn scalars_uninit<F: NaryOp<3>>(x: &[Self], b: [Self; 2], out: &mut [MaybeUninit<Self>]);
+
+    /// `x[i] = F([x[i], b[0], b[1]])`.
+    fn scalars_in_place<F: NaryOp<3>>(x: &mut [Self], b: [Self; 2]);
+
+    /// [`every_backend`](Self::every_backend) for [`scalars_in_place`](Self::scalars_in_place).
+    #[cfg(test)]
+    fn every_backend_scalars<F: NaryOp<3>>(
+        x: &[Self],
+        b: [Self; 2],
+    ) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)>;
 }
 
 macro_rules! math_element {
@@ -686,6 +770,59 @@ macro_rules! math_element {
                     } else {});
                     results
                 }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn scalars_uninit<F: NaryOp<3>>(x: &[Self], b: [Self; 2], out: &mut [MaybeUninit<Self>]) {
+                    assert_eq!(x.len(), out.len(), "length mismatch");
+                    dispatch! {
+                        avx512 => x86::avx512_scalars_uninit::<x86::$avx512, F>(x, b, out),
+                        avx2 => x86::avx2_scalars_uninit::<x86::$avx2, F>(x, b, out),
+                        neon => neon::scalars_uninit::<neon::$neon, F>(x, b, out),
+                        scalar => scalar_scalars_uninit::<F, Self>(x, b, out),
+                    }
+                }
+
+                #[inline]
+                fn scalars_in_place<F: NaryOp<3>>(x: &mut [Self], b: [Self; 2]) {
+                    dispatch! {
+                        avx512 => x86::avx512_scalars_in_place::<x86::$avx512, F>(x, b),
+                        avx2 => x86::avx2_scalars_in_place::<x86::$avx2, F>(x, b),
+                        neon => neon::scalars_in_place::<neon::$neon, F>(x, b),
+                        scalar => scalar_scalars_in_place::<F, Self>(x, b),
+                    }
+                }
+
+                #[cfg(test)]
+                fn every_backend_scalars<F: NaryOp<3>>(
+                    x: &[Self],
+                    b: [Self; 2],
+                ) -> std::vec::Vec<(&'static str, std::vec::Vec<Self>)> {
+                    let mut r = x.to_vec();
+                    scalar_scalars_in_place::<F, Self>(&mut r, b);
+                    #[allow(unused_mut, reason = "only scalar on some targets")]
+                    let mut results = std::vec![("scalar", r)];
+                    cfg_x86!(if {
+                        if crate::detect::has_avx2_fma() {
+                            let mut r = x.to_vec();
+                            // SAFETY: AVX2 + FMA checked just above.
+                            unsafe { x86::avx2_scalars_in_place::<x86::$avx2, F>(&mut r, b) };
+                            results.push(("avx2", r));
+                        }
+                        if crate::detect::has_avx512f() {
+                            let mut r = x.to_vec();
+                            // SAFETY: AVX-512F checked just above.
+                            unsafe { x86::avx512_scalars_in_place::<x86::$avx512, F>(&mut r, b) };
+                            results.push(("avx512", r));
+                        }
+                    } else {});
+                    cfg_neon!(if {
+                        let mut r = x.to_vec();
+                        neon::scalars_in_place::<neon::$neon, F>(&mut r, b);
+                        results.push(("neon", r));
+                    } else {});
+                    results
+                }
             }
         )*
     };
@@ -729,6 +866,23 @@ fn scalar_nary_uninit<F: NaryOp<N>, T: Math, const N: usize>(
     }
 }
 
+#[cfg(feature = "alloc")]
+fn scalar_scalars_uninit<F: NaryOp<3>, T: Math>(
+    x: &[T],
+    [b0, b1]: [T; 2],
+    out: &mut [MaybeUninit<T>],
+) {
+    for (o, &v) in out.iter_mut().zip(x) {
+        o.write(F::apply([v, b0, b1]));
+    }
+}
+
+fn scalar_scalars_in_place<F: NaryOp<3>, T: Math>(x: &mut [T], [b0, b1]: [T; 2]) {
+    for v in x {
+        *v = F::apply([*v, b0, b1]);
+    }
+}
+
 fn scalar_nary_in_place<F: NaryOp<N>, T: Math, const N: usize, const M: usize>(
     x: &mut [T],
     rest: [&[T]; M],
@@ -748,6 +902,50 @@ cfg_x86! {
         use crate::simd::SimdVector;
         pub(super) use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
         pub(super) use crate::simd::avx512::{f32x16::F32x16, f64x8::F64x8};
+
+        #[cfg(feature = "alloc")]
+        #[target_feature(enable = "avx2,fma")]
+        pub(super) fn avx2_scalars_uninit<V: SimdVector + Math, F: NaryOp<3>>(
+            x: &[V::Scalar],
+            b: [V::Scalar; 2],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
+            // AVX2 register type.
+            unsafe { driver::scalars_uninit::<V, F>(x, b, out) }
+        }
+
+        #[target_feature(enable = "avx2,fma")]
+        pub(super) fn avx2_scalars_in_place<V: SimdVector + Math, F: NaryOp<3>>(
+            x: &mut [V::Scalar],
+            b: [V::Scalar; 2],
+        ) {
+            // SAFETY: AVX2 + FMA are enabled in this function, and `V` is an
+            // AVX2 register type.
+            unsafe { driver::scalars_in_place::<V, F>(x, b) }
+        }
+
+        #[cfg(feature = "alloc")]
+        #[target_feature(enable = "avx512f")]
+        pub(super) fn avx512_scalars_uninit<V: SimdVector + Math, F: NaryOp<3>>(
+            x: &[V::Scalar],
+            b: [V::Scalar; 2],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: AVX-512F is enabled in this function, and `V` is an
+            // AVX-512 register type.
+            unsafe { driver::scalars_uninit::<V, F>(x, b, out) }
+        }
+
+        #[target_feature(enable = "avx512f")]
+        pub(super) fn avx512_scalars_in_place<V: SimdVector + Math, F: NaryOp<3>>(
+            x: &mut [V::Scalar],
+            b: [V::Scalar; 2],
+        ) {
+            // SAFETY: AVX-512F is enabled in this function, and `V` is an
+            // AVX-512 register type.
+            unsafe { driver::scalars_in_place::<V, F>(x, b) }
+        }
 
         #[cfg(any(feature = "alloc", test))]
         #[target_feature(enable = "avx2,fma")]
@@ -888,6 +1086,28 @@ cfg_neon! {
         use super::{Binary, BinaryOp, Math, NaryOp, UnaryOp, driver};
         use crate::simd::SimdVector;
         pub(super) use crate::simd::neon::{f32x4::F32x4, f64x2::F64x2};
+
+        #[cfg(feature = "alloc")]
+        #[inline]
+        pub(super) fn scalars_uninit<V: SimdVector + Math, F: NaryOp<3>>(
+            x: &[V::Scalar],
+            b: [V::Scalar; 2],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: NEON is enabled at compile time, and `V` is a NEON
+            // register type.
+            unsafe { driver::scalars_uninit::<V, F>(x, b, out) }
+        }
+
+        #[inline]
+        pub(super) fn scalars_in_place<V: SimdVector + Math, F: NaryOp<3>>(
+            x: &mut [V::Scalar],
+            b: [V::Scalar; 2],
+        ) {
+            // SAFETY: NEON is enabled at compile time, and `V` is a NEON
+            // register type.
+            unsafe { driver::scalars_in_place::<V, F>(x, b) }
+        }
 
         #[cfg(any(feature = "alloc", test))]
         #[inline]
@@ -1059,6 +1279,75 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     ///
     /// If `self` and `x` have different lengths.
     fn atan2_in_place(&mut self, x: &[T]);
+
+    /// `self[i]^y[i]`. Error ≤ 1 ULP, overflow and subnormal results
+    /// included; C99's special cases, as `f64::powf`: `x⁰ = 1` and `1ʸ = 1`
+    /// even for NaN, a negative `x` gives NaN unless `y` is an integer,
+    /// whose parity then sets the sign.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let x = vec![2.0_f64, -2.0, -8.0, 0.0, f64::NAN];
+    /// let y = vec![0.5, 3.0, 1.0 / 3.0, -1.0, 0.0];
+    /// let p = x.powf(&y);
+    /// assert_eq!(p[..2], [core::f64::consts::SQRT_2, -8.0]);
+    /// assert!(p[2].is_nan()); // (−8)^(1/3): the exponent is not an integer
+    /// assert_eq!(p[3..], [f64::INFINITY, 1.0]);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `self` and `y` have different lengths.
+    #[cfg(feature = "alloc")]
+    fn powf(&self, y: &[T]) -> Vec<T>;
+
+    /// `self[i] = self[i]^y[i]`.
+    ///
+    /// # Panics
+    ///
+    /// If `self` and `y` have different lengths.
+    fn powf_in_place(&mut self, y: &[T]);
+
+    /// `self[i]^y`, one exponent for every element: [`powf`](Self::powf)
+    /// without a slice of `y`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let x = vec![4.0_f32, 9.0, 0.0, -8.0];
+    /// let r = x.powf_scalar(0.5);
+    /// assert_eq!(r[..3], [2.0, 3.0, 0.0]);
+    /// assert!(r[3].is_nan());
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn powf_scalar(&self, y: T) -> Vec<T>;
+
+    /// `self[i] = self[i]^y`.
+    fn powf_scalar_in_place(&mut self, y: T);
+
+    /// `self[i]^n` for an integer `n`. Error ≤ 1 ULP for every `n`, where
+    /// repeated multiplication (as `f32::powi`) loses about `log₂|n|` ULPs:
+    /// for `|n| ≤ 8`, binary powering in two-part arithmetic, rounded once;
+    /// beyond, [`powf`](Self::powf)'s `e^(n·ln x)`, `n` exact even past
+    /// `f32`'s 2²⁴. `n` = 0, 1, 2 and −1 give `1`, `x`, `x·x` and `1/x`,
+    /// each rounded once.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let x = vec![2.0_f64, -2.0, 0.0, 1.0 + f64::EPSILON];
+    /// let r = x.powi(-3);
+    /// assert_eq!(r[..3], [0.125, -0.125, f64::INFINITY]);
+    /// // (1 + 2⁻²³)^(2²⁴ + 1) ≈ e²: the exponent is not an f32, the result is.
+    /// let r = [1.0_f32 + f32::EPSILON].powi(16_777_217);
+    /// assert!((r[0] - 7.389_056).abs() <= 7.389_056 * f32::EPSILON);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn powi(&self, n: i32) -> Vec<T>;
+
+    /// `self[i] = self[i]^n`.
+    fn powi_in_place(&mut self, n: i32);
 
     /// `∛self[i]`, defined for negative values too (`∛−8 = −2`). Error ≤ 1
     /// ULP; `±0`, `±∞` and NaN are returned as they are.
@@ -1546,6 +1835,57 @@ macro_rules! impl_slice_math {
                 }
 
                 #[inline]
+                fn powf_in_place(&mut self, y: &[$T]) {
+                    <$T as MathElement>::binary_in_place::<PowOp>(self, y);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn powf(&self, y: &[$T]) -> Vec<$T> {
+                    binary_to_vec::<PowOp, _>(self, y)
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn powf_scalar(&self, y: $T) -> Vec<$T> {
+                    scalars_to_vec::<PowScalarOp, _>(self, [y, 0.0])
+                }
+
+                #[inline]
+                fn powf_scalar_in_place(&mut self, y: $T) {
+                    <$T as MathElement>::scalars_in_place::<PowScalarOp>(self, [y, 0.0]);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn powi(&self, n: i32) -> Vec<$T> {
+                    if let Some(out) = powi_small_to_vec(self, n) {
+                        return out;
+                    }
+                    let mut out = self.to_vec();
+                    out.powi_in_place(n);
+                    out
+                }
+
+                #[inline]
+                fn powi_in_place(&mut self, n: i32) {
+                    match n {
+                        0 => self.fill(1.0),
+                        1 => {}
+                        2 => self.iter_mut().for_each(|v| *v *= *v),
+                        -1 => self.iter_mut().for_each(|v| *v = 1.0 / *v),
+                        _ if powi_small_in_place(self, n) => {}
+                        _ => {
+                            // n = hi + lo, both exact; lo = 0 for f64, and
+                            // |lo| ≤ 64 for f32.
+                            let hi = n as $T;
+                            let lo = (i64::from(n) - hi as i64) as $T;
+                            <$T as MathElement>::scalars_in_place::<PowScalarOp>(self, [hi, lo]);
+                        }
+                    }
+                }
+
+                #[inline]
                 fn atan2_in_place(&mut self, x: &[$T]) {
                     <$T as MathElement>::binary_in_place::<Atan2Op>(self, x);
                 }
@@ -1824,6 +2164,15 @@ fn binary_to_vec<F: BinaryOp, T: MathElement>(y: &[T], x: &[T]) -> Vec<T> {
     T::binary_uninit::<F>(y, x, &mut out.spare_capacity_mut()[..y.len()]);
     // SAFETY: `binary_uninit` initialised the first `y.len()` elements.
     unsafe { out.set_len(y.len()) };
+    out
+}
+
+#[cfg(feature = "alloc")]
+fn scalars_to_vec<F: NaryOp<3>, T: MathElement>(x: &[T], b: [T; 2]) -> Vec<T> {
+    let mut out = Vec::with_capacity(x.len());
+    T::scalars_uninit::<F>(x, b, &mut out.spare_capacity_mut()[..x.len()]);
+    // SAFETY: `scalars_uninit` initialised the first `x.len()` elements.
+    unsafe { out.set_len(x.len()) };
     out
 }
 
