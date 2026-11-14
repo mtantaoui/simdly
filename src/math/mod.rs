@@ -26,6 +26,7 @@ mod erf;
 mod exp;
 mod float;
 mod floor;
+mod fmod;
 mod hyperbolic;
 mod hypot;
 mod inverse_hyperbolic;
@@ -55,6 +56,7 @@ use erf::Erf;
 use exp::Exp;
 use float::Float;
 use floor::Floor;
+use fmod::Fmod;
 use hyperbolic::{Cosh, Sinh, Tanh};
 use hypot::{Hypot, Norm};
 use inverse_hyperbolic::{Acosh, Asinh, Atanh};
@@ -96,6 +98,7 @@ pub(crate) trait Math:
     + Trunc
     + RoundTiesEven
     + Round
+    + Fmod
     + Trig
 {
 }
@@ -127,6 +130,7 @@ impl<
         + Trunc
         + RoundTiesEven
         + Round
+        + Fmod
         + Trig,
 > Math for T
 {
@@ -355,6 +359,47 @@ impl NaryOp<3> for ClampOp {
     #[inline(always)]
     fn apply<V: Math>([x, min, max]: [V; 3]) -> V {
         basic::clamp(x, min, max)
+    }
+}
+
+/// `x % y`, element-wise.
+pub(crate) struct FmodOp;
+
+impl BinaryOp for FmodOp {
+    #[inline(always)]
+    fn apply<V: Math>(x: V, y: V) -> V {
+        x.fmod(y)
+    }
+}
+
+/// Python's `x % y`, element-wise.
+pub(crate) struct RemainderOp;
+
+impl BinaryOp for RemainderOp {
+    #[inline(always)]
+    fn apply<V: Math>(x: V, y: V) -> V {
+        x.remainder(y)
+    }
+}
+
+/// `x % y`, `y` the same in every lane (the third operand is unused).
+pub(crate) struct FmodScalarOp;
+
+impl NaryOp<3> for FmodScalarOp {
+    #[inline(always)]
+    fn apply<V: Math>([x, y, _]: [V; 3]) -> V {
+        x.fmod(y)
+    }
+}
+
+/// Python's `x % y`, `y` the same in every lane (the third operand is
+/// unused).
+pub(crate) struct RemainderScalarOp;
+
+impl NaryOp<3> for RemainderScalarOp {
+    #[inline(always)]
+    fn apply<V: Math>([x, y, _]: [V; 3]) -> V {
+        x.remainder(y)
     }
 }
 
@@ -1405,6 +1450,71 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = self[i]^y`.
     fn powf_scalar_in_place(&mut self, y: T);
 
+    /// `self[i] % y[i]`, as Rust's `%` and C's `fmod`: `x − n·y` with
+    /// `n = trunc(x/y)`, exact, with the sign of `x`. `x % ±0`, `±∞ % y`
+    /// and NaN give NaN; `x % ±∞ = x` for finite `x`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let x = vec![7.5_f64, -7.5, 1e300, -6.0];
+    /// let y = vec![2.0, 2.0, 3.0, 3.0];
+    /// assert_eq!(x.fmod(&y), [1.5, -1.5, 1e300 % 3.0, -0.0]);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `self` and `y` have different lengths.
+    #[cfg(feature = "alloc")]
+    fn fmod(&self, y: &[T]) -> Vec<T>;
+
+    /// `self[i] = self[i] % y[i]`.
+    ///
+    /// # Panics
+    ///
+    /// If `self` and `y` have different lengths.
+    fn fmod_in_place(&mut self, y: &[T]);
+
+    /// `self[i] % y`, one divisor for every element: [`fmod`](Self::fmod).
+    #[cfg(feature = "alloc")]
+    fn fmod_scalar(&self, y: T) -> Vec<T>;
+
+    /// `self[i] = self[i] % y`.
+    fn fmod_scalar_in_place(&mut self, y: T);
+
+    /// Python's and PyTorch's `self[i] % y[i]`, burn's `remainder`: the
+    /// sign of `y`, `x − ⌊x/y⌋·y`. Computed as burn does, `r = x % y` (exact,
+    /// [`fmod`](Self::fmod)), then `r + y` where `r ≠ 0` and the signs of `r`
+    /// and `y` differ; that sum rounds.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let x = vec![7.5_f32, -7.5, 7.5, -6.0];
+    /// let y = vec![2.0, 2.0, -2.0, 3.0];
+    /// assert_eq!(x.remainder(&y), [1.5, 0.5, -0.5, -0.0]);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `self` and `y` have different lengths.
+    #[cfg(feature = "alloc")]
+    fn remainder(&self, y: &[T]) -> Vec<T>;
+
+    /// `self[i] = remainder(self[i], y[i])`.
+    ///
+    /// # Panics
+    ///
+    /// If `self` and `y` have different lengths.
+    fn remainder_in_place(&mut self, y: &[T]);
+
+    /// [`remainder`](Self::remainder) with one divisor for every element.
+    #[cfg(feature = "alloc")]
+    fn remainder_scalar(&self, y: T) -> Vec<T>;
+
+    /// `self[i] = remainder(self[i], y)`.
+    fn remainder_scalar_in_place(&mut self, y: T);
+
     /// `self[i]^n` for an integer `n`. Error ≤ 1 ULP for every `n`, where
     /// repeated multiplication (as `f32::powi`) loses about `log₂|n|` ULPs:
     /// for `|n| ≤ 8`, binary powering in two-part arithmetic, rounded once;
@@ -2049,6 +2159,50 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn powf_scalar_in_place(&mut self, y: $T) {
                     <$T as MathElement>::scalars_in_place::<PowScalarOp>(self, [y, 0.0]);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn fmod(&self, y: &[$T]) -> Vec<$T> {
+                    binary_to_vec::<FmodOp, _>(self, y)
+                }
+
+                #[inline]
+                fn fmod_in_place(&mut self, y: &[$T]) {
+                    <$T as MathElement>::binary_in_place::<FmodOp>(self, y);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn fmod_scalar(&self, y: $T) -> Vec<$T> {
+                    scalars_to_vec::<FmodScalarOp, _>(self, [y, 0.0])
+                }
+
+                #[inline]
+                fn fmod_scalar_in_place(&mut self, y: $T) {
+                    <$T as MathElement>::scalars_in_place::<FmodScalarOp>(self, [y, 0.0]);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn remainder(&self, y: &[$T]) -> Vec<$T> {
+                    binary_to_vec::<RemainderOp, _>(self, y)
+                }
+
+                #[inline]
+                fn remainder_in_place(&mut self, y: &[$T]) {
+                    <$T as MathElement>::binary_in_place::<RemainderOp>(self, y);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn remainder_scalar(&self, y: $T) -> Vec<$T> {
+                    scalars_to_vec::<RemainderScalarOp, _>(self, [y, 0.0])
+                }
+
+                #[inline]
+                fn remainder_scalar_in_place(&mut self, y: $T) {
+                    <$T as MathElement>::scalars_in_place::<RemainderScalarOp>(self, [y, 0.0]);
                 }
 
                 #[cfg(feature = "alloc")]

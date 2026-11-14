@@ -8,7 +8,7 @@ SIMD implementations of mathematical functions for Rust, with a documented
 worst-case ULP bound for every function.
 
 > **Status:** early development. Element-wise arithmetic, comparisons (like
-> NumPy's), `abs`, `ceil`, `floor`, `trunc`, `round`, `round_ties_even`, `neg`, `recip`, `sign`, `clamp`, `sqrt`, `cbrt`, `exp`, `erf`, `ln`, `log1p`, `powf`, `powi`, `sigmoid`, `log_sigmoid`, `softplus`, `acos`, `asin`, `atan`, `atan2`, `hypot`, `hypot3`, `hypot4`, `sin`, `cos`, `tan`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh` and `atanh` on `f32` and `f64` slices are implemented; see
+> NumPy's), `abs`, `ceil`, `floor`, `trunc`, `round`, `round_ties_even`, `neg`, `recip`, `sign`, `clamp`, `fmod`, `remainder`, `sqrt`, `cbrt`, `exp`, `erf`, `ln`, `log1p`, `powf`, `powi`, `sigmoid`, `log_sigmoid`, `softplus`, `acos`, `asin`, `atan`, `atan2`, `hypot`, `hypot3`, `hypot4`, `sin`, `cos`, `tan`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh` and `atanh` on `f32` and `f64` slices are implemented; see
 > [Implementation status](#implementation-status).
 
 ```rust
@@ -46,6 +46,7 @@ scalar).
 | `floor`                                        | ✅      | ✅   | ✅   | ✅     |
 | `trunc`, `round`, `round_ties_even`            | ✅      | ✅   | ✅   | ✅     |
 | `neg`, `recip`, `sign`, `clamp`                | ✅      | ✅   | ✅   | ✅     |
+| `fmod`, `remainder` (and `_scalar`)            | ✅      | ✅   | ✅   | ✅     |
 | `exp`                                          | ✅      | ✅   | ✅   | ✅     |
 | `erf`                                          | ✅      | ✅   | ✅   | ✅     |
 | `ln`                                           | ✅      | ✅   | ✅   | ✅     |

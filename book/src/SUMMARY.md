@@ -22,6 +22,7 @@
 - [Powers `powf` and `powi`](./functions/pow.md)
 - [Floor `floor`](./functions/floor.md)
 - [Rounding, sign and clamping](./functions/rounding.md)
+- [Remainders `fmod` and `remainder`](./functions/fmod.md)
 - [Hypotenuse `hypot`](./functions/hypot.md)
 - [Three-dimensional hypotenuse `hypot3`](./functions/hypot3.md)
 - [Four-dimensional hypotenuse `hypot4`](./functions/hypot4.md)

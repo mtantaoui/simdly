@@ -12,10 +12,11 @@ use rayon::prelude::*;
 
 use super::{
     AbsOp, AcosOp, AcoshOp, AsinOp, AsinhOp, Atan2Op, AtanOp, AtanhOp, BinaryOp, CbrtOp, CeilOp,
-    ClampOp, CosOp, CoshOp, ErfOp, ExpOp, FloorOp, Hypot3Op, Hypot4Op, HypotOp, LnOp, Log1pOp,
-    LogSigmoidOp, MathElement, NaryOp, NegOp, PowOp, PowScalarOp, RecipOp, RoundOp,
-    RoundTiesEvenOp, SigmoidOp, SignOp, SinOp, SinhOp, SoftplusOp, SqrtOp, TanOp, TanhOp, TruncOp,
-    UnaryOp, binary_to_vec, nary_to_vec, scalars_to_vec, unary_to_vec,
+    ClampOp, CosOp, CoshOp, ErfOp, ExpOp, FloorOp, FmodOp, FmodScalarOp, Hypot3Op, Hypot4Op,
+    HypotOp, LnOp, Log1pOp, LogSigmoidOp, MathElement, NaryOp, NegOp, PowOp, PowScalarOp, RecipOp,
+    RemainderOp, RemainderScalarOp, RoundOp, RoundTiesEvenOp, SigmoidOp, SignOp, SinOp, SinhOp,
+    SoftplusOp, SqrtOp, TanOp, TanhOp, TruncOp, UnaryOp, binary_to_vec, nary_to_vec,
+    scalars_to_vec, unary_to_vec,
 };
 use crate::{PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD};
 
@@ -110,6 +111,24 @@ pub trait ParSliceMath<T>: crate::ops::sealed::Sealed {
     ///
     /// As [`SliceMath::clamp`](crate::SliceMath::clamp).
     fn par_clamp_in_place(&mut self, min: T, max: T);
+
+    /// [`SliceMath::fmod`](crate::SliceMath::fmod) on several threads.
+    fn par_fmod(&self, y: &[T]) -> Vec<T>;
+    /// [`SliceMath::fmod_in_place`](crate::SliceMath::fmod_in_place) on several threads.
+    fn par_fmod_in_place(&mut self, y: &[T]);
+    /// [`SliceMath::fmod_scalar`](crate::SliceMath::fmod_scalar) on several threads.
+    fn par_fmod_scalar(&self, y: T) -> Vec<T>;
+    /// [`SliceMath::fmod_scalar_in_place`](crate::SliceMath::fmod_scalar_in_place) on several threads.
+    fn par_fmod_scalar_in_place(&mut self, y: T);
+
+    /// [`SliceMath::remainder`](crate::SliceMath::remainder) on several threads.
+    fn par_remainder(&self, y: &[T]) -> Vec<T>;
+    /// [`SliceMath::remainder_in_place`](crate::SliceMath::remainder_in_place) on several threads.
+    fn par_remainder_in_place(&mut self, y: &[T]);
+    /// [`SliceMath::remainder_scalar`](crate::SliceMath::remainder_scalar) on several threads.
+    fn par_remainder_scalar(&self, y: T) -> Vec<T>;
+    /// [`SliceMath::remainder_scalar_in_place`](crate::SliceMath::remainder_scalar_in_place) on several threads.
+    fn par_remainder_scalar_in_place(&mut self, y: T);
 
     /// [`SliceMath::powf`](crate::SliceMath::powf) on several threads.
     fn par_powf(&self, y: &[T]) -> Vec<T>;
@@ -333,6 +352,46 @@ macro_rules! impl_par_slice_math {
                 #[inline]
                 fn par_powf_in_place(&mut self, y: &[$T]) {
                     par_binary_in_place::<PowOp, _>(self, y);
+                }
+
+                #[inline]
+                fn par_fmod(&self, y: &[$T]) -> Vec<$T> {
+                    par_binary_to_vec::<FmodOp, _>(self, y)
+                }
+
+                #[inline]
+                fn par_fmod_in_place(&mut self, y: &[$T]) {
+                    par_binary_in_place::<FmodOp, _>(self, y);
+                }
+
+                #[inline]
+                fn par_fmod_scalar(&self, y: $T) -> Vec<$T> {
+                    par_scalars_to_vec::<FmodScalarOp, _>(self, [y, 0.0])
+                }
+
+                #[inline]
+                fn par_fmod_scalar_in_place(&mut self, y: $T) {
+                    par_scalars_in_place::<FmodScalarOp, _>(self, [y, 0.0]);
+                }
+
+                #[inline]
+                fn par_remainder(&self, y: &[$T]) -> Vec<$T> {
+                    par_binary_to_vec::<RemainderOp, _>(self, y)
+                }
+
+                #[inline]
+                fn par_remainder_in_place(&mut self, y: &[$T]) {
+                    par_binary_in_place::<RemainderOp, _>(self, y);
+                }
+
+                #[inline]
+                fn par_remainder_scalar(&self, y: $T) -> Vec<$T> {
+                    par_scalars_to_vec::<RemainderScalarOp, _>(self, [y, 0.0])
+                }
+
+                #[inline]
+                fn par_remainder_scalar_in_place(&mut self, y: $T) {
+                    par_scalars_in_place::<RemainderScalarOp, _>(self, [y, 0.0]);
                 }
 
                 #[inline]
@@ -844,6 +903,19 @@ mod tests {
         let what = |f: &str| std::format!("par_{f} {} len {len}", T::NAME);
         assert_same(&y.par_atan2(&x), &y.atan2(&x), &what("atan2"));
         assert_same(&x.par_powf(&y), &x.powf(&y), &what("powf"));
+        assert_same(&x.par_fmod(&y), &x.fmod(&y), &what("fmod"));
+        assert_same(&x.par_remainder(&y), &x.remainder(&y), &what("remainder"));
+        let d = T::from_f64(-0.7);
+        assert_same(
+            &x.par_fmod_scalar(d),
+            &x.fmod_scalar(d),
+            &what("fmod_scalar"),
+        );
+        assert_same(
+            &x.par_remainder_scalar(d),
+            &x.remainder_scalar(d),
+            &what("remainder_scalar"),
+        );
         let p = T::from_f64(1.7);
         assert_same(
             &x.par_powf_scalar(p),
@@ -886,6 +958,26 @@ mod tests {
             "powf_scalar",
         );
         in_place(|x| x.powi_in_place(-3), |x| x.par_powi_in_place(-3), "powi");
+        in_place(
+            |x| x.fmod_in_place(&input(x.len(), 1.0)),
+            |x| x.par_fmod_in_place(&input(x.len(), 1.0)),
+            "fmod",
+        );
+        in_place(
+            |x| x.remainder_in_place(&input(x.len(), 1.0)),
+            |x| x.par_remainder_in_place(&input(x.len(), 1.0)),
+            "remainder",
+        );
+        in_place(
+            |x| x.fmod_scalar_in_place(T::from_f64(-0.7)),
+            |x| x.par_fmod_scalar_in_place(T::from_f64(-0.7)),
+            "fmod_scalar",
+        );
+        in_place(
+            |x| x.remainder_scalar_in_place(T::from_f64(-0.7)),
+            |x| x.par_remainder_scalar_in_place(T::from_f64(-0.7)),
+            "remainder_scalar",
+        );
         in_place(
             |x| x.clamp_in_place(T::from_f64(-1.0), T::from_f64(0.5)),
             |x| x.par_clamp_in_place(T::from_f64(-1.0), T::from_f64(0.5)),

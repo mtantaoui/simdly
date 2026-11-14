@@ -22,6 +22,8 @@ fn main() {
     println!("1/x    = {:?}", x.recip());
     println!("sign   = {:?}", x.sign());
     println!("clamp  = {:?}", x.clamp(-1.5, 0.5));
+    println!("x % 0.75 = {:?}", x.fmod_scalar(0.75));
+    println!("rem 0.75 = {:?}", x.remainder_scalar(0.75));
     println!("eˣ     = {:?}", x.exp());
     println!("erf x  = {:?}", x.erf());
     println!("x^2.5  = {:?}", x.powf_scalar(2.5));

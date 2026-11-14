@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   input, and 0.844 for `f64`): fdlibm's approach on `ln`'s reduction and
   series, `1 + x` formed exactly. `ParSliceMath::par_log1p` and
   `par_log1p_in_place`.
+- `SliceMath::fmod` (Rust's `%`, C's `fmod`: exact, the sign of `x`) and
+  `remainder` (Python's and PyTorch's `%`, burn's: the sign of `y`), each
+  element-wise and with one divisor (`_scalar`), `_in_place` and
+  `ParSliceMath` `par_` variants: bit for bit `%` and burn's
+  `remainder_float`, on every backend. `fmod` is exact long division in
+  SIMD lanes, `p − 2` bits of the exponent gap per pass.
 - `SliceMath::trunc`, `round` (halves away from zero) and `round_ties_even`
   (halves to even, burn's `round`), exact and bit for bit `std`'s on every
   `f32` and backend: one instruction on AVX2, AVX-512 and NEON, float

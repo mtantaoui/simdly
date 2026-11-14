@@ -332,6 +332,27 @@ fn wave<T: Float>(len: usize) -> Vec<T> {
         .collect()
 }
 
+/// `0.5 + |cos(0.71·i)·3|`: divisors for `fmod` and `remainder`.
+fn divisors<T: Float>(len: usize) -> Vec<T> {
+    (0..len)
+        .map(|i| T::from_f64(0.5 + ((i as f64 * 0.71).cos() * 3.0).abs()))
+        .collect()
+}
+
+/// burn's `remainder_float`: `%`, moved to the divisor's sign.
+fn py_rem<T>(a: T, b: T) -> T
+where
+    T: Float + core::ops::Rem<Output = T> + core::ops::Add<Output = T> + PartialOrd,
+{
+    let zero = T::from_f64(0.0);
+    let r = a % b;
+    if r != zero && (r < zero) != (b < zero) {
+        r + b
+    } else {
+        r
+    }
+}
+
 /// `cos(0.73·i)·6`: exponents for `powf`.
 fn exponents<T: Float>(len: usize) -> Vec<T> {
     (0..len)
@@ -951,6 +972,48 @@ fn clamp(c: &mut Criterion) {
     group.finish();
 }
 
+fn fmod(c: &mut Criterion) {
+    let mut group = c.benchmark_group("fmod");
+    binary_inputs_vs_scalar::<f32>(
+        &mut group,
+        moderate,
+        divisors,
+        |x, y| x.fmod(y),
+        par!(|x, y| x.par_fmod(y)),
+        |a, b| a % b,
+    );
+    binary_inputs_vs_scalar::<f64>(
+        &mut group,
+        moderate,
+        divisors,
+        |x, y| x.fmod(y),
+        par!(|x, y| x.par_fmod(y)),
+        |a, b| a % b,
+    );
+    group.finish();
+}
+
+fn remainder(c: &mut Criterion) {
+    let mut group = c.benchmark_group("remainder");
+    binary_inputs_vs_scalar::<f32>(
+        &mut group,
+        moderate,
+        divisors,
+        |x, y| x.remainder(y),
+        par!(|x, y| x.par_remainder(y)),
+        py_rem,
+    );
+    binary_inputs_vs_scalar::<f64>(
+        &mut group,
+        moderate,
+        divisors,
+        |x, y| x.remainder(y),
+        par!(|x, y| x.par_remainder(y)),
+        py_rem,
+    );
+    group.finish();
+}
+
 fn floor(c: &mut Criterion) {
     let mut group = c.benchmark_group("floor");
     out_of_place::<f32>(
@@ -1244,6 +1307,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, ceil, clamp, cos, cosh, erf, exp, floor, neg, recip, round, round_ties_even, sign, trunc, hypot, hypot3, hypot4, ln, log1p, log_sigmoid, powf, powf_scalar, powi, sigmoid, sin, sinh, softplus, sqrt, tan, tanh
+    targets = abs, acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, ceil, clamp, cos, cosh, erf, exp, floor, fmod, neg, recip, round, round_ties_even, sign, trunc, hypot, hypot3, hypot4, ln, remainder, log1p, log_sigmoid, powf, powf_scalar, powi, sigmoid, sin, sinh, softplus, sqrt, tan, tanh
 }
 criterion_main!(benches);
