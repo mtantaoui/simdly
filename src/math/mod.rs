@@ -19,6 +19,7 @@ mod acos;
 mod asin;
 mod atan;
 mod atan2;
+mod basic;
 mod cbrt;
 mod ceil;
 mod erf;
@@ -33,6 +34,7 @@ mod log1p;
 #[cfg(feature = "rayon")]
 pub(crate) mod par;
 mod pow;
+mod round;
 mod sigmoid;
 mod softplus;
 mod sqrt;
@@ -59,6 +61,7 @@ use inverse_hyperbolic::{Acosh, Asinh, Atanh};
 use ln::Ln;
 use log1p::Log1p;
 use pow::Pow;
+use round::{Round, RoundTiesEven, Trunc};
 use sigmoid::Sigmoid;
 use softplus::{LogSigmoid, Softplus};
 use sqrt::Sqrt;
@@ -90,6 +93,9 @@ pub(crate) trait Math:
     + Acosh
     + Erf
     + Pow
+    + Trunc
+    + RoundTiesEven
+    + Round
     + Trig
 {
 }
@@ -118,6 +124,9 @@ impl<
         + Acosh
         + Erf
         + Pow
+        + Trunc
+        + RoundTiesEven
+        + Round
         + Trig,
 > Math for T
 {
@@ -277,6 +286,76 @@ fn powi_small_to_vec<T: MathElement>(x: &[T], n: i32) -> Option<Vec<T>> {
         };
     }
     small!(3 4 5 6 7 8 -2 -3 -4 -5 -6 -7 -8)
+}
+
+/// `x` rounded toward zero.
+pub(crate) struct TruncOp;
+
+impl UnaryOp for TruncOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.trunc()
+    }
+}
+
+/// `x` rounded to nearest, halves away from zero.
+pub(crate) struct RoundOp;
+
+impl UnaryOp for RoundOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.round()
+    }
+}
+
+/// `x` rounded to nearest, halves to even.
+pub(crate) struct RoundTiesEvenOp;
+
+impl UnaryOp for RoundTiesEvenOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.round_ties_even()
+    }
+}
+
+/// `−x`.
+pub(crate) struct NegOp;
+
+impl UnaryOp for NegOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        -v
+    }
+}
+
+/// `1/x`.
+pub(crate) struct RecipOp;
+
+impl UnaryOp for RecipOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.constant(<V::Elem as float::Element>::from_f32(1.0)) / v
+    }
+}
+
+/// `−1`, `0` or `1`.
+pub(crate) struct SignOp;
+
+impl UnaryOp for SignOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        basic::sign(v)
+    }
+}
+
+/// `x` clamped to `[min, max]`, the bounds the same in every lane.
+pub(crate) struct ClampOp;
+
+impl NaryOp<3> for ClampOp {
+    #[inline(always)]
+    fn apply<V: Math>([x, min, max]: [V; 3]) -> V {
+        basic::clamp(x, min, max)
+    }
 }
 
 /// `∛x`.
@@ -1431,6 +1510,122 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = ⌊self[i]⌋`.
     fn floor_in_place(&mut self);
 
+    /// `self[i]` rounded toward zero, as `f32::trunc`: exact, signed zeros
+    /// kept (`trunc(−0.7) = −0.0`); `±∞` and NaN as they are.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![2.7_f64, -2.7, -0.3, f64::INFINITY];
+    /// assert_eq!(a.trunc(), [2.0, -2.0, -0.0, f64::INFINITY]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn trunc(&self) -> Vec<T>;
+
+    /// `self[i] = trunc(self[i])`.
+    fn trunc_in_place(&mut self);
+
+    /// `self[i]` rounded to nearest, halves away from zero, as `f32::round`:
+    /// exact, signed zeros kept; `±∞` and NaN as they are.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![2.5_f32, -2.5, 0.5, 1.4999999];
+    /// assert_eq!(a.round(), [3.0, -3.0, 1.0, 1.0]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn round(&self) -> Vec<T>;
+
+    /// `self[i] = round(self[i])`.
+    fn round_in_place(&mut self);
+
+    /// `self[i]` rounded to nearest, halves to even, as
+    /// `f32::round_ties_even` (and burn's `round`): exact, signed zeros kept;
+    /// `±∞` and NaN as they are.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![2.5_f32, -2.5, 3.5, -0.5];
+    /// assert_eq!(a.round_ties_even(), [2.0, -2.0, 4.0, -0.0]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn round_ties_even(&self) -> Vec<T>;
+
+    /// `self[i] = round_ties_even(self[i])`.
+    fn round_ties_even_in_place(&mut self);
+
+    /// `−self[i]`: the sign bit flipped, NaN included.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![1.5_f64, -0.0];
+    /// assert_eq!(a.neg(), [-1.5, 0.0]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn neg(&self) -> Vec<T>;
+
+    /// `self[i] = −self[i]`.
+    fn neg_in_place(&mut self);
+
+    /// `1/self[i]`, rounded once, as `1.0 / x`: `±∞` for `±0`, `±0` for
+    /// `±∞`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![4.0_f32, -0.0, f32::INFINITY];
+    /// assert_eq!(a.recip(), [0.25, f32::NEG_INFINITY, 0.0]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn recip(&self) -> Vec<T>;
+
+    /// `self[i] = 1/self[i]`.
+    fn recip_in_place(&mut self);
+
+    /// The sign of `self[i]`, as burn's and PyTorch's: `−1`, `0` or `1`;
+    /// `0` for `±0` and, as burn's, for NaN.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![-3.0_f64, -0.0, 0.0, 2.0, f64::NAN];
+    /// assert_eq!(a.sign(), [-1.0, 0.0, 0.0, 1.0, 0.0]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn sign(&self) -> Vec<T>;
+
+    /// `self[i] = sign(self[i])`.
+    fn sign_in_place(&mut self);
+
+    /// `self[i]` clamped to `[min, max]`, as `f32::clamp`: `min` below
+    /// `min`, `max` above `max`, `self[i]` otherwise, NaN included.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![-2.0_f32, 0.5, 7.0, f32::NAN];
+    /// let c = a.clamp(0.0, 1.0);
+    /// assert_eq!(c[..3], [0.0, 0.5, 1.0]);
+    /// assert!(c[3].is_nan());
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `min > max`, or either is NaN, as `f32::clamp`; checked once, not
+    /// per element.
+    #[cfg(feature = "alloc")]
+    fn clamp(&self, min: T, max: T) -> Vec<T>;
+
+    /// `self[i] = clamp(self[i], min, max)`.
+    ///
+    /// # Panics
+    ///
+    /// As [`clamp`](Self::clamp).
+    fn clamp_in_place(&mut self, min: T, max: T);
+
     /// `√(self[i]² + y[i]²)`, without overflow or underflow in between, as
     /// `f32::hypot`. Error ≤ 1 ULP; `+∞` if either is infinite, even when the
     /// other is NaN.
@@ -1947,6 +2142,85 @@ macro_rules! impl_slice_math {
 
                 #[cfg(feature = "alloc")]
                 #[inline]
+                fn trunc(&self) -> Vec<$T> {
+                    unary_to_vec::<TruncOp, _>(self)
+                }
+
+                #[inline]
+                fn trunc_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<TruncOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn round(&self) -> Vec<$T> {
+                    unary_to_vec::<RoundOp, _>(self)
+                }
+
+                #[inline]
+                fn round_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<RoundOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn round_ties_even(&self) -> Vec<$T> {
+                    unary_to_vec::<RoundTiesEvenOp, _>(self)
+                }
+
+                #[inline]
+                fn round_ties_even_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<RoundTiesEvenOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn neg(&self) -> Vec<$T> {
+                    unary_to_vec::<NegOp, _>(self)
+                }
+
+                #[inline]
+                fn neg_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<NegOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn recip(&self) -> Vec<$T> {
+                    unary_to_vec::<RecipOp, _>(self)
+                }
+
+                #[inline]
+                fn recip_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<RecipOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn sign(&self) -> Vec<$T> {
+                    unary_to_vec::<SignOp, _>(self)
+                }
+
+                #[inline]
+                fn sign_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<SignOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn clamp(&self, min: $T, max: $T) -> Vec<$T> {
+                    check_clamp_bounds(min, max);
+                    scalars_to_vec::<ClampOp, _>(self, [min, max])
+                }
+
+                #[inline]
+                fn clamp_in_place(&mut self, min: $T, max: $T) {
+                    check_clamp_bounds(min, max);
+                    <$T as MathElement>::scalars_in_place::<ClampOp>(self, [min, max]);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
                 fn hypot(&self, y: &[$T]) -> Vec<$T> {
                     binary_to_vec::<HypotOp, _>(self, y)
                 }
@@ -2165,6 +2439,16 @@ fn binary_to_vec<F: BinaryOp, T: MathElement>(y: &[T], x: &[T]) -> Vec<T> {
     // SAFETY: `binary_uninit` initialised the first `y.len()` elements.
     unsafe { out.set_len(y.len()) };
     out
+}
+
+/// `f32::clamp`'s panic, once per slice: `min > max` or a NaN bound.
+#[inline]
+#[track_caller]
+pub(crate) fn check_clamp_bounds<T: PartialOrd + core::fmt::Debug>(min: T, max: T) {
+    assert!(
+        min <= max,
+        "clamp: min > max, or a bound is NaN: min = {min:?}, max = {max:?}"
+    );
 }
 
 #[cfg(feature = "alloc")]

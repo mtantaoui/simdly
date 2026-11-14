@@ -12,9 +12,10 @@ use rayon::prelude::*;
 
 use super::{
     AbsOp, AcosOp, AcoshOp, AsinOp, AsinhOp, Atan2Op, AtanOp, AtanhOp, BinaryOp, CbrtOp, CeilOp,
-    CosOp, CoshOp, ErfOp, ExpOp, FloorOp, Hypot3Op, Hypot4Op, HypotOp, LnOp, Log1pOp, LogSigmoidOp,
-    MathElement, NaryOp, PowOp, PowScalarOp, SigmoidOp, SinOp, SinhOp, SoftplusOp, SqrtOp, TanOp,
-    TanhOp, UnaryOp, binary_to_vec, nary_to_vec, scalars_to_vec, unary_to_vec,
+    ClampOp, CosOp, CoshOp, ErfOp, ExpOp, FloorOp, Hypot3Op, Hypot4Op, HypotOp, LnOp, Log1pOp,
+    LogSigmoidOp, MathElement, NaryOp, NegOp, PowOp, PowScalarOp, RecipOp, RoundOp,
+    RoundTiesEvenOp, SigmoidOp, SignOp, SinOp, SinhOp, SoftplusOp, SqrtOp, TanOp, TanhOp, TruncOp,
+    UnaryOp, binary_to_vec, nary_to_vec, scalars_to_vec, unary_to_vec,
 };
 use crate::{PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD};
 
@@ -66,6 +67,49 @@ pub trait ParSliceMath<T>: crate::ops::sealed::Sealed {
     ///
     /// If `self` and `x` have different lengths.
     fn par_atan2_in_place(&mut self, x: &[T]);
+
+    /// [`SliceMath::trunc`](crate::SliceMath::trunc) on several threads.
+    fn par_trunc(&self) -> Vec<T>;
+    /// [`SliceMath::trunc_in_place`](crate::SliceMath::trunc_in_place) on several threads.
+    fn par_trunc_in_place(&mut self);
+
+    /// [`SliceMath::round`](crate::SliceMath::round) on several threads.
+    fn par_round(&self) -> Vec<T>;
+    /// [`SliceMath::round_in_place`](crate::SliceMath::round_in_place) on several threads.
+    fn par_round_in_place(&mut self);
+
+    /// [`SliceMath::round_ties_even`](crate::SliceMath::round_ties_even) on several threads.
+    fn par_round_ties_even(&self) -> Vec<T>;
+    /// [`SliceMath::round_ties_even_in_place`](crate::SliceMath::round_ties_even_in_place) on several threads.
+    fn par_round_ties_even_in_place(&mut self);
+
+    /// [`SliceMath::neg`](crate::SliceMath::neg) on several threads.
+    fn par_neg(&self) -> Vec<T>;
+    /// [`SliceMath::neg_in_place`](crate::SliceMath::neg_in_place) on several threads.
+    fn par_neg_in_place(&mut self);
+
+    /// [`SliceMath::recip`](crate::SliceMath::recip) on several threads.
+    fn par_recip(&self) -> Vec<T>;
+    /// [`SliceMath::recip_in_place`](crate::SliceMath::recip_in_place) on several threads.
+    fn par_recip_in_place(&mut self);
+
+    /// [`SliceMath::sign`](crate::SliceMath::sign) on several threads.
+    fn par_sign(&self) -> Vec<T>;
+    /// [`SliceMath::sign_in_place`](crate::SliceMath::sign_in_place) on several threads.
+    fn par_sign_in_place(&mut self);
+
+    /// [`SliceMath::clamp`](crate::SliceMath::clamp) on several threads.
+    ///
+    /// # Panics
+    ///
+    /// As [`SliceMath::clamp`](crate::SliceMath::clamp).
+    fn par_clamp(&self, min: T, max: T) -> Vec<T>;
+    /// [`SliceMath::clamp_in_place`](crate::SliceMath::clamp_in_place) on several threads.
+    ///
+    /// # Panics
+    ///
+    /// As [`SliceMath::clamp`](crate::SliceMath::clamp).
+    fn par_clamp_in_place(&mut self, min: T, max: T);
 
     /// [`SliceMath::powf`](crate::SliceMath::powf) on several threads.
     fn par_powf(&self, y: &[T]) -> Vec<T>;
@@ -253,6 +297,12 @@ macro_rules! impl_par_slice_math {
                     par_exp par_exp_in_place ExpOp,
                     par_ceil par_ceil_in_place CeilOp,
                     par_floor par_floor_in_place FloorOp,
+                    par_trunc par_trunc_in_place TruncOp,
+                    par_round par_round_in_place RoundOp,
+                    par_round_ties_even par_round_ties_even_in_place RoundTiesEvenOp,
+                    par_neg par_neg_in_place NegOp,
+                    par_recip par_recip_in_place RecipOp,
+                    par_sign par_sign_in_place SignOp,
                     par_ln par_ln_in_place LnOp,
                     par_log1p par_log1p_in_place Log1pOp,
                     par_sigmoid par_sigmoid_in_place SigmoidOp,
@@ -283,6 +333,18 @@ macro_rules! impl_par_slice_math {
                 #[inline]
                 fn par_powf_in_place(&mut self, y: &[$T]) {
                     par_binary_in_place::<PowOp, _>(self, y);
+                }
+
+                #[inline]
+                fn par_clamp(&self, min: $T, max: $T) -> Vec<$T> {
+                    crate::math::check_clamp_bounds(min, max);
+                    par_scalars_to_vec::<ClampOp, _>(self, [min, max])
+                }
+
+                #[inline]
+                fn par_clamp_in_place(&mut self, min: $T, max: $T) {
+                    crate::math::check_clamp_bounds(min, max);
+                    par_scalars_in_place::<ClampOp, _>(self, [min, max]);
                 }
 
                 #[inline]
@@ -498,7 +560,7 @@ mod tests {
             fn(&mut [T]),
             fn(&mut [T]),
         );
-        let unary: [(&str, Pair<T>); 24] = [
+        let unary: [(&str, Pair<T>); 30] = [
             (
                 "abs",
                 (
@@ -689,6 +751,60 @@ mod tests {
                 ),
             ),
             (
+                "trunc",
+                (
+                    |x| x.trunc(),
+                    |x| x.par_trunc(),
+                    |x| x.trunc_in_place(),
+                    |x| x.par_trunc_in_place(),
+                ),
+            ),
+            (
+                "round",
+                (
+                    |x| x.round(),
+                    |x| x.par_round(),
+                    |x| x.round_in_place(),
+                    |x| x.par_round_in_place(),
+                ),
+            ),
+            (
+                "round_ties_even",
+                (
+                    |x| x.round_ties_even(),
+                    |x| x.par_round_ties_even(),
+                    |x| x.round_ties_even_in_place(),
+                    |x| x.par_round_ties_even_in_place(),
+                ),
+            ),
+            (
+                "neg",
+                (
+                    |x| x.neg(),
+                    |x| x.par_neg(),
+                    |x| x.neg_in_place(),
+                    |x| x.par_neg_in_place(),
+                ),
+            ),
+            (
+                "recip",
+                (
+                    |x| x.recip(),
+                    |x| x.par_recip(),
+                    |x| x.recip_in_place(),
+                    |x| x.par_recip_in_place(),
+                ),
+            ),
+            (
+                "sign",
+                (
+                    |x| x.sign(),
+                    |x| x.par_sign(),
+                    |x| x.sign_in_place(),
+                    |x| x.par_sign_in_place(),
+                ),
+            ),
+            (
                 "sin",
                 (
                     |x| x.sin(),
@@ -734,6 +850,8 @@ mod tests {
             &x.powf_scalar(p),
             &what("powf_scalar"),
         );
+        let (lo, hi) = (T::from_f64(-1.0), T::from_f64(0.5));
+        assert_same(&x.par_clamp(lo, hi), &x.clamp(lo, hi), &what("clamp"));
         for n in [-3, 7, 19] {
             assert_same(&x.par_powi(n), &x.powi(n), &what("powi"));
         }
@@ -768,6 +886,11 @@ mod tests {
             "powf_scalar",
         );
         in_place(|x| x.powi_in_place(-3), |x| x.par_powi_in_place(-3), "powi");
+        in_place(
+            |x| x.clamp_in_place(T::from_f64(-1.0), T::from_f64(0.5)),
+            |x| x.par_clamp_in_place(T::from_f64(-1.0), T::from_f64(0.5)),
+            "clamp",
+        );
         in_place(|x| x.powi_in_place(19), |x| x.par_powi_in_place(19), "powi");
         in_place(
             |x| x.hypot_in_place(&input(x.len(), 1.0)),

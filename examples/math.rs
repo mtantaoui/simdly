@@ -16,6 +16,12 @@ fn main() {
     println!("∛x     = {:?}", x.cbrt());
     println!("⌈x⌉    = {:?}", x.ceil());
     println!("⌊x⌋    = {:?}", x.floor());
+    println!("trunc  = {:?}", x.trunc());
+    println!("round  = {:?}", x.round());
+    println!("rte    = {:?}", x.round_ties_even());
+    println!("1/x    = {:?}", x.recip());
+    println!("sign   = {:?}", x.sign());
+    println!("clamp  = {:?}", x.clamp(-1.5, 0.5));
     println!("eˣ     = {:?}", x.exp());
     println!("erf x  = {:?}", x.erf());
     println!("x^2.5  = {:?}", x.powf_scalar(2.5));

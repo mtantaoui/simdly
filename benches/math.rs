@@ -802,6 +802,155 @@ fn powi(c: &mut Criterion) {
     group.finish();
 }
 
+fn trunc(c: &mut Criterion) {
+    let mut group = c.benchmark_group("trunc");
+    out_of_place::<f32>(
+        &mut group,
+        moderate,
+        |x| x.trunc(),
+        par!(|x| x.par_trunc()),
+        f32::trunc,
+    );
+    out_of_place::<f64>(
+        &mut group,
+        moderate,
+        |x| x.trunc(),
+        par!(|x| x.par_trunc()),
+        f64::trunc,
+    );
+    group.finish();
+}
+
+fn round(c: &mut Criterion) {
+    let mut group = c.benchmark_group("round");
+    out_of_place::<f32>(
+        &mut group,
+        moderate,
+        |x| x.round(),
+        par!(|x| x.par_round()),
+        f32::round,
+    );
+    out_of_place::<f64>(
+        &mut group,
+        moderate,
+        |x| x.round(),
+        par!(|x| x.par_round()),
+        f64::round,
+    );
+    group.finish();
+}
+
+fn round_ties_even(c: &mut Criterion) {
+    let mut group = c.benchmark_group("round_ties_even");
+    out_of_place::<f32>(
+        &mut group,
+        moderate,
+        |x| x.round_ties_even(),
+        par!(|x| x.par_round_ties_even()),
+        f32::round_ties_even,
+    );
+    out_of_place::<f64>(
+        &mut group,
+        moderate,
+        |x| x.round_ties_even(),
+        par!(|x| x.par_round_ties_even()),
+        f64::round_ties_even,
+    );
+    group.finish();
+}
+
+fn neg(c: &mut Criterion) {
+    let mut group = c.benchmark_group("neg");
+    out_of_place::<f32>(
+        &mut group,
+        moderate,
+        |x| x.neg(),
+        par!(|x| x.par_neg()),
+        |v| -v,
+    );
+    out_of_place::<f64>(
+        &mut group,
+        moderate,
+        |x| x.neg(),
+        par!(|x| x.par_neg()),
+        |v| -v,
+    );
+    group.finish();
+}
+
+fn recip(c: &mut Criterion) {
+    let mut group = c.benchmark_group("recip");
+    out_of_place::<f32>(
+        &mut group,
+        moderate,
+        |x| x.recip(),
+        par!(|x| x.par_recip()),
+        |v| 1.0 / v,
+    );
+    out_of_place::<f64>(
+        &mut group,
+        moderate,
+        |x| x.recip(),
+        par!(|x| x.par_recip()),
+        |v| 1.0 / v,
+    );
+    group.finish();
+}
+
+fn sign(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sign");
+    out_of_place::<f32>(
+        &mut group,
+        moderate,
+        |x| x.sign(),
+        par!(|x| x.par_sign()),
+        |v| {
+            if v > 0.0 {
+                1.0
+            } else if v < 0.0 {
+                -1.0
+            } else {
+                0.0
+            }
+        },
+    );
+    out_of_place::<f64>(
+        &mut group,
+        moderate,
+        |x| x.sign(),
+        par!(|x| x.par_sign()),
+        |v| {
+            if v > 0.0 {
+                1.0
+            } else if v < 0.0 {
+                -1.0
+            } else {
+                0.0
+            }
+        },
+    );
+    group.finish();
+}
+
+fn clamp(c: &mut Criterion) {
+    let mut group = c.benchmark_group("clamp");
+    out_of_place::<f32>(
+        &mut group,
+        moderate,
+        |x| x.clamp(-1.0, 1.0),
+        par!(|x| x.par_clamp(-1.0, 1.0)),
+        |v| v.clamp(-1.0, 1.0),
+    );
+    out_of_place::<f64>(
+        &mut group,
+        moderate,
+        |x| x.clamp(-1.0, 1.0),
+        par!(|x| x.par_clamp(-1.0, 1.0)),
+        |v| v.clamp(-1.0, 1.0),
+    );
+    group.finish();
+}
+
 fn floor(c: &mut Criterion) {
     let mut group = c.benchmark_group("floor");
     out_of_place::<f32>(
@@ -1095,6 +1244,6 @@ fn config() -> Criterion {
 criterion_group! {
     name = benches;
     config = config();
-    targets = abs, acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, ceil, cos, cosh, erf, exp, floor, hypot, hypot3, hypot4, ln, log1p, log_sigmoid, powf, powf_scalar, powi, sigmoid, sin, sinh, softplus, sqrt, tan, tanh
+    targets = abs, acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, ceil, clamp, cos, cosh, erf, exp, floor, neg, recip, round, round_ties_even, sign, trunc, hypot, hypot3, hypot4, ln, log1p, log_sigmoid, powf, powf_scalar, powi, sigmoid, sin, sinh, softplus, sqrt, tan, tanh
 }
 criterion_main!(benches);

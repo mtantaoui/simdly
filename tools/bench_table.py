@@ -20,7 +20,7 @@ from pathlib import Path
 CATEGORIES = {
     "Arithmetic": ["add", "sub", "mul", "div", "add_assign", "sub_assign", "mul_assign", "div_assign", "sub_scalar", "sub_scalar_assign", "div_scalar"],
     "Comparisons": ["less", "less_scalar", "equal", "equal_scalar"],
-    "Math": ["abs", "abs_in_place", "sqrt", "sqrt_in_place", "acos", "acosh", "asin", "asinh", "atan", "atan_in_place", "atan2", "atanh", "cbrt", "cbrt_in_place", "ceil", "ceil_in_place", "cos", "cos_in_place", "cosh", "erf", "exp", "floor", "floor_in_place", "hypot", "hypot3", "hypot4", "ln", "log1p", "log_sigmoid", "powf", "powf_scalar", "powi", "sigmoid", "sin", "sin_in_place", "sinh", "softplus", "tan", "tan_in_place", "tanh"],
+    "Math": ["abs", "abs_in_place", "sqrt", "sqrt_in_place", "acos", "acosh", "asin", "asinh", "atan", "atan_in_place", "atan2", "atanh", "cbrt", "cbrt_in_place", "ceil", "ceil_in_place", "cos", "cos_in_place", "cosh", "erf", "exp", "floor", "floor_in_place", "trunc", "round", "round_ties_even", "neg", "recip", "sign", "clamp", "hypot", "hypot3", "hypot4", "ln", "log1p", "log_sigmoid", "powf", "powf_scalar", "powi", "sigmoid", "sin", "sin_in_place", "sinh", "softplus", "tan", "tan_in_place", "tanh"],
 }
 TYPES = ["f32", "f64"]
 LENS = [64, 4_096, 262_144, 4_194_304]

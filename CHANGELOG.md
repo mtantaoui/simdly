@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   input, and 0.844 for `f64`): fdlibm's approach on `ln`'s reduction and
   series, `1 + x` formed exactly. `ParSliceMath::par_log1p` and
   `par_log1p_in_place`.
+- `SliceMath::trunc`, `round` (halves away from zero) and `round_ties_even`
+  (halves to even, burn's `round`), exact and bit for bit `std`'s on every
+  `f32` and backend: one instruction on AVX2, AVX-512 and NEON, float
+  arithmetic on the scalar backend.
+- `SliceMath::neg`, `recip`, `sign` (`−1`, `0` or `1`, with `0` for `±0`
+  and NaN, as burn's) and `clamp(min, max)` (as `f32::clamp`, panicking on
+  `min > max` or a NaN bound once per slice), each with `_in_place` and
+  `ParSliceMath` `par_` variants, like the roundings.
 - `SliceMath::powf` (element-wise exponents), `powf_scalar` (one exponent)
   and `powi` (an `i32` exponent), with `_in_place` variants, ≤ 1 ULP on
   every backend, overflow and subnormal results included (measured 0.804
