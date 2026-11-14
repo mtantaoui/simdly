@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   input, and 0.844 for `f64`): fdlibm's approach on `ln`'s reduction and
   series, `1 + x` formed exactly. `ParSliceMath::par_log1p` and
   `par_log1p_in_place`.
+- `SliceMath::erf` and `erf_in_place`, the error function, ≤ 1 ULP on
+  every backend, subnormal results included (measured 0.896 for `f32`,
+  every input, and 0.867 for `f64`): fdlibm's rational approximations,
+  `erfc`'s exponent formed exactly for one `exp_parts`, and below 0.40625
+  `x·(2/√π)` exact with only the small term rounding. `ParSliceMath::par_erf`
+  and `par_erf_in_place`. `libm` is a new dev-dependency, as `erf`'s scalar
+  benchmark baseline and `f32` test reference.
 - `SliceMath::tanh` and `tanh_in_place`, ≤ 1 ULP on every backend
   (measured 0.684 for `f32`, every input, and 0.689 for `f64`):
   `(E − 1/E)/(E + 1/E)` on `sinh` and `cosh`'s exponential parts, `sinh`'s

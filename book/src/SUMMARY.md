@@ -18,6 +18,7 @@
 - [Ceiling `ceil`](./functions/ceil.md)
 - [Cosine `cos`](./functions/cos.md)
 - [Exponential `exp`](./functions/exp.md)
+- [Error function `erf`](./functions/erf.md)
 - [Floor `floor`](./functions/floor.md)
 - [Hypotenuse `hypot`](./functions/hypot.md)
 - [Three-dimensional hypotenuse `hypot3`](./functions/hypot3.md)

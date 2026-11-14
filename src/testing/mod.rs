@@ -397,6 +397,48 @@ pub(crate) mod dd {
         log1p_dd2(dd_add((t, 0.0), dd_sqrt(w)))
     }
 
+    /// `erf x` as `hi + lo`, to about 100 bits: `(2/√π)·e^−a²·Σ 2ⁿ·a^(2n+1)
+    /// / (1·3·…·(2n+1))`, `a = |x|`, a series of positive terms (no
+    /// cancellation) summed in double-double until they fall below 2⁻¹¹⁰
+    /// of the sum; `e^−a²` from [`exp_dd`], `a²`'s low part multiplied in.
+    /// From `a = 7` on, `erf` is 1 to 2⁻⁷⁴. Returned as `(hi + lo)·2^k`:
+    /// below `a = 2⁻⁹⁰⁰`, `erf x = (2/√π)·x` to 2⁻¹⁸⁰⁰, kept scaled by 2²⁰⁰
+    /// (`k = −200`) so subnormal results keep their bits.
+    pub(crate) fn erf_dd(x: f64) -> (f64, f64, i32) {
+        const TWO_OVER_SQRT_PI: (f64, f64) = (
+            f64::from_bits(0x3ff2_0dd7_5042_9b6d),
+            f64::from_bits(0x3c71_ae3a_914f_ed80),
+        );
+        if x == 0.0 {
+            return (x, 0.0, 0); // ±0, its sign kept
+        }
+        let a = x.abs();
+        if a < 2f64.powi(-900) {
+            let (hi, lo) = dd_mul((x * 2f64.powi(200), 0.0), TWO_OVER_SQRT_PI);
+            return (hi, lo, -200);
+        }
+        let (hi, lo) = if a >= 7.0 {
+            (1.0, 0.0)
+        } else {
+            let a2 = dd_mul((a, 0.0), (a, 0.0));
+            let two_a2 = (2.0 * a2.0, 2.0 * a2.1);
+            let (mut term, mut sum) = ((a, 0.0), (a, 0.0));
+            let mut n = 0.0;
+            while term.0 > sum.0 * 2f64.powi(-110) {
+                n += 1.0;
+                term = dd_div(dd_mul(term, two_a2), 2.0 * n + 1.0);
+                sum = dd_add(sum, term);
+            }
+            // e^−(h + l) = e^−h·(1 − l), to (l²/2)·e^−h < 2⁻¹⁰⁰ of it.
+            let (eh, el, k) = exp_dd(-a2.0);
+            let e = dd_mul((eh, el), two_sum(1.0, -a2.1));
+            let (hi, lo) = dd_mul(dd_mul(e, TWO_OVER_SQRT_PI), sum);
+            let s = 2f64.powi(k);
+            (hi * s, lo * s)
+        };
+        if x < 0.0 { (-hi, -lo, 0) } else { (hi, lo, 0) }
+    }
+
     /// `√(x² + y²) = (hi + lo) · 2^k`: both scaled by a power of 2 near the
     /// larger one, the squares summed exactly in double-double, then one
     /// Newton step of the square root.

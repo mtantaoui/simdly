@@ -17,6 +17,7 @@ fn main() {
     println!("⌈x⌉    = {:?}", x.ceil());
     println!("⌊x⌋    = {:?}", x.floor());
     println!("eˣ     = {:?}", x.exp());
+    println!("erf x  = {:?}", x.erf());
     println!("ln x   = {:?}", x.ln());
     println!("ln(1+x) = {:?}", x.log1p());
     println!("σ(x)   = {:?}", x.sigmoid());

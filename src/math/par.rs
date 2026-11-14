@@ -12,7 +12,7 @@ use rayon::prelude::*;
 
 use super::{
     AbsOp, AcosOp, AcoshOp, AsinOp, AsinhOp, Atan2Op, AtanOp, AtanhOp, BinaryOp, CbrtOp, CeilOp,
-    CosOp, CoshOp, ExpOp, FloorOp, Hypot3Op, Hypot4Op, HypotOp, LnOp, Log1pOp, LogSigmoidOp,
+    CosOp, CoshOp, ErfOp, ExpOp, FloorOp, Hypot3Op, Hypot4Op, HypotOp, LnOp, Log1pOp, LogSigmoidOp,
     MathElement, NaryOp, SigmoidOp, SinOp, SinhOp, SoftplusOp, SqrtOp, TanOp, TanhOp, UnaryOp,
     binary_to_vec, nary_to_vec, unary_to_vec,
 };
@@ -186,6 +186,11 @@ pub trait ParSliceMath<T>: crate::ops::sealed::Sealed {
     /// [`SliceMath::acosh_in_place`](crate::SliceMath::acosh_in_place) on several threads.
     fn par_acosh_in_place(&mut self);
 
+    /// [`SliceMath::erf`](crate::SliceMath::erf) on several threads.
+    fn par_erf(&self) -> Vec<T>;
+    /// [`SliceMath::erf_in_place`](crate::SliceMath::erf_in_place) on several threads.
+    fn par_erf_in_place(&mut self);
+
     /// [`SliceMath::sin`](crate::SliceMath::sin) on several threads.
     fn par_sin(&self) -> Vec<T>;
     /// [`SliceMath::sin_in_place`](crate::SliceMath::sin_in_place) on several threads.
@@ -244,6 +249,7 @@ macro_rules! impl_par_slice_math {
                     par_atanh par_atanh_in_place AtanhOp,
                     par_asinh par_asinh_in_place AsinhOp,
                     par_acosh par_acosh_in_place AcoshOp,
+                    par_erf par_erf_in_place ErfOp,
                     par_sin par_sin_in_place SinOp,
                     par_tan par_tan_in_place TanOp,
                     par_sqrt par_sqrt_in_place SqrtOp,
@@ -415,7 +421,7 @@ mod tests {
             fn(&mut [T]),
             fn(&mut [T]),
         );
-        let unary: [(&str, Pair<T>); 23] = [
+        let unary: [(&str, Pair<T>); 24] = [
             (
                 "abs",
                 (
@@ -594,6 +600,15 @@ mod tests {
                     |x| x.par_acosh(),
                     |x| x.acosh_in_place(),
                     |x| x.par_acosh_in_place(),
+                ),
+            ),
+            (
+                "erf",
+                (
+                    |x| x.erf(),
+                    |x| x.par_erf(),
+                    |x| x.erf_in_place(),
+                    |x| x.par_erf_in_place(),
                 ),
             ),
             (

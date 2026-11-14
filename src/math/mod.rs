@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`ceil`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`hyperbolic`] (`sinh`, `cosh`, `tanh`), [`inverse_hyperbolic`] (`atanh`, `asinh`, `acosh`), [`ln`], [`log1p`], [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`erf`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`hyperbolic`] (`sinh`, `cosh`, `tanh`), [`inverse_hyperbolic`] (`atanh`, `asinh`, `acosh`), [`ln`], [`log1p`], [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -21,6 +21,7 @@ mod atan;
 mod atan2;
 mod cbrt;
 mod ceil;
+mod erf;
 mod exp;
 mod float;
 mod floor;
@@ -47,6 +48,7 @@ use atan::Atan;
 use atan2::Atan2;
 use cbrt::Cbrt;
 use ceil::Ceil;
+use erf::Erf;
 use exp::Exp;
 use float::Float;
 use floor::Floor;
@@ -84,6 +86,7 @@ pub(crate) trait Math:
     + Atanh
     + Asinh
     + Acosh
+    + Erf
     + Trig
 {
 }
@@ -110,6 +113,7 @@ impl<
         + Atanh
         + Asinh
         + Acosh
+        + Erf
         + Trig,
 > Math for T
 {
@@ -387,6 +391,16 @@ impl UnaryOp for AcoshOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.acosh()
+    }
+}
+
+/// `erf x`.
+pub(crate) struct ErfOp;
+
+impl UnaryOp for ErfOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.erf()
     }
 }
 
@@ -1410,6 +1424,24 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = acosh self[i]`.
     fn acosh_in_place(&mut self);
 
+    /// `erf self[i] = (2/√π)·∫₀ˣ e^−t² dt`, the error function, in
+    /// `[−1, 1]`. Error ≤ 1 ULP; `erf(±0) = ±0`, `erf(±∞) = ±1`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![0.0_f64, -0.0, f64::INFINITY, -10.0, 1e-300];
+    /// let e = a.erf();
+    /// assert_eq!(e[..4], [0.0, -0.0, 1.0, -1.0]);
+    /// // erf x ≈ (2/√π)·x near 0.
+    /// assert_eq!(e[4], 1e-300 * core::f64::consts::FRAC_2_SQRT_PI);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn erf(&self) -> Vec<T>;
+
+    /// `self[i] = erf self[i]`.
+    fn erf_in_place(&mut self);
+
     /// `sin self[i]`, in radians. Error ≤ 1 ULP for every finite input, huge
     /// ones included; NaN for `±∞`.
     ///
@@ -1725,6 +1757,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn acosh_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<AcoshOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn erf(&self) -> Vec<$T> {
+                    unary_to_vec::<ErfOp, _>(self)
+                }
+
+                #[inline]
+                fn erf_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<ErfOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]

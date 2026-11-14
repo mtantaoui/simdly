@@ -38,6 +38,8 @@ rayon = { version = "1.10", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
+# `erf`'s scalar baseline and `f32` reference: `std` has no `erf`.
+libm = "0.2.16"
 
 # One benchmark per public operation, against the plain scalar loop a user
 # would write instead.
