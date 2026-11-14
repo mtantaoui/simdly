@@ -22,6 +22,8 @@ fn main() {
     println!("σ(x)   = {:?}", x.sigmoid());
     println!("ln σ(x) = {:?}", x.log_sigmoid());
     println!("ln(1+eˣ) = {:?}", x.softplus());
+    println!("sinh x = {:?}", x.sinh());
+    println!("cosh x = {:?}", x.cosh());
     println!("sin x  = {:?}", x.sin());
     println!("cos x  = {:?}", x.cos());
     println!("tan x  = {:?}", x.tan());

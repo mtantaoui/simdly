@@ -11,9 +11,10 @@ use alloc::vec::Vec;
 use rayon::prelude::*;
 
 use super::{
-    AbsOp, AcosOp, AsinOp, Atan2Op, AtanOp, BinaryOp, CbrtOp, CeilOp, CosOp, ExpOp, FloorOp,
-    Hypot3Op, Hypot4Op, HypotOp, LnOp, Log1pOp, LogSigmoidOp, MathElement, NaryOp, SigmoidOp,
-    SinOp, SoftplusOp, SqrtOp, TanOp, UnaryOp, binary_to_vec, nary_to_vec, unary_to_vec,
+    AbsOp, AcosOp, AsinOp, Atan2Op, AtanOp, BinaryOp, CbrtOp, CeilOp, CosOp, CoshOp, ExpOp,
+    FloorOp, Hypot3Op, Hypot4Op, HypotOp, LnOp, Log1pOp, LogSigmoidOp, MathElement, NaryOp,
+    SigmoidOp, SinOp, SinhOp, SoftplusOp, SqrtOp, TanOp, UnaryOp, binary_to_vec, nary_to_vec,
+    unary_to_vec,
 };
 use crate::{PARALLEL_CHUNK_SIZE, PARALLEL_SIMD_THRESHOLD};
 
@@ -155,6 +156,16 @@ pub trait ParSliceMath<T>: crate::ops::sealed::Sealed {
     /// [`SliceMath::softplus_in_place`](crate::SliceMath::softplus_in_place) on several threads.
     fn par_softplus_in_place(&mut self);
 
+    /// [`SliceMath::sinh`](crate::SliceMath::sinh) on several threads.
+    fn par_sinh(&self) -> Vec<T>;
+    /// [`SliceMath::sinh_in_place`](crate::SliceMath::sinh_in_place) on several threads.
+    fn par_sinh_in_place(&mut self);
+
+    /// [`SliceMath::cosh`](crate::SliceMath::cosh) on several threads.
+    fn par_cosh(&self) -> Vec<T>;
+    /// [`SliceMath::cosh_in_place`](crate::SliceMath::cosh_in_place) on several threads.
+    fn par_cosh_in_place(&mut self);
+
     /// [`SliceMath::sin`](crate::SliceMath::sin) on several threads.
     fn par_sin(&self) -> Vec<T>;
     /// [`SliceMath::sin_in_place`](crate::SliceMath::sin_in_place) on several threads.
@@ -207,6 +218,8 @@ macro_rules! impl_par_slice_math {
                     par_sigmoid par_sigmoid_in_place SigmoidOp,
                     par_log_sigmoid par_log_sigmoid_in_place LogSigmoidOp,
                     par_softplus par_softplus_in_place SoftplusOp,
+                    par_sinh par_sinh_in_place SinhOp,
+                    par_cosh par_cosh_in_place CoshOp,
                     par_sin par_sin_in_place SinOp,
                     par_tan par_tan_in_place TanOp,
                     par_sqrt par_sqrt_in_place SqrtOp,
@@ -378,7 +391,7 @@ mod tests {
             fn(&mut [T]),
             fn(&mut [T]),
         );
-        let unary: [(&str, Pair<T>); 17] = [
+        let unary: [(&str, Pair<T>); 19] = [
             (
                 "abs",
                 (
@@ -503,6 +516,24 @@ mod tests {
                     |x| x.par_softplus(),
                     |x| x.softplus_in_place(),
                     |x| x.par_softplus_in_place(),
+                ),
+            ),
+            (
+                "sinh",
+                (
+                    |x| x.sinh(),
+                    |x| x.par_sinh(),
+                    |x| x.sinh_in_place(),
+                    |x| x.par_sinh_in_place(),
+                ),
+            ),
+            (
+                "cosh",
+                (
+                    |x| x.cosh(),
+                    |x| x.par_cosh(),
+                    |x| x.cosh_in_place(),
+                    |x| x.par_cosh_in_place(),
                 ),
             ),
             (

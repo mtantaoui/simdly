@@ -267,6 +267,50 @@ pub(crate) mod dd {
         (qh, ql, k)
     }
 
+    /// `sinh x = (hi + lo) · 2^k` to about 100 bits: below `|x| = 1`, the
+    /// Taylor series `x·(1 + x²/3!·(1 + x²/(4·5)·(1 + …)))` (30 terms);
+    /// above, `(E − 1/E)/2` with `E = e^|x|` from [`exp_dd`], so the
+    /// cancellation stays below a factor `coth 1 ≈ 1.3`.
+    pub(crate) fn sinh_dd(x: f64) -> (f64, f64, i32) {
+        if x == 0.0 {
+            return (x, 0.0, 0); // ±0, its sign kept
+        }
+        if x.abs() < 1.0 {
+            let x2 = (x * x, x.mul_add(x, -(x * x)));
+            let mut s = (1.0, 0.0);
+            for n in (1..=30).rev() {
+                let n = f64::from(n);
+                s = dd_add(
+                    (1.0, 0.0),
+                    dd_div(dd_mul(s, x2), (2.0 * n) * (2.0 * n + 1.0)),
+                );
+            }
+            let (hi, lo) = dd_mul(s, (x, 0.0));
+            return (hi, lo, 0);
+        }
+        let (hi, lo, k) = exp_parts_dd(x.abs(), -1.0);
+        if x < 0.0 { (-hi, -lo, k) } else { (hi, lo, k) }
+    }
+
+    /// `cosh x = (hi + lo) · 2^k` to about 100 bits: `(E + 1/E)/2`, `E =
+    /// e^|x|` from [`exp_dd`].
+    pub(crate) fn cosh_dd(x: f64) -> (f64, f64, i32) {
+        exp_parts_dd(x.abs(), 1.0)
+    }
+
+    /// `(E + sign/E)/2 = (hi + lo)·2^k` for `E = eᵃ`, `a ≥ 0` capped at
+    /// 800 (past every `f64`).
+    fn exp_parts_dd(a: f64, sign: f64) -> (f64, f64, i32) {
+        let (h, l, k) = exp_dd(a.min(800.0));
+        // 1/(h + l) = (1/h)·(1 − l/h), to 2⁻¹⁰⁶; times 2^−2k, dropped where
+        // it is below 2⁻⁹⁰⁰ of `h`.
+        let q = dd_div((1.0, 0.0), h);
+        let (qh, ql) = dd_add(q, (-q.0 * (l / h), 0.0));
+        let s = if 2 * k > 900 { 0.0 } else { 2f64.powi(-2 * k) };
+        let (hi, lo) = dd_add((h, l), (sign * qh * s, sign * ql * s));
+        (hi, lo, k - 1)
+    }
+
     /// `√(x² + y²) = (hi + lo) · 2^k`: both scaled by a power of 2 near the
     /// larger one, the squares summed exactly in double-double, then one
     /// Newton step of the square root.

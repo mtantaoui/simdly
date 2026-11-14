@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   input, and 0.844 for `f64`): fdlibm's approach on `ln`'s reduction and
   series, `1 + x` formed exactly. `ParSliceMath::par_log1p` and
   `par_log1p_in_place`.
+- `SliceMath::sinh`, `cosh` and their `_in_place` variants, ≤ 1 ULP on
+  every backend (measured 0.711 for `f32`, every input, and 0.728 for
+  `f64`): `(eᵃ ± e⁻ᵃ)/2` from `exp_parts`, the reciprocal corrected and the
+  sum formed exactly, scaled last so results stay finite past `eˣ`'s
+  overflow; `sinh` takes its Taylor series below 0.5.
+  `ParSliceMath::par_sinh`, `par_cosh` and their `_in_place` variants.
 - `SliceMath::softplus` and `softplus_in_place`, `ln(1 + eˣ)`, and
   `log_sigmoid` and `log_sigmoid_in_place`, `ln σ(x) = −softplus(−x)`, ≤ 1
   ULP on every backend, without overflow or cancellation (measured 0.867

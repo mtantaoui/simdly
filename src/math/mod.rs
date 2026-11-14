@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`ceil`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`ln`], [`log1p`], [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`hyperbolic`] (`sinh`, `cosh`), [`ln`], [`log1p`], [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -24,6 +24,7 @@ mod ceil;
 mod exp;
 mod float;
 mod floor;
+mod hyperbolic;
 mod hypot;
 mod ln;
 mod log1p;
@@ -48,6 +49,7 @@ use ceil::Ceil;
 use exp::Exp;
 use float::Float;
 use floor::Floor;
+use hyperbolic::{Cosh, Sinh};
 use hypot::{Hypot, Norm};
 use ln::Ln;
 use log1p::Log1p;
@@ -74,6 +76,8 @@ pub(crate) trait Math:
     + LogSigmoid
     + Sigmoid
     + Softplus
+    + Sinh
+    + Cosh
     + Trig
 {
 }
@@ -94,6 +98,8 @@ impl<
         + LogSigmoid
         + Sigmoid
         + Softplus
+        + Sinh
+        + Cosh
         + Trig,
 > Math for T
 {
@@ -311,6 +317,26 @@ impl UnaryOp for SoftplusOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.softplus()
+    }
+}
+
+/// `sinh x`.
+pub(crate) struct SinhOp;
+
+impl UnaryOp for SinhOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.sinh()
+    }
+}
+
+/// `cosh x`.
+pub(crate) struct CoshOp;
+
+impl UnaryOp for CoshOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.cosh()
     }
 }
 
@@ -1226,6 +1252,40 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = ln(1 + e^self[i])`.
     fn softplus_in_place(&mut self);
 
+    /// `sinh self[i] = (e^self[i] − e^−self[i])/2`, the hyperbolic sine.
+    /// Error ≤ 1 ULP, without cancellation near 0 or overflow between
+    /// `eˣ`'s and `sinh`'s own: `sinh(±0) = ±0`, `sinh(±∞) = ±∞`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![0.0_f32, -0.0, 1e-20, 89.0];
+    /// // `(e^89 − e^−89)/2` would overflow at `e^89`.
+    /// let s = a.sinh();
+    /// assert_eq!(s[..3], [0.0, -0.0, 1e-20]);
+    /// assert!(s[3].is_finite());
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn sinh(&self) -> Vec<T>;
+
+    /// `self[i] = sinh self[i]`.
+    fn sinh_in_place(&mut self);
+
+    /// `cosh self[i] = (e^self[i] + e^−self[i])/2`, the hyperbolic cosine,
+    /// in `[1, ∞]`. Error ≤ 1 ULP; `cosh(±0) = 1`, `cosh(±∞) = +∞`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![0.0_f64, -0.0, f64::NEG_INFINITY];
+    /// assert_eq!(a.cosh(), [1.0, 1.0, f64::INFINITY]);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn cosh(&self) -> Vec<T>;
+
+    /// `self[i] = cosh self[i]`.
+    fn cosh_in_place(&mut self);
+
     /// `sin self[i]`, in radians. Error ≤ 1 ULP for every finite input, huge
     /// ones included; NaN for `±∞`.
     ///
@@ -1475,6 +1535,28 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn softplus_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<SoftplusOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn sinh(&self) -> Vec<$T> {
+                    unary_to_vec::<SinhOp, _>(self)
+                }
+
+                #[inline]
+                fn sinh_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<SinhOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn cosh(&self) -> Vec<$T> {
+                    unary_to_vec::<CoshOp, _>(self)
+                }
+
+                #[inline]
+                fn cosh_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<CoshOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]
