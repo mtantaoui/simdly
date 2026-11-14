@@ -6,7 +6,7 @@
 //! triple compiles to its own inlined loop over the [`driver`].
 //!
 //! A single instruction ([`abs`], [`ceil`], [`floor`], [`sqrt`]) is implemented per lane type. An
-//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`hyperbolic`] (`sinh`, `cosh`), [`ln`], [`log1p`], [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
+//! algorithm ([`acos`], [`asin`], [`atan`], [`atan2`], [`cbrt`], [`exp`], [`hypot`] (and `hypot3`, `hypot4`), [`hyperbolic`] (`sinh`, `cosh`), [`inverse_hyperbolic`] (`atanh`), [`ln`], [`log1p`], [`sigmoid`], [`softplus`] (and `log_sigmoid`), [`trig`]) is written once, generic over [`Float`], and each
 //! backend runs it with its own instructions.
 
 #[cfg(feature = "alloc")]
@@ -26,6 +26,7 @@ mod float;
 mod floor;
 mod hyperbolic;
 mod hypot;
+mod inverse_hyperbolic;
 mod ln;
 mod log1p;
 #[cfg(feature = "rayon")]
@@ -51,6 +52,7 @@ use float::Float;
 use floor::Floor;
 use hyperbolic::{Cosh, Sinh};
 use hypot::{Hypot, Norm};
+use inverse_hyperbolic::Atanh;
 use ln::Ln;
 use log1p::Log1p;
 use sigmoid::Sigmoid;
@@ -78,6 +80,7 @@ pub(crate) trait Math:
     + Softplus
     + Sinh
     + Cosh
+    + Atanh
     + Trig
 {
 }
@@ -100,6 +103,7 @@ impl<
         + Softplus
         + Sinh
         + Cosh
+        + Atanh
         + Trig,
 > Math for T
 {
@@ -337,6 +341,16 @@ impl UnaryOp for CoshOp {
     #[inline(always)]
     fn apply<V: Math>(v: V) -> V {
         v.cosh()
+    }
+}
+
+/// `atanh x`.
+pub(crate) struct AtanhOp;
+
+impl UnaryOp for AtanhOp {
+    #[inline(always)]
+    fn apply<V: Math>(v: V) -> V {
+        v.atanh()
     }
 }
 
@@ -1286,6 +1300,25 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     /// `self[i] = cosh self[i]`.
     fn cosh_in_place(&mut self);
 
+    /// `atanh self[i] = ½·ln((1 + x)/(1 − x))`, the inverse hyperbolic
+    /// tangent. Error ≤ 1 ULP; `atanh(±0) = ±0`, `atanh(±1) = ±∞`, NaN
+    /// beyond `±1`.
+    ///
+    /// ```
+    /// use simdly::SliceMath;
+    ///
+    /// let a = vec![0.0_f64, -0.0, 1.0, -1.0, 2.0, 1e-20];
+    /// let t = a.atanh();
+    /// assert_eq!(t[..4], [0.0, -0.0, f64::INFINITY, f64::NEG_INFINITY]);
+    /// assert!(t[4].is_nan());
+    /// assert_eq!(t[5], 1e-20);
+    /// ```
+    #[cfg(feature = "alloc")]
+    fn atanh(&self) -> Vec<T>;
+
+    /// `self[i] = atanh self[i]`.
+    fn atanh_in_place(&mut self);
+
     /// `sin self[i]`, in radians. Error ≤ 1 ULP for every finite input, huge
     /// ones included; NaN for `±∞`.
     ///
@@ -1557,6 +1590,17 @@ macro_rules! impl_slice_math {
                 #[inline]
                 fn cosh_in_place(&mut self) {
                     <$T as MathElement>::unary_in_place::<CoshOp>(self);
+                }
+
+                #[cfg(feature = "alloc")]
+                #[inline]
+                fn atanh(&self) -> Vec<$T> {
+                    unary_to_vec::<AtanhOp, _>(self)
+                }
+
+                #[inline]
+                fn atanh_in_place(&mut self) {
+                    <$T as MathElement>::unary_in_place::<AtanhOp>(self);
                 }
 
                 #[cfg(feature = "alloc")]

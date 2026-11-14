@@ -311,6 +311,23 @@ pub(crate) mod dd {
         (hi, lo, k - 1)
     }
 
+    /// `atanh x` as `hi + lo` for `|x| < 1`, to about 100 bits:
+    /// `½·ln(1 + q)`, `q = 2t/(1 − t)` divided in double-double (`1 − t`
+    /// exact as a [`two_sum`]), the logarithm from [`log1p_dd2`].
+    pub(crate) fn atanh_dd(x: f64) -> (f64, f64) {
+        if x == 0.0 {
+            return (x, 0.0); // ±0, its sign kept
+        }
+        let t = x.abs();
+        let (dh, dl) = two_sum(1.0, -t);
+        // 2t / (dh + dl) = (2t / dh)·(1 − dl/dh), to 2⁻¹⁰⁶.
+        let q = dd_div((2.0 * t, 0.0), dh);
+        let q = dd_add(q, (-q.0 * (dl / dh), 0.0));
+        let (hi, lo) = log1p_dd2(q);
+        let (hi, lo) = (0.5 * hi, 0.5 * lo);
+        if x < 0.0 { (-hi, -lo) } else { (hi, lo) }
+    }
+
     /// `√(x² + y²) = (hi + lo) · 2^k`: both scaled by a power of 2 near the
     /// larger one, the squares summed exactly in double-double, then one
     /// Newton step of the square root.
