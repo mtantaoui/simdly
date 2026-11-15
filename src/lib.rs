@@ -43,7 +43,14 @@
 //!   …) for long slices; implies `std`.
 //!
 //! Without default features the crate is `no_std`.
-
+//!
+// Without `rayon` the parallel traits are not compiled: their links above
+// point to docs.rs, which documents every feature.
+#![cfg_attr(
+    not(feature = "rayon"),
+    doc = "[`ParSliceMath`]: https://docs.rs/simdly/latest/simdly/trait.ParSliceMath.html",
+    doc = "[`ParSliceExt`]: https://docs.rs/simdly/latest/simdly/trait.ParSliceExt.html"
+)]
 #![no_std]
 
 #[cfg(feature = "alloc")]

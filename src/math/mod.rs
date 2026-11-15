@@ -1868,7 +1868,8 @@ pub trait SliceMath<T>: crate::ops::sealed::Sealed {
     ///
     /// # Panics
     ///
-    /// As [`clamp`](Self::clamp).
+    /// If `min > max`, or either is NaN, as `f32::clamp`; checked once, not
+    /// per element.
     fn clamp_in_place(&mut self, min: T, max: T);
 
     /// `√(self[i]² + y[i]²)`, without overflow or underflow in between, as
