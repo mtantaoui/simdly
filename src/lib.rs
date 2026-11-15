@@ -52,12 +52,15 @@
 //! | `x86_64`     | AVX2 + FMA      | 8           | 4           |
 //! | `x86_64`     | AVX-512         | 16          | 8           |
 //! | `aarch64`    | NEON            | 4           | 2           |
+//! | `wasm32`     | SIMD (`simd128`) | 4          | 2           |
 //! | any          | scalar fallback | 1           | 1           |
 //!
 //! On `x86_64` the fastest backend the CPU supports is detected at runtime, so
-//! no flags are needed. On `aarch64` NEON is always used. [`backend()`]
-//! reports the one in use. Without `std`, only backends enabled at compile
-//! time (`-C target-feature=+avx2,+fma`, or `+sse4.1`) are used.
+//! no flags are needed. On `aarch64` NEON is always used. On `wasm32`, SIMD
+//! is used when enabled at compile time (`-C target-feature=+simd128`; it is
+//! not by default). [`backend()`] reports the one in use. Without `std`, only
+//! backends enabled at compile time (`-C target-feature=+avx2,+fma`, or
+//! `+sse4.1`) are used.
 //!
 //! ## Cargo features
 //!

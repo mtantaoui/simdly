@@ -8,6 +8,7 @@
 | AVX2    | AVX2 + FMA          | 8           | 4           | at run time, on `x86_64`         |
 | SSE4.1  | SSE4.1              | 4           | 2           | at run time, on `x86_64` without AVX2 |
 | NEON    | NEON                | 4           | 2           | always, on `aarch64`             |
+| wasm    | `simd128`           | 4           | 2           | on `wasm32`, when enabled at compile time |
 | scalar  | none                | 1           | 1           | when nothing else is available   |
 
 On `x86_64`, each call checks the CPU's features once (the result is cached
@@ -19,7 +20,7 @@ backend in use.
 
 Each backend has one register type per element type (`F32x8`, `F64x4`, …).
 A slice is processed as full registers plus one tail: AVX2 and AVX-512 load
-and store the tail with lane masks, SSE4.1 and NEON through a
+and store the tail with lane masks, SSE4.1, NEON and wasm through a
 register-sized buffer.
 Nothing past the end of a slice is read or written.
 
@@ -27,22 +28,23 @@ Nothing past the end of a slice is read or written.
 
 A function like `acos` is written once, generic over a small `Float` trait:
 
-| `Float` method      | AVX2                 | AVX-512                 | SSE4.1               | NEON          | scalar        |
-|---------------------|----------------------|-------------------------|----------------------|---------------|---------------|
-| `a.mul_add(b, c)`   | `vfmadd` (fused)     | `vfmadd` (fused)        | `mulps`, `addps`     | `fmla` (fused)| `a * b + c`   |
-| `select(m, a, b)`   | `vblendvps`          | masked blend            | `blendvps`           | `bsl`         | `if`          |
-| `a.lt(b)`, …        | `vcmpps`             | `vcmpps` into a mask    | `cmpltps`, …         | `fcmgt`, …    | `<`, …        |
-| `a.and_bits(m)`     | `vpand`              | `vpandd`                | `pand`               | `and`         | `to_bits() &` |
-| `a.sqrt()`, `a / b` | `vsqrtps`, `vdivps`  | `vsqrtps`, `vdivps`     | `sqrtps`, `divps`    | `fsqrt`, `fdiv` | `sqrt`, `/` |
+| `Float` method      | AVX2                 | AVX-512                 | SSE4.1               | NEON          | wasm                       | scalar        |
+|---------------------|----------------------|-------------------------|----------------------|---------------|----------------------------|---------------|
+| `a.mul_add(b, c)`   | `vfmadd` (fused)     | `vfmadd` (fused)        | `mulps`, `addps`     | `fmla` (fused)| `f32x4.mul`, `f32x4.add`   | `a * b + c`   |
+| `select(m, a, b)`   | `vblendvps`          | masked blend            | `blendvps`           | `bsl`         | `v128.bitselect`           | `if`          |
+| `a.lt(b)`, …        | `vcmpps`             | `vcmpps` into a mask    | `cmpltps`, …         | `fcmgt`, …    | `f32x4.lt`, …              | `<`, …        |
+| `a.and_bits(m)`     | `vpand`              | `vpandd`                | `pand`               | `and`         | `v128.and`                 | `to_bits() &` |
+| `a.sqrt()`, `a / b` | `vsqrtps`, `vdivps`  | `vsqrtps`, `vdivps`     | `sqrtps`, `divps`    | `fsqrt`, `fdiv` | `f32x4.sqrt`, `f32x4.div` | `sqrt`, `/` |
 
 Branches become selects: every lane computes each case of the algorithm
 and keeps its own. The kernel compiles once per register type, to that
 ISA's instructions; on scalar `f32` and `f64` it is ordinary code.
 
 The scalar backend uses separate multiply and add, as `core` has no fused
-multiply-add, and so does SSE4.1, which has none; where a kernel needs a
-product exactly (`residual`), both use Dekker's algorithm instead of a
-fused multiply-add. Results can therefore differ between backends by a rounding,
+multiply-add, and so do SSE4.1 and wasm, which have none (wasm's relaxed
+multiply-add may or may not fuse, depending on the engine: not used);
+where a kernel needs a product exactly (`residual`), all three use
+Dekker's algorithm instead of a fused multiply-add. Results can therefore differ between backends by a rounding,
 so each function is tested against a precise reference on every backend,
 not against another backend.
 

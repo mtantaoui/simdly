@@ -49,7 +49,8 @@ python3 tools/bench_table.py         # the tables of these pages
 A machine with AVX-512 runs the AVX-512 backend; to measure AVX2 on it, use
 a machine without AVX-512, and for SSE4.1 one without AVX2 (emulators such
 as `qemu -cpu Nehalem` check correctness, not speed). On `aarch64`, NEON is
-always used.
+always used. The benchmarks do not build for WebAssembly (criterion does
+not): see [wasm](./wasm.md).
 
 ## Results
 
@@ -57,3 +58,4 @@ always used.
 - [AVX-512](./avx512.md)
 - [SSE4.1](./sse41.md)
 - [NEON](./neon.md)
+- [wasm](./wasm.md)

@@ -31,44 +31,44 @@ For `f32` and `f64`. ✅ implemented, 🚧 planned. An operation without a SIMD
 backend still works everywhere: it runs on the next one available (AVX2,
 SSE4.1, then scalar).
 
-| Operation                                      | AVX-512 | AVX2 | SSE4.1 | NEON | scalar |
-|------------------------------------------------|---------|------|--------|------|--------|
-| Arithmetic: `add` `sub` `mul` `div`, `_assign` | ✅      | ✅   | ✅     | ✅   | ✅     |
-| Arithmetic with a scalar: `add_scalar` … `div_scalar`, `_assign` | ✅ | ✅ | ✅     | ✅ | ✅ |
-| Comparisons: `less` … `not_equal`, `_scalar`   | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `abs`                                          | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `acos`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `asin`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `atan`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `atan2`                                        | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `cbrt`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `ceil`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `floor`                                        | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `trunc`, `round`, `round_ties_even`            | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `neg`, `recip`, `sign`, `clamp`                | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `fmod`, `remainder` (and `_scalar`)            | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `exp`                                          | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `erf`                                          | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `gelu`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `ln`                                           | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `log1p`                                        | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `powf`, `powf_scalar`, `powi`                  | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `sigmoid`                                      | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `log_sigmoid`                                  | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `softplus`                                     | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `sinh`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `cosh`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `tanh`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `asinh`                                        | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `acosh`                                        | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `atanh`                                        | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `hypot`                                        | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `hypot3`                                       | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `hypot4`                                       | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `sin`                                          | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `cos`                                          | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `tan`                                          | ✅      | ✅   | ✅     | ✅   | ✅     |
-| `sqrt`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
+| Operation                                      | AVX-512 | AVX2 | SSE4.1 | NEON | wasm | scalar |
+|------------------------------------------------|---------|------|--------|------|------|--------|
+| Arithmetic: `add` `sub` `mul` `div`, `_assign` | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| Arithmetic with a scalar: `add_scalar` … `div_scalar`, `_assign` | ✅ | ✅ | ✅     | ✅ | ✅   | ✅ |
+| Comparisons: `less` … `not_equal`, `_scalar`   | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `abs`                                          | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `acos`                                         | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `asin`                                         | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `atan`                                         | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `atan2`                                        | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `cbrt`                                         | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `ceil`                                         | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `floor`                                        | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `trunc`, `round`, `round_ties_even`            | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `neg`, `recip`, `sign`, `clamp`                | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `fmod`, `remainder` (and `_scalar`)            | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `exp`                                          | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `erf`                                          | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `gelu`                                         | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `ln`                                           | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `log1p`                                        | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `powf`, `powf_scalar`, `powi`                  | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `sigmoid`                                      | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `log_sigmoid`                                  | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `softplus`                                     | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `sinh`                                         | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `cosh`                                         | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `tanh`                                         | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `asinh`                                        | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `acosh`                                        | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `atanh`                                        | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `hypot`                                        | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `hypot3`                                       | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `hypot4`                                       | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `sin`                                          | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `cos`                                          | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `tan`                                          | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
+| `sqrt`                                         | ✅      | ✅   | ✅     | ✅   | ✅   | ✅     |
 
 The [book](book/) explains the maths behind each function and collects the
 benchmarks (`mdbook serve book`).
@@ -81,11 +81,20 @@ benchmarks (`mdbook serve book`).
 | `x86_64`     | AVX2 + FMA      | 8           | 4           |
 | `x86_64`     | AVX-512         | 16          | 8           |
 | `aarch64`    | NEON            | 4           | 2           |
+| `wasm32`     | SIMD (`simd128`) | 4          | 2           |
 | any          | scalar fallback | 1           | 1           |
 
 No flags are needed: on `x86_64` the fastest backend the CPU supports is
 detected at runtime, and cross-compiling works as usual. On `aarch64` NEON is
 always used. `simdly::backend()` reports the one in use.
+
+WebAssembly has no runtime detection, and its SIMD is not enabled by
+default: build with it (every major browser and runtime supports it), or
+simdly runs its scalar fallback:
+
+```sh
+RUSTFLAGS="-C target-feature=+simd128" cargo build --release --target wasm32-unknown-unknown
+```
 
 Without the `std` feature, runtime detection is unavailable and only
 backends enabled at compile time are used, e.g. on `x86_64`:

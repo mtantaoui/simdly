@@ -43,3 +43,4 @@
 - [AVX-512](./benchmarks/avx512.md)
 - [SSE4.1](./benchmarks/sse41.md)
 - [NEON](./benchmarks/neon.md)
+- [wasm](./benchmarks/wasm.md)

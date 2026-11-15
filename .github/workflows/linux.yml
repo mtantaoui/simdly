@@ -87,6 +87,46 @@ jobs:
 
   # The jobs below do not depend on the host OS, so they run once, here.
 
+  # WebAssembly SIMD, enabled at compile time (wasm has no runtime
+  # detection), on wasm32-wasip1 under wasmtime. Not --all-targets: the
+  # benchmarks' criterion does not build for wasm. rayon is left out: WASI
+  # has no threads.
+  wasm:
+    name: wasm (wasm32-wasip1, wasmtime)
+    runs-on: ubuntu-26.04
+    env:
+      RUSTFLAGS: "-C target-feature=+simd128"
+      CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime
+      WASMTIME_VERSION: v50.0.1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasmtime
+        run: |
+          curl -sSfL "https://github.com/bytecodealliance/wasmtime/releases/download/$WASMTIME_VERSION/wasmtime-$WASMTIME_VERSION-x86_64-linux.tar.xz" \
+            | tar -xJ -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/wasmtime-$WASMTIME_VERSION-x86_64-linux" >> "$GITHUB_PATH"
+      - name: Clippy
+        run: cargo clippy --target wasm32-wasip1 --lib --tests --examples -- -D warnings
+      - name: Clippy (no default features)
+        run: cargo clippy --target wasm32-wasip1 --lib --tests --no-default-features -- -D warnings
+      - name: Clippy (without simd128, the scalar fallback)
+        run: cargo clippy --target wasm32-wasip1 --lib --tests -- -D warnings
+        env:
+          RUSTFLAGS: ""
+      - name: Test
+        run: cargo test --target wasm32-wasip1 --release
+        env:
+          SIMDLY_REQUIRE_BACKENDS: scalar,wasm
+      - name: Test (no default features)
+        run: cargo test --target wasm32-wasip1 --release --no-default-features
+        env:
+          SIMDLY_REQUIRE_BACKENDS: scalar,wasm
+
   fmt:
     name: Format
     runs-on: ubuntu-26.04
@@ -100,14 +140,15 @@ jobs:
   # Build for targets that have no `std` at all, so an accidental `std`
   # dependency fails here rather than for a downstream user. The softfloat
   # aarch64 target has NEON disabled, exercising the aarch64 scalar fallback;
-  # x86_64-unknown-none is soft-float, exercising the x86_64 one.
+  # x86_64-unknown-none is soft-float, exercising the x86_64 one;
+  # wasm32-unknown-unknown, without simd128, the wasm one.
   no-std:
     name: no_std (${{ matrix.target }})
     runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
-        target: [thumbv7em-none-eabihf, aarch64-unknown-none-softfloat, x86_64-unknown-none]
+        target: [thumbv7em-none-eabihf, aarch64-unknown-none-softfloat, x86_64-unknown-none, wasm32-unknown-unknown]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable

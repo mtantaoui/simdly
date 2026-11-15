@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- WebAssembly SIMD backend (`simd128`, 4 `f32` / 2 `f64` lanes): every math
+  function, the arithmetic and the comparisons, used on `wasm32` when built
+  with `-C target-feature=+simd128` (wasm has no runtime detection, and it
+  is not enabled by default); `Backend::Wasm`. Same ≤ 1 ULP bounds, checked
+  over every `f32` input under wasmtime. No fused multiply-add, as on
+  SSE4.1. Under V8, 1.9× (`tanh`) to 5.9× (`exp`) faster than the plain
+  `libm` loop on `f32`. CI runs the suite on `wasm32-wasip1` under
+  wasmtime.
 - SSE4.1 backend, for `x86_64` CPUs without AVX2 (4 `f32` / 2 `f64`
   lanes): every math function, the arithmetic and the comparisons, selected
   at run time after AVX-512 and AVX2 (or at compile time without `std`,
