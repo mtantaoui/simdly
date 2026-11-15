@@ -99,7 +99,7 @@ pub(crate) trait ArithElement: Arith + Sized {
 }
 
 macro_rules! arith_element {
-    ($($T:ty => $avx512:ident, $avx2:ident, $sse41:ident, $neon:ident);* $(;)?) => {
+    ($($T:ty => $avx512:ident, $avx2:ident, $sse41:ident, $neon:ident, $wasm:ident);* $(;)?) => {
         $(
             impl ArithElement for $T {
                 #[cfg(any(feature = "alloc", test))]
@@ -116,6 +116,7 @@ macro_rules! arith_element {
                         avx2 => x86::avx2_binary_uninit::<x86::$avx2, Op>(a, b, out),
                         sse41 => x86::sse41_binary_uninit::<x86::$sse41, Op>(a, b, out),
                         neon => neon::binary_uninit::<neon::$neon, Op>(a, b, out),
+                        wasm => wasm::binary_uninit::<wasm::$wasm, Op>(a, b, out),
                         scalar => scalar_binary_uninit::<Op, Self>(a, b, out),
                     }
                 }
@@ -128,6 +129,7 @@ macro_rules! arith_element {
                         avx2 => x86::avx2_binary_in_place::<x86::$avx2, Op>(a, b),
                         sse41 => x86::sse41_binary_in_place::<x86::$sse41, Op>(a, b),
                         neon => neon::binary_in_place::<neon::$neon, Op>(a, b),
+                        wasm => wasm::binary_in_place::<wasm::$wasm, Op>(a, b),
                         scalar => scalar_binary_in_place::<Op, Self>(a, b),
                     }
                 }
@@ -145,6 +147,7 @@ macro_rules! arith_element {
                         avx2 => x86::avx2_binary_scalar_uninit::<x86::$avx2, Op>(a, b, out),
                         sse41 => x86::sse41_binary_scalar_uninit::<x86::$sse41, Op>(a, b, out),
                         neon => neon::binary_scalar_uninit::<neon::$neon, Op>(a, b, out),
+                        wasm => wasm::binary_scalar_uninit::<wasm::$wasm, Op>(a, b, out),
                         scalar => scalar_binary_scalar_uninit::<Op, Self>(a, b, out),
                     }
                 }
@@ -156,6 +159,7 @@ macro_rules! arith_element {
                         avx2 => x86::avx2_binary_scalar_in_place::<x86::$avx2, Op>(a, b),
                         sse41 => x86::sse41_binary_scalar_in_place::<x86::$sse41, Op>(a, b),
                         neon => neon::binary_scalar_in_place::<neon::$neon, Op>(a, b),
+                        wasm => wasm::binary_scalar_in_place::<wasm::$wasm, Op>(a, b),
                         scalar => scalar_binary_scalar_in_place::<Op, Self>(a, b),
                     }
                 }
@@ -194,6 +198,11 @@ macro_rules! arith_element {
                         neon::binary_scalar_in_place::<neon::$neon, Op>(&mut x, b);
                         results.push(("neon", x));
                     } else {});
+                    cfg_wasm!(if {
+                        let mut x = a.to_vec();
+                        wasm::binary_scalar_in_place::<wasm::$wasm, Op>(&mut x, b);
+                        results.push(("wasm", x));
+                    } else {});
                     results
                 }
 
@@ -231,6 +240,11 @@ macro_rules! arith_element {
                         neon::binary_in_place::<neon::$neon, Op>(&mut x, b);
                         results.push(("neon", x));
                     } else {});
+                    cfg_wasm!(if {
+                        let mut x = a.to_vec();
+                        wasm::binary_in_place::<wasm::$wasm, Op>(&mut x, b);
+                        results.push(("wasm", x));
+                    } else {});
                     results
                 }
             }
@@ -238,7 +252,7 @@ macro_rules! arith_element {
     };
 }
 
-arith_element!(f32 => F32x16, F32x8, F32x4, F32x4; f64 => F64x8, F64x4, F64x2, F64x2);
+arith_element!(f32 => F32x16, F32x8, F32x4, F32x4, F32x4; f64 => F64x8, F64x4, F64x2, F64x2, F64x2);
 
 #[cfg(any(feature = "alloc", test))]
 fn scalar_binary_uninit<Op: BinaryOp, T: Arith>(a: &[T], b: &[T], out: &mut [MaybeUninit<T>]) {
@@ -456,6 +470,59 @@ cfg_neon! {
             b: V::Scalar,
         ) {
             // SAFETY: NEON is enabled at compile time, and `V` is a NEON
+            // register type.
+            unsafe { driver::binary_scalar_in_place::<V, Op>(a, b) }
+        }
+    }
+}
+
+cfg_wasm! {
+    mod wasm {
+        use super::{Arith, BinaryOp};
+        use crate::math::driver;
+        use crate::simd::SimdVector;
+        pub(super) use crate::simd::wasm::{f32x4::F32x4, f64x2::F64x2};
+
+        #[cfg(any(feature = "alloc", test))]
+        #[inline]
+        pub(super) fn binary_uninit<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &[V::Scalar],
+            b: &[V::Scalar],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: `simd128` is enabled at compile time, and `V` is a wasm
+            // register type.
+            unsafe { driver::binary_uninit::<V, Op>(a, b, out) }
+        }
+
+        #[inline]
+        pub(super) fn binary_in_place<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &mut [V::Scalar],
+            b: &[V::Scalar],
+        ) {
+            // SAFETY: `simd128` is enabled at compile time, and `V` is a wasm
+            // register type.
+            unsafe { driver::binary_in_place::<V, Op>(a, b) }
+        }
+
+        #[cfg(any(feature = "alloc", test))]
+        #[inline]
+        pub(super) fn binary_scalar_uninit<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &[V::Scalar],
+            b: V::Scalar,
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: `simd128` is enabled at compile time, and `V` is a wasm
+            // register type.
+            unsafe { driver::binary_scalar_uninit::<V, Op>(a, b, out) }
+        }
+
+        #[inline]
+        pub(super) fn binary_scalar_in_place<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &mut [V::Scalar],
+            b: V::Scalar,
+        ) {
+            // SAFETY: `simd128` is enabled at compile time, and `V` is a wasm
             // register type.
             unsafe { driver::binary_scalar_in_place::<V, Op>(a, b) }
         }

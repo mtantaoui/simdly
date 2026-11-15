@@ -15,6 +15,7 @@ fn main() {
         Backend::Avx2,
         Backend::Sse41,
         Backend::Neon,
+        Backend::Wasm,
         Backend::Scalar,
     ] {
         let status = if b.is_available() { "available" } else { "-" };
