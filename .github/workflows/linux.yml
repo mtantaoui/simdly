@@ -34,33 +34,23 @@ jobs:
           - name: dispatch
             os: ubuntu-26.04
             rustflags: ""
-            require: scalar,avx2
+            require: scalar,sse41,avx2
             require-no-std: scalar
           # GitHub-hosted runners are not guaranteed to have AVX-512, so this
           # runs under Intel SDE emulating Sapphire Rapids.
           - name: dispatch-sde
             os: ubuntu-26.04
             rustflags: ""
-            require: avx2,avx512
+            require: sse41,avx2,avx512
             require-no-std: scalar
             sde: true
-          # AVX2 enabled at compile time, the only way to get it without `std`.
+          # AVX2 enabled at compile time, the only way to get it without `std`;
+          # x86-64-v3 includes SSE4.1.
           - name: static-avx2
             os: ubuntu-26.04
             rustflags: "-C target-cpu=x86-64-v3"
-            require: avx2
-            require-no-std: avx2
-          # SSE4.1 without AVX2: GitHub-hosted runners all have AVX2, so this
-          # runs under qemu emulating Nehalem (SSE4.2, no AVX). x86-64-v2
-          # enables SSE4.1 at compile time, for the no-std run. Emulated code
-          # is slow: tests run in release.
-          - name: sse41-qemu
-            os: ubuntu-26.04
-            rustflags: "-C target-cpu=x86-64-v2"
-            require: scalar,sse41
-            require-no-std: sse41
-            qemu: Nehalem
-            test-flags: --release
+            require: sse41,avx2
+            require-no-std: sse41,avx2
           - name: neon
             os: ubuntu-26.04-arm
             rustflags: ""
@@ -82,22 +72,16 @@ jobs:
       - name: Route cargo test through SDE
         if: matrix.sde
         run: echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=$SDE_PATH/sde64 -spr --" >> "$GITHUB_ENV"
-      - name: Route cargo test through qemu
-        if: matrix.qemu
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-user
-          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=qemu-x86_64 -cpu ${{ matrix.qemu }}" >> "$GITHUB_ENV"
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Clippy (no default features)
         run: cargo clippy --all-targets --no-default-features -- -D warnings
       - name: Test
-        run: cargo test --all-features ${{ matrix.test-flags }}
+        run: cargo test --all-features
         env:
           SIMDLY_REQUIRE_BACKENDS: ${{ matrix.require }}
       - name: Test (no default features)
-        run: cargo test --no-default-features ${{ matrix.test-flags }}
+        run: cargo test --no-default-features
         env:
           SIMDLY_REQUIRE_BACKENDS: ${{ matrix.require-no-std }}
 
