@@ -355,7 +355,10 @@ mod tests {
     #[test]
     #[ignore = "slow: 2^32 inputs per backend"]
     fn acosh_f32_exhaustive() {
-        assert_ulps_every_f32::<AcoshOp>("acosh", f64::acosh, 1.0);
+        // The domain spelled out: musl's `acosh` (wasm32-wasip1's libc)
+        // returns finite values for some `x < 1`.
+        let reference = |x: f64| if x < 1.0 { f64::NAN } else { x.acosh() };
+        assert_ulps_every_f32::<AcoshOp>("acosh", reference, 1.0);
     }
 
     /// Every `f32`, on every backend:

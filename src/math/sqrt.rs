@@ -251,6 +251,31 @@ cfg_neon! {
     }
 }
 
+cfg_wasm! {
+    mod wasm {
+        use core::arch::wasm32::{f32x4_sqrt, f64x2_sqrt};
+
+        use super::Sqrt;
+        use crate::simd::wasm::{f32x4::F32x4, f64x2::F64x2};
+
+        impl Sqrt for F32x4 {
+            #[inline(always)]
+            fn sqrt(self) -> Self {
+                // SAFETY: `simd128` is enabled at compile time.
+                unsafe { F32x4::from_raw(f32x4_sqrt(self.raw())) }
+            }
+        }
+
+        impl Sqrt for F64x2 {
+            #[inline(always)]
+            fn sqrt(self) -> Self {
+                // SAFETY: `simd128` is enabled at compile time.
+                unsafe { F64x2::from_raw(f64x2_sqrt(self.raw())) }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::math::{MathElement, SqrtOp};

@@ -734,7 +734,7 @@ pub(crate) trait MathElement: Math + Sized {
 }
 
 macro_rules! math_element {
-    ($($T:ty => $avx512:ident, $avx2:ident, $sse41:ident, $neon:ident);* $(;)?) => {
+    ($($T:ty => $avx512:ident, $avx2:ident, $sse41:ident, $neon:ident, $wasm:ident);* $(;)?) => {
         $(
             impl MathElement for $T {
                 #[cfg(any(feature = "alloc", test))]
@@ -746,6 +746,7 @@ macro_rules! math_element {
                         avx2 => x86::avx2_unary_uninit::<x86::$avx2, F>(x, out),
                         sse41 => x86::sse41_unary_uninit::<x86::$sse41, F>(x, out),
                         neon => neon::unary_uninit::<neon::$neon, F>(x, out),
+                        wasm => wasm::unary_uninit::<wasm::$wasm, F>(x, out),
                         scalar => scalar_unary_uninit::<F, Self>(x, out),
                     }
                 }
@@ -757,6 +758,7 @@ macro_rules! math_element {
                         avx2 => x86::avx2_unary_in_place::<x86::$avx2, F>(x),
                         sse41 => x86::sse41_unary_in_place::<x86::$sse41, F>(x),
                         neon => neon::unary_in_place::<neon::$neon, F>(x),
+                        wasm => wasm::unary_in_place::<wasm::$wasm, F>(x),
                         scalar => scalar_unary_in_place::<F, Self>(x),
                     }
                 }
@@ -794,6 +796,11 @@ macro_rules! math_element {
                         neon::unary_in_place::<neon::$neon, F>(&mut y);
                         results.push(("neon", y));
                     } else {});
+                    cfg_wasm!(if {
+                        let mut y = x.to_vec();
+                        wasm::unary_in_place::<wasm::$wasm, F>(&mut y);
+                        results.push(("wasm", y));
+                    } else {});
                     results
                 }
 
@@ -807,6 +814,7 @@ macro_rules! math_element {
                         avx2 => x86::avx2_binary_uninit::<x86::$avx2, F>(y, x, out),
                         sse41 => x86::sse41_binary_uninit::<x86::$sse41, F>(y, x, out),
                         neon => neon::binary_uninit::<neon::$neon, F>(y, x, out),
+                        wasm => wasm::binary_uninit::<wasm::$wasm, F>(y, x, out),
                         scalar => scalar_binary_uninit::<F, Self>(y, x, out),
                     }
                 }
@@ -819,6 +827,7 @@ macro_rules! math_element {
                         avx2 => x86::avx2_binary_in_place::<x86::$avx2, F>(y, x),
                         sse41 => x86::sse41_binary_in_place::<x86::$sse41, F>(y, x),
                         neon => neon::binary_in_place::<neon::$neon, F>(y, x),
+                        wasm => wasm::binary_in_place::<wasm::$wasm, F>(y, x),
                         scalar => scalar_binary_in_place::<F, Self>(y, x),
                     }
                 }
@@ -857,6 +866,11 @@ macro_rules! math_element {
                         neon::binary_in_place::<neon::$neon, F>(&mut r, x);
                         results.push(("neon", r));
                     } else {});
+                    cfg_wasm!(if {
+                        let mut r = y.to_vec();
+                        wasm::binary_in_place::<wasm::$wasm, F>(&mut r, x);
+                        results.push(("wasm", r));
+                    } else {});
                     results
                 }
 
@@ -874,6 +888,7 @@ macro_rules! math_element {
                         avx2 => x86::avx2_nary_uninit::<x86::$avx2, F, N>(src, out),
                         sse41 => x86::sse41_nary_uninit::<x86::$sse41, F, N>(src, out),
                         neon => neon::nary_uninit::<neon::$neon, F, N>(src, out),
+                        wasm => wasm::nary_uninit::<wasm::$wasm, F, N>(src, out),
                         scalar => scalar_nary_uninit::<F, Self, N>(src, out),
                     }
                 }
@@ -892,6 +907,7 @@ macro_rules! math_element {
                         avx2 => x86::avx2_nary_in_place::<x86::$avx2, F, N, M>(x, rest),
                         sse41 => x86::sse41_nary_in_place::<x86::$sse41, F, N, M>(x, rest),
                         neon => neon::nary_in_place::<neon::$neon, F, N, M>(x, rest),
+                        wasm => wasm::nary_in_place::<wasm::$wasm, F, N, M>(x, rest),
                         scalar => scalar_nary_in_place::<F, Self, N, M>(x, rest),
                     }
                 }
@@ -930,6 +946,11 @@ macro_rules! math_element {
                         neon::nary_in_place::<neon::$neon, F, N, M>(&mut r, rest);
                         results.push(("neon", r));
                     } else {});
+                    cfg_wasm!(if {
+                        let mut r = x.to_vec();
+                        wasm::nary_in_place::<wasm::$wasm, F, N, M>(&mut r, rest);
+                        results.push(("wasm", r));
+                    } else {});
                     results
                 }
 
@@ -942,6 +963,7 @@ macro_rules! math_element {
                         avx2 => x86::avx2_scalars_uninit::<x86::$avx2, F>(x, b, out),
                         sse41 => x86::sse41_scalars_uninit::<x86::$sse41, F>(x, b, out),
                         neon => neon::scalars_uninit::<neon::$neon, F>(x, b, out),
+                        wasm => wasm::scalars_uninit::<wasm::$wasm, F>(x, b, out),
                         scalar => scalar_scalars_uninit::<F, Self>(x, b, out),
                     }
                 }
@@ -953,6 +975,7 @@ macro_rules! math_element {
                         avx2 => x86::avx2_scalars_in_place::<x86::$avx2, F>(x, b),
                         sse41 => x86::sse41_scalars_in_place::<x86::$sse41, F>(x, b),
                         neon => neon::scalars_in_place::<neon::$neon, F>(x, b),
+                        wasm => wasm::scalars_in_place::<wasm::$wasm, F>(x, b),
                         scalar => scalar_scalars_in_place::<F, Self>(x, b),
                     }
                 }
@@ -991,6 +1014,11 @@ macro_rules! math_element {
                         neon::scalars_in_place::<neon::$neon, F>(&mut r, b);
                         results.push(("neon", r));
                     } else {});
+                    cfg_wasm!(if {
+                        let mut r = x.to_vec();
+                        wasm::scalars_in_place::<wasm::$wasm, F>(&mut r, b);
+                        results.push(("wasm", r));
+                    } else {});
                     results
                 }
             }
@@ -998,7 +1026,7 @@ macro_rules! math_element {
     };
 }
 
-math_element!(f32 => F32x16, F32x8, F32x4, F32x4; f64 => F64x8, F64x4, F64x2, F64x2);
+math_element!(f32 => F32x16, F32x8, F32x4, F32x4, F32x4; f64 => F64x8, F64x4, F64x2, F64x2, F64x2);
 
 #[cfg(any(feature = "alloc", test))]
 fn scalar_unary_uninit<F: UnaryOp, T: Math>(x: &[T], out: &mut [MaybeUninit<T>]) {
@@ -1430,6 +1458,102 @@ cfg_neon! {
             rest: [&[V::Scalar]; M],
         ) {
             // SAFETY: NEON is enabled at compile time, and `V` is a NEON
+            // register type.
+            unsafe { driver::nary_in_place::<V, F, N, M>(x, rest) }
+        }
+    }
+}
+
+cfg_wasm! {
+    mod wasm {
+        use super::{Binary, BinaryOp, Math, NaryOp, UnaryOp, driver};
+        use crate::simd::SimdVector;
+        pub(super) use crate::simd::wasm::{f32x4::F32x4, f64x2::F64x2};
+
+        #[cfg(feature = "alloc")]
+        #[inline]
+        pub(super) fn scalars_uninit<V: SimdVector + Math, F: NaryOp<3>>(
+            x: &[V::Scalar],
+            b: [V::Scalar; 2],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: `simd128` is enabled at compile time, and `V` is a wasm
+            // register type.
+            unsafe { driver::scalars_uninit::<V, F>(x, b, out) }
+        }
+
+        #[inline]
+        pub(super) fn scalars_in_place<V: SimdVector + Math, F: NaryOp<3>>(
+            x: &mut [V::Scalar],
+            b: [V::Scalar; 2],
+        ) {
+            // SAFETY: `simd128` is enabled at compile time, and `V` is a wasm
+            // register type.
+            unsafe { driver::scalars_in_place::<V, F>(x, b) }
+        }
+
+        #[cfg(any(feature = "alloc", test))]
+        #[inline]
+        pub(super) fn unary_uninit<V: SimdVector + Math, F: UnaryOp>(
+            x: &[V::Scalar],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: `simd128` is enabled at compile time, and `V` is a wasm
+            // register type.
+            unsafe { driver::unary_uninit::<V, F>(x, out) }
+        }
+
+        #[inline]
+        pub(super) fn unary_in_place<V: SimdVector + Math, F: UnaryOp>(x: &mut [V::Scalar]) {
+            // SAFETY: `simd128` is enabled at compile time, and `V` is a wasm
+            // register type.
+            unsafe { driver::unary_in_place::<V, F>(x) }
+        }
+
+        #[cfg(any(feature = "alloc", test))]
+        #[inline]
+        pub(super) fn binary_uninit<V: SimdVector + Math, F: BinaryOp>(
+            y: &[V::Scalar],
+            x: &[V::Scalar],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: `simd128` is enabled at compile time, and `V` is a wasm
+            // register type.
+            unsafe { driver::binary_uninit::<V, Binary<F>>(y, x, out) }
+        }
+
+        #[inline]
+        pub(super) fn binary_in_place<V: SimdVector + Math, F: BinaryOp>(
+            y: &mut [V::Scalar],
+            x: &[V::Scalar],
+        ) {
+            // SAFETY: `simd128` is enabled at compile time, and `V` is a wasm
+            // register type.
+            unsafe { driver::binary_in_place::<V, Binary<F>>(y, x) }
+        }
+
+        #[cfg(feature = "alloc")]
+        #[inline]
+        pub(super) fn nary_uninit<V: SimdVector + Math, F: NaryOp<N>, const N: usize>(
+            src: [&[V::Scalar]; N],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: `simd128` is enabled at compile time, and `V` is a wasm
+            // register type.
+            unsafe { driver::nary_uninit::<V, F, N>(src, out) }
+        }
+
+        #[inline]
+        pub(super) fn nary_in_place<
+            V: SimdVector + Math,
+            F: NaryOp<N>,
+            const N: usize,
+            const M: usize,
+        >(
+            x: &mut [V::Scalar],
+            rest: [&[V::Scalar]; M],
+        ) {
+            // SAFETY: `simd128` is enabled at compile time, and `V` is a wasm
             // register type.
             unsafe { driver::nary_in_place::<V, F, N, M>(x, rest) }
         }

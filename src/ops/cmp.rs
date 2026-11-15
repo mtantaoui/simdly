@@ -4,9 +4,9 @@
 //! for every lane type (`f32`, `f64` and the SIMD registers). Comparisons with
 //! NaN are false, except `!=`, which is true, as with Rust's operators.
 //!
-//! SSE4.1, AVX2 and NEON compare into all-ones / zero lanes and narrow
+//! SSE4.1, AVX2, NEON and wasm compare into all-ones / zero lanes and narrow
 //! several registers' masks to one register of `bool` bytes, written with
-//! one store: 32 elements per step on AVX2, 16 on SSE4.1 and NEON. AVX-512 compares into a bit mask,
+//! one store: 32 elements per step on AVX2, 16 on SSE4.1, NEON and wasm. AVX-512 compares into a bit mask,
 //! expands it to one 0/1 lane per element and narrows that to bytes in a
 //! masked store, which also handles the tail.
 
@@ -109,7 +109,7 @@ pub(crate) trait CmpElement: Compare<Mask = bool> {
 }
 
 macro_rules! cmp_element {
-    ($($T:ty => $avx512:ident, $avx2:ident, $sse41:ident, $neon:ident);* $(;)?) => {
+    ($($T:ty => $avx512:ident, $avx2:ident, $sse41:ident, $neon:ident, $wasm:ident);* $(;)?) => {
         $(
             impl CmpElement for $T {
                 #[inline]
@@ -121,6 +121,7 @@ macro_rules! cmp_element {
                         avx2 => x86::avx2_cmp::<x86::$avx2, Op>(a, b, out),
                         sse41 => x86::sse41_cmp::<x86::$sse41, Op>(a, b, out),
                         neon => neon::cmp::<neon::$neon, Op>(a, b, out),
+                        wasm => wasm::cmp::<wasm::$wasm, Op>(a, b, out),
                         scalar => scalar_cmp::<Op, Self>(a, b, out),
                     }
                 }
@@ -133,6 +134,7 @@ macro_rules! cmp_element {
                         avx2 => x86::avx2_cmp_scalar::<x86::$avx2, Op>(a, b, out),
                         sse41 => x86::sse41_cmp_scalar::<x86::$sse41, Op>(a, b, out),
                         neon => neon::cmp_scalar::<neon::$neon, Op>(a, b, out),
+                        wasm => wasm::cmp_scalar::<wasm::$wasm, Op>(a, b, out),
                         scalar => scalar_cmp_scalar::<Op, Self>(a, b, out),
                     }
                 }
@@ -141,7 +143,7 @@ macro_rules! cmp_element {
     };
 }
 
-cmp_element!(f32 => F32x16, F32x8, F32x4, F32x4; f64 => F64x8, F64x4, F64x2, F64x2);
+cmp_element!(f32 => F32x16, F32x8, F32x4, F32x4, F32x4; f64 => F64x8, F64x4, F64x2, F64x2, F64x2);
 
 fn scalar_cmp<Op: CmpOp, T: Compare<Mask = bool>>(a: &[T], b: &[T], out: &mut [MaybeUninit<bool>]) {
     for ((o, &x), &y) in out.iter_mut().zip(a).zip(b) {
@@ -163,7 +165,7 @@ cfg_simd! {
     use crate::simd::SimdVector;
 
     /// A register whose comparison masks narrow to `bool` bytes: SSE4.1,
-    /// AVX2 and NEON, whose masks are all-ones / zero lanes.
+    /// AVX2, NEON and wasm, whose masks are all-ones / zero lanes.
     trait Pack: SimdVector + Compare {
         /// Elements per step: `STEP / LANES` registers, at most [`MAX_STEP`].
         const STEP: usize;
@@ -831,6 +833,113 @@ cfg_neon! {
     }
 }
 
+cfg_wasm! {
+    mod wasm {
+        use core::arch::wasm32::{
+            f32x4_eq, f32x4_ge, f32x4_gt, f32x4_le, f32x4_lt, f32x4_ne, f64x2_eq, f64x2_ge,
+            f64x2_gt, f64x2_le, f64x2_lt, f64x2_ne, i8x16_narrow_i16x8, i16x8_narrow_i32x4,
+            i32x4_shuffle, u8x16_splat, v128, v128_and, v128_store,
+        };
+        use core::mem::MaybeUninit;
+
+        use super::{CmpOp, Compare, Pack, Splat, cmp_packed};
+        pub(super) use crate::simd::wasm::{f32x4::F32x4, f64x2::F64x2};
+
+        /// `impl Compare` for a register: all-ones / zero lanes. Ordered
+        /// (false if either side is NaN), except `!=`, which is true then.
+        macro_rules! compare {
+            ($V:ty; $($method:ident: $cmp:ident),* $(,)?) => {
+                impl Compare for $V {
+                    type Mask = v128;
+                    $(
+                        #[inline(always)]
+                        fn $method(self, rhs: Self) -> v128 {
+                            $cmp(self.raw(), rhs.raw())
+                        }
+                    )*
+                }
+            };
+        }
+
+        compare!(F32x4;
+            lt: f32x4_lt, le: f32x4_le, gt: f32x4_gt, ge: f32x4_ge, eq: f32x4_eq, ne: f32x4_ne);
+        compare!(F64x2;
+            lt: f64x2_lt, le: f64x2_le, gt: f64x2_gt, ge: f64x2_ge, eq: f64x2_eq, ne: f64x2_ne);
+
+        /// Narrows four registers of 32-bit lane masks to 16 `bool` bytes, in
+        /// order: signed saturation keeps -1 as -1 (i32 -> i16 -> i8).
+        #[inline(always)]
+        fn narrow(m: [v128; 4]) -> v128 {
+            let p = i8x16_narrow_i16x8(i16x8_narrow_i32x4(m[0], m[1]), i16x8_narrow_i32x4(m[2], m[3]));
+            v128_and(p, u8x16_splat(1))
+        }
+
+        /// One 16-byte store of `bool`s per step.
+        impl Pack for F32x4 {
+            const STEP: usize = 16;
+            type Bytes = v128;
+
+            #[inline(always)]
+            unsafe fn pack(mask: impl FnMut(usize) -> v128) -> v128 {
+                narrow(core::array::from_fn(mask))
+            }
+
+            #[inline(always)]
+            unsafe fn store_bytes(bytes: v128, dst: *mut u8) {
+                // SAFETY: guaranteed by the caller.
+                unsafe { v128_store(dst.cast(), bytes) }
+            }
+        }
+
+        impl Pack for F64x2 {
+            const STEP: usize = 16;
+            type Bytes = v128;
+
+            #[inline(always)]
+            unsafe fn pack(mut mask: impl FnMut(usize) -> v128) -> v128 {
+                // A 64-bit lane mask is two equal 32-bit halves: the even
+                // halves of two registers make one register of 32-bit masks,
+                // elements 4j .. 4j + 4 in order.
+                narrow(core::array::from_fn(|j| {
+                    let (lo, hi) = (mask(2 * j), mask(2 * j + 1));
+                    i32x4_shuffle::<0, 2, 4, 6>(lo, hi)
+                }))
+            }
+
+            #[inline(always)]
+            unsafe fn store_bytes(bytes: v128, dst: *mut u8) {
+                // SAFETY: guaranteed by the caller.
+                unsafe { v128_store(dst.cast(), bytes) }
+            }
+        }
+
+        #[inline]
+        pub(super) fn cmp<V: Pack, Op: CmpOp>(
+            a: &[V::Scalar],
+            b: &[V::Scalar],
+            out: &mut [MaybeUninit<bool>],
+        ) {
+            assert_eq!(a.len(), b.len(), "length mismatch");
+            assert_eq!(a.len(), out.len(), "length mismatch");
+            // SAFETY: `simd128` is enabled at compile time, `V` is a wasm
+            // register type, and all three slices have the same length.
+            unsafe { cmp_packed::<V, Op, _>(a, b, out) }
+        }
+
+        #[inline]
+        pub(super) fn cmp_scalar<V: Pack, Op: CmpOp>(
+            a: &[V::Scalar],
+            b: V::Scalar,
+            out: &mut [MaybeUninit<bool>],
+        ) {
+            assert_eq!(a.len(), out.len(), "length mismatch");
+            // SAFETY: `simd128` is enabled at compile time, `V` is a wasm
+            // register type, and `a` and `out` have the same length.
+            unsafe { cmp_packed::<V, Op, _>(a, Splat(V::splat(b)), out) }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -881,7 +990,7 @@ mod tests {
     }
 
     macro_rules! simd {
-        ($($T:ty => $avx512:ident, $avx2:ident, $sse41:ident, $neon:ident);*) => {
+        ($($T:ty => $avx512:ident, $avx2:ident, $sse41:ident, $neon:ident, $wasm:ident);*) => {
             $(
                 impl Simd for $T {
                     fn simd_cmp<Op: CmpOp>(a: &[Self], b: &[Self]) -> Vec<(&'static str, Vec<bool>)> {
@@ -906,6 +1015,9 @@ mod tests {
                         } else {});
                         cfg_neon!(if {
                             results.push(("neon", run(a.len(), |out| neon::cmp::<neon::$neon, Op>(a, b, out))));
+                        } else {});
+                        cfg_wasm!(if {
+                            results.push(("wasm", run(a.len(), |out| wasm::cmp::<wasm::$wasm, Op>(a, b, out))));
                         } else {});
                         let _ = (a, b);
                         results
@@ -934,6 +1046,9 @@ mod tests {
                         cfg_neon!(if {
                             results.push(("neon", run(a.len(), |out| neon::cmp_scalar::<neon::$neon, Op>(a, b, out))));
                         } else {});
+                        cfg_wasm!(if {
+                            results.push(("wasm", run(a.len(), |out| wasm::cmp_scalar::<wasm::$wasm, Op>(a, b, out))));
+                        } else {});
                         let _ = (a, b);
                         results
                     }
@@ -942,7 +1057,7 @@ mod tests {
         };
     }
 
-    simd!(f32 => F32x16, F32x8, F32x4, F32x4; f64 => F64x8, F64x4, F64x2, F64x2);
+    simd!(f32 => F32x16, F32x8, F32x4, F32x4, F32x4; f64 => F64x8, F64x4, F64x2, F64x2, F64x2);
 
     fn check<Op: CmpOp, T: TestFloat + Simd>(name: &str) {
         let name = std::format!("{name} {}", T::NAME);

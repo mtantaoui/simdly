@@ -9,7 +9,7 @@
 //! | `cfg_x86!`   | `x86_64` with SSE2 (not soft-float)    | SSE4.1, AVX2, AVX-512 (runtime-selected) |
 //! | `cfg_neon!`  | `aarch64` + `neon`                     | NEON                      |
 //! | `cfg_wasm!`  | `wasm32` + `simd128`                   | wasm                      |
-//! | `cfg_simd!`  | `cfg_x86!` or `cfg_neon!`              |                           |
+//! | `cfg_simd!`  | any of the above                       |                           |
 //!
 //! The scalar backend is always compiled, as the fallback.
 //!
@@ -83,14 +83,15 @@ macro_rules! cfg_simd {
             #[cfg(any(
                 all(target_arch = "x86_64", target_feature = "sse2"),
                 all(target_arch = "aarch64", target_feature = "neon"),
+                all(target_arch = "wasm32", target_feature = "simd128"),
             ))]
             $item
         )*
     };
 }
 
-/// Calls the fastest available backend: AVX-512, AVX2, SSE4.1, NEON, then
-/// scalar.
+/// Calls the fastest available backend: AVX-512, AVX2, SSE4.1, NEON, wasm,
+/// then scalar.
 ///
 /// Every arm but `scalar` is optional, and an arm is only compiled on its
 /// architecture, so it may name items that only exist there:
@@ -114,6 +115,7 @@ macro_rules! dispatch {
         $(avx2 => $avx2:expr,)?
         $(sse41 => $sse41:expr,)?
         $(neon => $neon:expr,)?
+        $(wasm => $wasm:expr,)?
         scalar => $scalar:expr $(,)?
     ) => {
         {
@@ -147,6 +149,12 @@ macro_rules! dispatch {
                     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
                     if $crate::detect::Backend::Neon.is_available() {
                         break 'dispatch $neon;
+                    }
+                )?
+                $(
+                    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+                    if $crate::detect::Backend::Wasm.is_available() {
+                        break 'dispatch $wasm;
                     }
                 )?
                 $scalar

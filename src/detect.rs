@@ -20,6 +20,8 @@ pub enum Backend {
     Avx512,
     /// `aarch64` NEON.
     Neon,
+    /// WebAssembly SIMD (`simd128`), when enabled at compile time.
+    Wasm,
 }
 
 impl Backend {
@@ -31,6 +33,7 @@ impl Backend {
             Self::Avx2 => "avx2",
             Self::Avx512 => "avx512",
             Self::Neon => "neon",
+            Self::Wasm => "wasm",
         }
     }
 
@@ -43,6 +46,7 @@ impl Backend {
             Self::Avx2 => cfg_x86!(if { has_avx2_fma() } else { false }),
             Self::Avx512 => cfg_x86!(if { has_avx512f() } else { false }),
             Self::Neon => cfg_neon!(if { true } else { false }),
+            Self::Wasm => cfg_wasm!(if { true } else { false }),
         }
     }
 }
@@ -64,6 +68,7 @@ pub fn backend() -> Backend {
         avx2 => Backend::Avx2,
         sse41 => Backend::Sse41,
         neon => Backend::Neon,
+        wasm => Backend::Wasm,
         scalar => Backend::Scalar,
     }
 }
@@ -141,6 +146,12 @@ mod tests {
         }
     }
 
+    cfg_wasm! {
+        fn on_wasm() -> Backend {
+            Backend::Wasm
+        }
+    }
+
     #[test]
     fn dispatch_calls_the_selected_backend() {
         let got = dispatch! {
@@ -148,6 +159,7 @@ mod tests {
             avx2 => on_avx2(),
             sse41 => on_sse41(),
             neon => on_neon(),
+            wasm => on_wasm(),
             scalar => Backend::Scalar,
         };
         assert_eq!(got, backend());
@@ -181,6 +193,7 @@ mod tests {
                 "avx2" => Backend::Avx2,
                 "avx512" => Backend::Avx512,
                 "neon" => Backend::Neon,
+                "wasm" => Backend::Wasm,
                 _ => panic!("unknown backend {name:?} in SIMDLY_REQUIRE_BACKENDS"),
             };
             assert!(

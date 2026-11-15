@@ -120,9 +120,5 @@ cfg_simd! {
     mod simd;
 }
 
-cfg_wasm! {
-    mod simd;
-}
-
 #[cfg(test)]
 mod testing;

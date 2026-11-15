@@ -24,7 +24,7 @@ pub(crate) trait Float: Arith + Neg<Output = Self> + Compare + Abs + Floor + Sqr
 
     /// `self · b + c`: fused (one rounding) on AVX2, AVX-512 and NEON; two
     /// roundings on the scalar backend, as `core` has no fused multiply-add,
-    /// and on SSE4.1, which has none either.
+    /// and on SSE4.1 and wasm, which have none either.
     fn mul_add(self, b: Self, c: Self) -> Self;
 
     /// Lane-wise `if mask { a } else { b }`.
@@ -36,7 +36,8 @@ pub(crate) trait Float: Arith + Neg<Output = Self> + Compare + Abs + Floor + Sqr
     /// `c − self · b`, **exactly** whenever the result is a float, as for
     /// the remainder of a division (`c = num`, `b = den`, `self ≈ num/den`):
     /// a fused multiply-add where [`mul_add`](Self::mul_add) is fused,
-    /// Dekker's exact product ([`dekker`]) on the scalar and SSE4.1 backends.
+    /// Dekker's exact product ([`dekker`]) on the scalar, SSE4.1 and wasm
+    /// backends.
     fn residual(self, b: Self, c: Self) -> Self;
 
     /// Lanes whose sign bit is set: negative numbers, `-0.0` and `-NaN`.
@@ -667,6 +668,129 @@ cfg_neon! {
                 vandq_u64, vdupq_n_u64, vreinterpretq_u64_f64, vreinterpretq_f64_u64,
                 vcltzq_s64, vreinterpretq_s64_f64, 52, 1023, vorrq_u64, vshrq_n_u64, vshlq_n_u64,
                 vreinterpretq_u32_u64;
+        );
+    }
+}
+
+cfg_wasm! {
+    mod wasm {
+        use core::arch::wasm32::{
+            f32x4_demote_f64x2_zero, f64x2_promote_low_f32x4, i32x4_shr, i32x4_shuffle, i64x2_shr,
+            u32x4_shl, u32x4_shr, u32x4_splat, u64x2_shl, u64x2_shr, u64x2_splat, v128, v128_and,
+            v128_any_true, v128_bitselect, v128_or,
+        };
+
+        use super::{Float, WideFn, Widen};
+        use crate::simd::SimdVector;
+        use crate::simd::wasm::{f32x4::F32x4, f64x2::F64x2};
+
+        impl Widen for F32x4 {
+            #[inline(always)]
+            fn via_f64<F: WideFn>(self) -> Self {
+                let v = self.raw();
+                let lo = f64x2_promote_low_f32x4(v);
+                let hi = f64x2_promote_low_f32x4(i32x4_shuffle::<2, 3, 2, 3>(v, v));
+                // SAFETY: `simd128` is enabled at compile time.
+                unsafe {
+                    let (lo, hi) = (F::call(F64x2::from_raw(lo)), F::call(F64x2::from_raw(hi)));
+                    F32x4::from_raw(i32x4_shuffle::<0, 1, 4, 5>(
+                        f32x4_demote_f64x2_zero(lo.raw()),
+                        f32x4_demote_f64x2_zero(hi.raw()),
+                    ))
+                }
+            }
+        }
+
+        /// `impl Float` for a wasm register. No fused multiply-add in
+        /// `simd128` (the relaxed one may or may not fuse): two roundings,
+        /// and Dekker's exact product, as on SSE4.1.
+        macro_rules! float_wasm {
+            ($($V:ident: $T:ident, $Bits:ident, $FRAC:literal, $BIAS:literal, $splat:ident,
+                $shr:ident, $shl:ident, $sar:ident);* $(;)?) => {
+                $(
+                    impl Float for $V {
+                        type Elem = $T;
+
+                        #[inline(always)]
+                        fn constant(self, c: $T) -> Self {
+                            // SAFETY: `simd128` is enabled at compile time.
+                            unsafe { <$V as SimdVector>::splat(c) }
+                        }
+
+                        #[inline(always)]
+                        fn mul_add(self, b: Self, c: Self) -> Self {
+                            self * b + c
+                        }
+
+                        #[inline(always)]
+                        fn select(mask: v128, a: Self, b: Self) -> Self {
+                            // SAFETY: `simd128` is enabled at compile time.
+                            unsafe { $V::from_raw(v128_bitselect(a.raw(), b.raw(), mask)) }
+                        }
+
+                        #[inline(always)]
+                        fn and_bits(self, mask: $Bits) -> Self {
+                            // SAFETY: `simd128` is enabled at compile time.
+                            unsafe { $V::from_raw(v128_and(self.raw(), $splat(mask))) }
+                        }
+
+                        #[inline(always)]
+                        fn residual(self, b: Self, c: Self) -> Self {
+                            super::dekker(self, b, c)
+                        }
+
+                        /// The sign bit spread over the lane by an
+                        /// arithmetic shift.
+                        #[inline(always)]
+                        fn is_sign_negative(self) -> v128 {
+                            $sar(self.raw(), $Bits::BITS - 1)
+                        }
+
+                        /// As on x86: the exponent goes through the fraction
+                        /// bits of `2^FRAC`.
+                        #[inline(always)]
+                        fn frexp(self) -> (Self, Self) {
+                            let magic = self.constant(((1_u64 << $FRAC) + $BIAS) as $T);
+                            let v = self.raw();
+                            let m = v128_or(v128_and(v, $splat((1 << $FRAC) - 1)), $splat($BIAS << $FRAC));
+                            let e = v128_or($shr(v, $FRAC), $splat(($BIAS + $FRAC) << $FRAC));
+                            // SAFETY: `simd128` is enabled at compile time.
+                            let (m, e) = unsafe { ($V::from_raw(m), $V::from_raw(e)) };
+                            (m, e - magic)
+                        }
+
+                        #[inline(always)]
+                        fn ldexp(self, n: Self) -> Self {
+                            let b = n + self.constant(((1_u64 << $FRAC) + $BIAS) as $T);
+                            // SAFETY: `simd128` is enabled at compile time.
+                            self * unsafe { $V::from_raw($shl(b.raw(), $FRAC)) }
+                        }
+
+                        #[inline(always)]
+                        fn any(mask: v128) -> bool {
+                            v128_any_true(mask)
+                        }
+
+                        #[inline(always)]
+                        fn map_lanes(self, f: fn($T) -> $T) -> Self {
+                            let mut lanes = [0.0; <$V as SimdVector>::LANES];
+                            // SAFETY: `simd128` is enabled at compile time;
+                            // `lanes` holds `LANES` elements.
+                            unsafe { self.store(lanes.as_mut_ptr()) };
+                            for v in &mut lanes {
+                                *v = f(*v);
+                            }
+                            // SAFETY: as above.
+                            unsafe { <$V as SimdVector>::load(lanes.as_ptr()) }
+                        }
+                    }
+                )*
+            };
+        }
+
+        float_wasm!(
+            F32x4: f32, u32, 23, 127, u32x4_splat, u32x4_shr, u32x4_shl, i32x4_shr;
+            F64x2: f64, u64, 52, 1023, u64x2_splat, u64x2_shr, u64x2_shl, i64x2_shr;
         );
     }
 }

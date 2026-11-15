@@ -704,7 +704,7 @@ mod tests {
     }
 
     cfg_simd! {
-        /// For a 128-bit register type (SSE4.1, NEON), when `$available`:
+        /// For a 128-bit register type (SSE4.1, NEON, wasm), when `$available`:
         /// lengths 0..=40 cover the unrolled loop (16 `f32` / 8 `f64` per
         /// iteration), the single registers after it and the tail.
         macro_rules! simd128_driver_test {
@@ -786,5 +786,10 @@ mod tests {
     cfg_neon! {
         simd128_driver_test!(neon_f32_matches_scalar, f32, crate::simd::neon::f32x4::F32x4, true);
         simd128_driver_test!(neon_f64_matches_scalar, f64, crate::simd::neon::f64x2::F64x2, true);
+    }
+
+    cfg_wasm! {
+        simd128_driver_test!(wasm_f32_matches_scalar, f32, crate::simd::wasm::f32x4::F32x4, true);
+        simd128_driver_test!(wasm_f64_matches_scalar, f64, crate::simd::wasm::f64x2::F64x2, true);
     }
 }

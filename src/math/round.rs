@@ -5,7 +5,7 @@
 //!
 //! `trunc` and `round_ties_even` are one instruction on every ISA
 //! (`vroundps` / `vrndscaleps` with a rounding mode, NEON `frintz` and
-//! `frintn`). The scalar backend rounds with float arithmetic, as
+//! `frintn`, wasm `f32x4.trunc` and `f32x4.nearest`). The scalar backend rounds with float arithmetic, as
 //! [`floor`](super::floor): below `2^FRAC`, adding and subtracting `2^FRAC`
 //! rounds `|x|` to the nearest integer, halves to even. `round` has no
 //! x86 instruction: `t = trunc x`, then `t ± 1` where the dropped fraction
@@ -158,6 +158,39 @@ cfg_neon! {
         }
 
         neon!(F32x4: vrndq_f32, vrndnq_f32; F64x2: vrndq_f64, vrndnq_f64);
+    }
+}
+
+cfg_wasm! {
+    mod wasm {
+        use core::arch::wasm32::{f32x4_nearest, f64x2_nearest, f32x4_trunc, f64x2_trunc};
+
+        use super::{RoundTiesEven, Trunc};
+        use crate::simd::wasm::{f32x4::F32x4, f64x2::F64x2};
+
+        macro_rules! wasm {
+            ($($V:ident: $trunc:ident, $even:ident);*) => {
+                $(
+                    impl Trunc for $V {
+                        #[inline(always)]
+                        fn trunc(self) -> Self {
+                            // SAFETY: `simd128` is enabled at compile time.
+                            unsafe { $V::from_raw($trunc(self.raw())) }
+                        }
+                    }
+
+                    impl RoundTiesEven for $V {
+                        #[inline(always)]
+                        fn round_ties_even(self) -> Self {
+                            // SAFETY: `simd128` is enabled at compile time.
+                            unsafe { $V::from_raw($even(self.raw())) }
+                        }
+                    }
+                )*
+            };
+        }
+
+        wasm!(F32x4: f32x4_trunc, f32x4_nearest; F64x2: f64x2_trunc, f64x2_nearest);
     }
 }
 
