@@ -4,9 +4,9 @@
 //! for every lane type (`f32`, `f64` and the SIMD registers). Comparisons with
 //! NaN are false, except `!=`, which is true, as with Rust's operators.
 //!
-//! AVX2 and NEON compare into all-ones / zero lanes and narrow several
-//! registers' masks to one register of `bool` bytes, written with one store:
-//! 32 elements per step on AVX2, 16 on NEON. AVX-512 compares into a bit mask,
+//! SSE4.1, AVX2 and NEON compare into all-ones / zero lanes and narrow
+//! several registers' masks to one register of `bool` bytes, written with
+//! one store: 32 elements per step on AVX2, 16 on SSE4.1 and NEON. AVX-512 compares into a bit mask,
 //! expands it to one 0/1 lane per element and narrows that to bytes in a
 //! masked store, which also handles the tail.
 
@@ -109,7 +109,7 @@ pub(crate) trait CmpElement: Compare<Mask = bool> {
 }
 
 macro_rules! cmp_element {
-    ($($T:ty => $avx512:ident, $avx2:ident, $neon:ident);* $(;)?) => {
+    ($($T:ty => $avx512:ident, $avx2:ident, $sse41:ident, $neon:ident);* $(;)?) => {
         $(
             impl CmpElement for $T {
                 #[inline]
@@ -119,6 +119,7 @@ macro_rules! cmp_element {
                     dispatch! {
                         avx512 => x86::avx512_cmp::<x86::$avx512, Op>(a, b, out),
                         avx2 => x86::avx2_cmp::<x86::$avx2, Op>(a, b, out),
+                        sse41 => x86::sse41_cmp::<x86::$sse41, Op>(a, b, out),
                         neon => neon::cmp::<neon::$neon, Op>(a, b, out),
                         scalar => scalar_cmp::<Op, Self>(a, b, out),
                     }
@@ -130,6 +131,7 @@ macro_rules! cmp_element {
                     dispatch! {
                         avx512 => x86::avx512_cmp_scalar::<x86::$avx512, Op>(a, b, out),
                         avx2 => x86::avx2_cmp_scalar::<x86::$avx2, Op>(a, b, out),
+                        sse41 => x86::sse41_cmp_scalar::<x86::$sse41, Op>(a, b, out),
                         neon => neon::cmp_scalar::<neon::$neon, Op>(a, b, out),
                         scalar => scalar_cmp_scalar::<Op, Self>(a, b, out),
                     }
@@ -139,7 +141,7 @@ macro_rules! cmp_element {
     };
 }
 
-cmp_element!(f32 => F32x16, F32x8, F32x4; f64 => F64x8, F64x4, F64x2);
+cmp_element!(f32 => F32x16, F32x8, F32x4, F32x4; f64 => F64x8, F64x4, F64x2, F64x2);
 
 fn scalar_cmp<Op: CmpOp, T: Compare<Mask = bool>>(a: &[T], b: &[T], out: &mut [MaybeUninit<bool>]) {
     for ((o, &x), &y) in out.iter_mut().zip(a).zip(b) {
@@ -160,8 +162,8 @@ fn scalar_cmp_scalar<Op: CmpOp, T: Compare<Mask = bool>>(
 cfg_simd! {
     use crate::simd::SimdVector;
 
-    /// A register whose comparison masks narrow to `bool` bytes: AVX2 and
-    /// NEON, whose masks are all-ones / zero lanes.
+    /// A register whose comparison masks narrow to `bool` bytes: SSE4.1,
+    /// AVX2 and NEON, whose masks are all-ones / zero lanes.
     trait Pack: SimdVector + Compare {
         /// Elements per step: `STEP / LANES` registers, at most [`MAX_STEP`].
         const STEP: usize;
@@ -292,7 +294,8 @@ cfg_simd! {
 cfg_x86! {
     mod x86 {
         use core::arch::x86_64::{
-            __m128i, _mm_castpd_si128, _mm_castps_si128, _mm_cmpeq_pd, _mm_cmpeq_ps, _mm_cmpge_pd,
+            __m128i, _mm_and_si128, _mm_castsi128_ps, _mm_packs_epi16, _mm_packs_epi32,
+            _mm_set1_epi8, _mm_shuffle_ps, _mm_storeu_si128, _mm_castpd_si128, _mm_castps_si128, _mm_cmpeq_pd, _mm_cmpeq_ps, _mm_cmpge_pd,
             _mm_cmpge_ps, _mm_cmpgt_pd, _mm_cmpgt_ps, _mm_cmple_pd, _mm_cmple_ps, _mm_cmplt_pd,
             _mm_cmplt_ps, _mm_cmpneq_pd, _mm_cmpneq_ps,
             __m256i, __mmask8, __mmask16, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ,
@@ -310,7 +313,7 @@ cfg_x86! {
         use crate::simd::SimdVector;
         pub(super) use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
         pub(super) use crate::simd::avx512::{f32x16::F32x16, f64x8::F64x8};
-        use crate::simd::sse::{f32x4::F32x4, f64x2::F64x2};
+        pub(super) use crate::simd::sse::{f32x4::F32x4, f64x2::F64x2};
 
         /// `impl Compare` for a register: AVX2 compares into a vector of
         /// all-ones / zero lanes (cast to integers), AVX-512 into a bit mask.
@@ -444,6 +447,70 @@ cfg_x86! {
             unsafe fn store_bytes(bytes: __m256i, dst: *mut u8) {
                 // SAFETY: guaranteed by the caller.
                 unsafe { _mm256_storeu_si256(dst.cast(), bytes) }
+            }
+        }
+
+        /// One 16-byte store of `bool`s per step.
+        impl Pack for F32x4 {
+            const STEP: usize = 16;
+            type Bytes = __m128i;
+
+            #[inline(always)]
+            unsafe fn pack(mask: impl FnMut(usize) -> __m128i) -> __m128i {
+                // SAFETY: the caller guarantees SSE4.1.
+                unsafe { narrow_sse(core::array::from_fn(mask)) }
+            }
+
+            #[inline(always)]
+            unsafe fn store_bytes(bytes: __m128i, dst: *mut u8) {
+                // SAFETY: guaranteed by the caller.
+                unsafe { _mm_storeu_si128(dst.cast(), bytes) }
+            }
+        }
+
+        impl Pack for F64x2 {
+            const STEP: usize = 16;
+            type Bytes = __m128i;
+
+            #[inline(always)]
+            unsafe fn pack(mut mask: impl FnMut(usize) -> __m128i) -> __m128i {
+                // A 64-bit lane mask is two equal 32-bit halves: the even
+                // halves of two registers make one register of 32-bit masks,
+                // elements 4j .. 4j + 4 in order.
+                let m = core::array::from_fn(|j| {
+                    let (lo, hi) = (mask(2 * j), mask(2 * j + 1));
+                    // SAFETY: the caller guarantees SSE4.1.
+                    unsafe {
+                        _mm_castps_si128(_mm_shuffle_ps::<0b10_00_10_00>(
+                            _mm_castsi128_ps(lo),
+                            _mm_castsi128_ps(hi),
+                        ))
+                    }
+                });
+                // SAFETY: the caller guarantees SSE4.1.
+                unsafe { narrow_sse(m) }
+            }
+
+            #[inline(always)]
+            unsafe fn store_bytes(bytes: __m128i, dst: *mut u8) {
+                // SAFETY: guaranteed by the caller.
+                unsafe { _mm_storeu_si128(dst.cast(), bytes) }
+            }
+        }
+
+        /// Narrows four registers of 32-bit lane masks to 16 `bool` bytes, in
+        /// order: signed saturation keeps -1 as -1 (i32 -> i16 -> i8), and
+        /// 128-bit packs keep the order.
+        ///
+        /// # Safety
+        ///
+        /// The CPU must support SSE2.
+        #[inline(always)]
+        unsafe fn narrow_sse(m: [__m128i; 4]) -> __m128i {
+            // SAFETY: the caller guarantees SSE2.
+            unsafe {
+                let p = _mm_packs_epi16(_mm_packs_epi32(m[0], m[1]), _mm_packs_epi32(m[2], m[3]));
+                _mm_and_si128(p, _mm_set1_epi8(1))
             }
         }
 
@@ -594,6 +661,30 @@ cfg_x86! {
                     V::store_bools(mask, dst.add(full), tail);
                 }
             }
+        }
+
+        #[target_feature(enable = "sse4.1")]
+        pub(super) fn sse41_cmp<V: Pack, Op: CmpOp>(
+            a: &[V::Scalar],
+            b: &[V::Scalar],
+            out: &mut [MaybeUninit<bool>],
+        ) {
+            // SAFETY: SSE4.1 is enabled in this function, `V` is an SSE
+            // register type, and the caller checked that all three slices have
+            // the same length.
+            unsafe { cmp_packed::<V, Op, _>(a, b, out) }
+        }
+
+        #[target_feature(enable = "sse4.1")]
+        pub(super) fn sse41_cmp_scalar<V: Pack, Op: CmpOp>(
+            a: &[V::Scalar],
+            b: V::Scalar,
+            out: &mut [MaybeUninit<bool>],
+        ) {
+            // SAFETY: SSE4.1 is enabled in this function, `V` is an SSE
+            // register type, and the caller checked that `a` and `out` have
+            // the same length.
+            unsafe { cmp_packed::<V, Op, _>(a, Splat(V::splat(b)), out) }
         }
     }
 }
@@ -790,13 +881,18 @@ mod tests {
     }
 
     macro_rules! simd {
-        ($($T:ty => $avx512:ident, $avx2:ident, $neon:ident);*) => {
+        ($($T:ty => $avx512:ident, $avx2:ident, $sse41:ident, $neon:ident);*) => {
             $(
                 impl Simd for $T {
                     fn simd_cmp<Op: CmpOp>(a: &[Self], b: &[Self]) -> Vec<(&'static str, Vec<bool>)> {
                         #[allow(unused_mut, reason = "empty on some targets")]
                         let mut results = Vec::new();
                         cfg_x86!(if {
+                            if crate::detect::has_sse41() {
+                                // SAFETY: SSE4.1 checked just above.
+                                let got = run(a.len(), |out| unsafe { x86::sse41_cmp::<x86::$sse41, Op>(a, b, out) });
+                                results.push(("sse41", got));
+                            }
                             if crate::detect::has_avx2_fma() {
                                 // SAFETY: AVX2 + FMA checked just above.
                                 let got = run(a.len(), |out| unsafe { x86::avx2_cmp::<x86::$avx2, Op>(a, b, out) });
@@ -819,6 +915,11 @@ mod tests {
                         #[allow(unused_mut, reason = "empty on some targets")]
                         let mut results = Vec::new();
                         cfg_x86!(if {
+                            if crate::detect::has_sse41() {
+                                // SAFETY: SSE4.1 checked just above.
+                                let got = run(a.len(), |out| unsafe { x86::sse41_cmp_scalar::<x86::$sse41, Op>(a, b, out) });
+                                results.push(("sse41", got));
+                            }
                             if crate::detect::has_avx2_fma() {
                                 // SAFETY: AVX2 + FMA checked just above.
                                 let got = run(a.len(), |out| unsafe { x86::avx2_cmp_scalar::<x86::$avx2, Op>(a, b, out) });
@@ -841,7 +942,7 @@ mod tests {
         };
     }
 
-    simd!(f32 => F32x16, F32x8, F32x4; f64 => F64x8, F64x4, F64x2);
+    simd!(f32 => F32x16, F32x8, F32x4, F32x4; f64 => F64x8, F64x4, F64x2, F64x2);
 
     fn check<Op: CmpOp, T: TestFloat + Simd>(name: &str) {
         let name = std::format!("{name} {}", T::NAME);

@@ -99,7 +99,7 @@ pub(crate) trait ArithElement: Arith + Sized {
 }
 
 macro_rules! arith_element {
-    ($($T:ty => $avx512:ident, $avx2:ident, $neon:ident);* $(;)?) => {
+    ($($T:ty => $avx512:ident, $avx2:ident, $sse41:ident, $neon:ident);* $(;)?) => {
         $(
             impl ArithElement for $T {
                 #[cfg(any(feature = "alloc", test))]
@@ -114,6 +114,7 @@ macro_rules! arith_element {
                     dispatch! {
                         avx512 => x86::avx512_binary_uninit::<x86::$avx512, Op>(a, b, out),
                         avx2 => x86::avx2_binary_uninit::<x86::$avx2, Op>(a, b, out),
+                        sse41 => x86::sse41_binary_uninit::<x86::$sse41, Op>(a, b, out),
                         neon => neon::binary_uninit::<neon::$neon, Op>(a, b, out),
                         scalar => scalar_binary_uninit::<Op, Self>(a, b, out),
                     }
@@ -125,6 +126,7 @@ macro_rules! arith_element {
                     dispatch! {
                         avx512 => x86::avx512_binary_in_place::<x86::$avx512, Op>(a, b),
                         avx2 => x86::avx2_binary_in_place::<x86::$avx2, Op>(a, b),
+                        sse41 => x86::sse41_binary_in_place::<x86::$sse41, Op>(a, b),
                         neon => neon::binary_in_place::<neon::$neon, Op>(a, b),
                         scalar => scalar_binary_in_place::<Op, Self>(a, b),
                     }
@@ -141,6 +143,7 @@ macro_rules! arith_element {
                     dispatch! {
                         avx512 => x86::avx512_binary_scalar_uninit::<x86::$avx512, Op>(a, b, out),
                         avx2 => x86::avx2_binary_scalar_uninit::<x86::$avx2, Op>(a, b, out),
+                        sse41 => x86::sse41_binary_scalar_uninit::<x86::$sse41, Op>(a, b, out),
                         neon => neon::binary_scalar_uninit::<neon::$neon, Op>(a, b, out),
                         scalar => scalar_binary_scalar_uninit::<Op, Self>(a, b, out),
                     }
@@ -151,6 +154,7 @@ macro_rules! arith_element {
                     dispatch! {
                         avx512 => x86::avx512_binary_scalar_in_place::<x86::$avx512, Op>(a, b),
                         avx2 => x86::avx2_binary_scalar_in_place::<x86::$avx2, Op>(a, b),
+                        sse41 => x86::sse41_binary_scalar_in_place::<x86::$sse41, Op>(a, b),
                         neon => neon::binary_scalar_in_place::<neon::$neon, Op>(a, b),
                         scalar => scalar_binary_scalar_in_place::<Op, Self>(a, b),
                     }
@@ -166,6 +170,12 @@ macro_rules! arith_element {
                     #[allow(unused_mut, reason = "only scalar on some targets")]
                     let mut results = std::vec![("scalar", x)];
                     cfg_x86!(if {
+                        if crate::detect::has_sse41() {
+                            let mut x = a.to_vec();
+                            // SAFETY: SSE4.1 checked just above.
+                            unsafe { x86::sse41_binary_scalar_in_place::<x86::$sse41, Op>(&mut x, b) };
+                            results.push(("sse41", x));
+                        }
                         if crate::detect::has_avx2_fma() {
                             let mut x = a.to_vec();
                             // SAFETY: AVX2 + FMA checked just above.
@@ -197,6 +207,12 @@ macro_rules! arith_element {
                     #[allow(unused_mut, reason = "only scalar on some targets")]
                     let mut results = std::vec![("scalar", x)];
                     cfg_x86!(if {
+                        if crate::detect::has_sse41() {
+                            let mut x = a.to_vec();
+                            // SAFETY: SSE4.1 checked just above.
+                            unsafe { x86::sse41_binary_in_place::<x86::$sse41, Op>(&mut x, b) };
+                            results.push(("sse41", x));
+                        }
                         if crate::detect::has_avx2_fma() {
                             let mut x = a.to_vec();
                             // SAFETY: AVX2 + FMA checked just above.
@@ -222,7 +238,7 @@ macro_rules! arith_element {
     };
 }
 
-arith_element!(f32 => F32x16, F32x8, F32x4; f64 => F64x8, F64x4, F64x2);
+arith_element!(f32 => F32x16, F32x8, F32x4, F32x4; f64 => F64x8, F64x4, F64x2, F64x2);
 
 #[cfg(any(feature = "alloc", test))]
 fn scalar_binary_uninit<Op: BinaryOp, T: Arith>(a: &[T], b: &[T], out: &mut [MaybeUninit<T>]) {
@@ -257,6 +273,7 @@ cfg_x86! {
         use crate::simd::SimdVector;
         pub(super) use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
         pub(super) use crate::simd::avx512::{f32x16::F32x16, f64x8::F64x8};
+        pub(super) use crate::simd::sse::{f32x4::F32x4, f64x2::F64x2};
 
         #[cfg(any(feature = "alloc", test))]
         #[target_feature(enable = "avx2,fma")]
@@ -343,6 +360,50 @@ cfg_x86! {
         ) {
             // SAFETY: AVX-512F is enabled in this function, and `V` is an
             // AVX-512 register type.
+            unsafe { driver::binary_scalar_in_place::<V, Op>(a, b) }
+        }
+
+        #[cfg(any(feature = "alloc", test))]
+        #[target_feature(enable = "sse4.1")]
+        pub(super) fn sse41_binary_uninit<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &[V::Scalar],
+            b: &[V::Scalar],
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: SSE4.1 is enabled in this function, and `V` is an
+            // SSE register type.
+            unsafe { driver::binary_uninit::<V, Op>(a, b, out) }
+        }
+
+        #[target_feature(enable = "sse4.1")]
+        pub(super) fn sse41_binary_in_place<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &mut [V::Scalar],
+            b: &[V::Scalar],
+        ) {
+            // SAFETY: SSE4.1 is enabled in this function, and `V` is an
+            // SSE register type.
+            unsafe { driver::binary_in_place::<V, Op>(a, b) }
+        }
+
+        #[cfg(any(feature = "alloc", test))]
+        #[target_feature(enable = "sse4.1")]
+        pub(super) fn sse41_binary_scalar_uninit<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &[V::Scalar],
+            b: V::Scalar,
+            out: &mut [core::mem::MaybeUninit<V::Scalar>],
+        ) {
+            // SAFETY: SSE4.1 is enabled in this function, and `V` is an
+            // SSE register type.
+            unsafe { driver::binary_scalar_uninit::<V, Op>(a, b, out) }
+        }
+
+        #[target_feature(enable = "sse4.1")]
+        pub(super) fn sse41_binary_scalar_in_place<V: SimdVector + Arith, Op: BinaryOp>(
+            a: &mut [V::Scalar],
+            b: V::Scalar,
+        ) {
+            // SAFETY: SSE4.1 is enabled in this function, and `V` is an
+            // SSE register type.
             unsafe { driver::binary_scalar_in_place::<V, Op>(a, b) }
         }
     }

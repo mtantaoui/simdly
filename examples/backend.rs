@@ -13,6 +13,7 @@ fn main() {
     for b in [
         Backend::Avx512,
         Backend::Avx2,
+        Backend::Sse41,
         Backend::Neon,
         Backend::Scalar,
     ] {
