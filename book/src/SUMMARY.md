@@ -41,4 +41,5 @@
 - [Methodology](./benchmarks/README.md)
 - [AVX2](./benchmarks/avx2.md)
 - [AVX-512](./benchmarks/avx512.md)
+- [SSE4.1](./benchmarks/sse41.md)
 - [NEON](./benchmarks/neon.md)

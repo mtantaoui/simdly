@@ -6,6 +6,7 @@
 |---------|---------------------|-------------|-------------|----------------------------------|
 | AVX-512 | AVX-512F            | 16          | 8           | at run time, on `x86_64`         |
 | AVX2    | AVX2 + FMA          | 8           | 4           | at run time, on `x86_64`         |
+| SSE4.1  | SSE4.1              | 4           | 2           | at run time, on `x86_64` without AVX2 |
 | NEON    | NEON                | 4           | 2           | always, on `aarch64`             |
 | scalar  | none                | 1           | 1           | when nothing else is available   |
 
@@ -18,27 +19,30 @@ backend in use.
 
 Each backend has one register type per element type (`F32x8`, `F64x4`, …).
 A slice is processed as full registers plus one tail: AVX2 and AVX-512 load
-and store the tail with lane masks, NEON through a register-sized buffer.
+and store the tail with lane masks, SSE4.1 and NEON through a
+register-sized buffer.
 Nothing past the end of a slice is read or written.
 
 ## One algorithm, every backend
 
 A function like `acos` is written once, generic over a small `Float` trait:
 
-| `Float` method      | AVX2                 | AVX-512                 | NEON          | scalar        |
-|---------------------|----------------------|-------------------------|---------------|---------------|
-| `a.mul_add(b, c)`   | `vfmadd` (fused)     | `vfmadd` (fused)        | `fmla` (fused)| `a * b + c`   |
-| `select(m, a, b)`   | `vblendvps`          | masked blend            | `bsl`         | `if`          |
-| `a.lt(b)`, …        | `vcmpps`             | `vcmpps` into a mask    | `fcmgt`, …    | `<`, …        |
-| `a.and_bits(m)`     | `vpand`              | `vpandd`                | `and`         | `to_bits() &` |
-| `a.sqrt()`, `a / b` | `vsqrtps`, `vdivps`  | `vsqrtps`, `vdivps`     | `fsqrt`, `fdiv` | `sqrt`, `/` |
+| `Float` method      | AVX2                 | AVX-512                 | SSE4.1               | NEON          | scalar        |
+|---------------------|----------------------|-------------------------|----------------------|---------------|---------------|
+| `a.mul_add(b, c)`   | `vfmadd` (fused)     | `vfmadd` (fused)        | `mulps`, `addps`     | `fmla` (fused)| `a * b + c`   |
+| `select(m, a, b)`   | `vblendvps`          | masked blend            | `blendvps`           | `bsl`         | `if`          |
+| `a.lt(b)`, …        | `vcmpps`             | `vcmpps` into a mask    | `cmpltps`, …         | `fcmgt`, …    | `<`, …        |
+| `a.and_bits(m)`     | `vpand`              | `vpandd`                | `pand`               | `and`         | `to_bits() &` |
+| `a.sqrt()`, `a / b` | `vsqrtps`, `vdivps`  | `vsqrtps`, `vdivps`     | `sqrtps`, `divps`    | `fsqrt`, `fdiv` | `sqrt`, `/` |
 
 Branches become selects: every lane computes each case of the algorithm
 and keeps its own. The kernel compiles once per register type, to that
 ISA's instructions; on scalar `f32` and `f64` it is ordinary code.
 
 The scalar backend uses separate multiply and add, as `core` has no fused
-multiply-add. Results can therefore differ between backends by a rounding,
+multiply-add, and so does SSE4.1, which has none; where a kernel needs a
+product exactly (`residual`), both use Dekker's algorithm instead of a
+fused multiply-add. Results can therefore differ between backends by a rounding,
 so each function is tested against a precise reference on every backend,
 not against another backend.
 

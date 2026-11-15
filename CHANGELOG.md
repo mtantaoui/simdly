@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- SSE4.1 backend, for `x86_64` CPUs without AVX2 (4 `f32` / 2 `f64`
+  lanes): every math function, the arithmetic and the comparisons, selected
+  at run time after AVX-512 and AVX2 (or at compile time without `std`,
+  e.g. `-C target-cpu=x86-64-v2`); `Backend::Sse41`. Same ≤ 1 ULP bounds,
+  checked over every `f32` input. SSE has no fused multiply-add: `mul_add`
+  rounds twice and exact products use Dekker's algorithm, as on the scalar
+  backend. CI runs the suite under `qemu -cpu Nehalem`.
 - `SliceMath::gelu` and `gelu_in_place`, `x·Φ(x) = (x/2)·(1 + erf(x/√2))`
   in one pass, ≤ 1 ULP on every backend, negative inputs included, where
   `1 + erf` cancels (measured 0.500 for `f32`, every input, and 0.838 for

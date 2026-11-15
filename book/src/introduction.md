@@ -1,8 +1,8 @@
 # Introduction
 
 simdly computes element-wise maths on `f32` and `f64` slices with SIMD
-instructions: AVX2 and AVX-512 on `x86_64`, NEON on `aarch64`, and a scalar
-fallback everywhere else.
+instructions: SSE4.1, AVX2 and AVX-512 on `x86_64`, NEON on `aarch64`, and a
+scalar fallback everywhere else.
 
 ```rust
 use simdly::{SliceExt, SliceMath};

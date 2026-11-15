@@ -28,47 +28,47 @@ let e = a.sub_scalar(1.0); // [0.0, 1.0, 2.0]
 ## Implementation status
 
 For `f32` and `f64`. ✅ implemented, 🚧 planned. An operation without a SIMD
-backend still works everywhere: it runs on the next one available (AVX2, then
-scalar).
+backend still works everywhere: it runs on the next one available (AVX2,
+SSE4.1, then scalar).
 
-| Operation                                      | AVX-512 | AVX2 | NEON | scalar |
-|------------------------------------------------|---------|------|------|--------|
-| Arithmetic: `add` `sub` `mul` `div`, `_assign` | ✅      | ✅   | ✅   | ✅     |
-| Arithmetic with a scalar: `add_scalar` … `div_scalar`, `_assign` | ✅ | ✅ | ✅ | ✅ |
-| Comparisons: `less` … `not_equal`, `_scalar`   | ✅      | ✅   | ✅   | ✅     |
-| `abs`                                          | ✅      | ✅   | ✅   | ✅     |
-| `acos`                                         | ✅      | ✅   | ✅   | ✅     |
-| `asin`                                         | ✅      | ✅   | ✅   | ✅     |
-| `atan`                                         | ✅      | ✅   | ✅   | ✅     |
-| `atan2`                                        | ✅      | ✅   | ✅   | ✅     |
-| `cbrt`                                         | ✅      | ✅   | ✅   | ✅     |
-| `ceil`                                         | ✅      | ✅   | ✅   | ✅     |
-| `floor`                                        | ✅      | ✅   | ✅   | ✅     |
-| `trunc`, `round`, `round_ties_even`            | ✅      | ✅   | ✅   | ✅     |
-| `neg`, `recip`, `sign`, `clamp`                | ✅      | ✅   | ✅   | ✅     |
-| `fmod`, `remainder` (and `_scalar`)            | ✅      | ✅   | ✅   | ✅     |
-| `exp`                                          | ✅      | ✅   | ✅   | ✅     |
-| `erf`                                          | ✅      | ✅   | ✅   | ✅     |
-| `gelu`                                         | ✅      | ✅   | ✅   | ✅     |
-| `ln`                                           | ✅      | ✅   | ✅   | ✅     |
-| `log1p`                                        | ✅      | ✅   | ✅   | ✅     |
-| `powf`, `powf_scalar`, `powi`                  | ✅      | ✅   | ✅   | ✅     |
-| `sigmoid`                                      | ✅      | ✅   | ✅   | ✅     |
-| `log_sigmoid`                                  | ✅      | ✅   | ✅   | ✅     |
-| `softplus`                                     | ✅      | ✅   | ✅   | ✅     |
-| `sinh`                                         | ✅      | ✅   | ✅   | ✅     |
-| `cosh`                                         | ✅      | ✅   | ✅   | ✅     |
-| `tanh`                                         | ✅      | ✅   | ✅   | ✅     |
-| `asinh`                                        | ✅      | ✅   | ✅   | ✅     |
-| `acosh`                                        | ✅      | ✅   | ✅   | ✅     |
-| `atanh`                                        | ✅      | ✅   | ✅   | ✅     |
-| `hypot`                                        | ✅      | ✅   | ✅   | ✅     |
-| `hypot3`                                       | ✅      | ✅   | ✅   | ✅     |
-| `hypot4`                                       | ✅      | ✅   | ✅   | ✅     |
-| `sin`                                          | ✅      | ✅   | ✅   | ✅     |
-| `cos`                                          | ✅      | ✅   | ✅   | ✅     |
-| `tan`                                          | ✅      | ✅   | ✅   | ✅     |
-| `sqrt`                                         | ✅      | ✅   | ✅   | ✅     |
+| Operation                                      | AVX-512 | AVX2 | SSE4.1 | NEON | scalar |
+|------------------------------------------------|---------|------|--------|------|--------|
+| Arithmetic: `add` `sub` `mul` `div`, `_assign` | ✅      | ✅   | ✅     | ✅   | ✅     |
+| Arithmetic with a scalar: `add_scalar` … `div_scalar`, `_assign` | ✅ | ✅ | ✅     | ✅ | ✅ |
+| Comparisons: `less` … `not_equal`, `_scalar`   | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `abs`                                          | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `acos`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `asin`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `atan`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `atan2`                                        | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `cbrt`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `ceil`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `floor`                                        | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `trunc`, `round`, `round_ties_even`            | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `neg`, `recip`, `sign`, `clamp`                | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `fmod`, `remainder` (and `_scalar`)            | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `exp`                                          | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `erf`                                          | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `gelu`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `ln`                                           | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `log1p`                                        | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `powf`, `powf_scalar`, `powi`                  | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `sigmoid`                                      | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `log_sigmoid`                                  | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `softplus`                                     | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `sinh`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `cosh`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `tanh`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `asinh`                                        | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `acosh`                                        | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `atanh`                                        | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `hypot`                                        | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `hypot3`                                       | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `hypot4`                                       | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `sin`                                          | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `cos`                                          | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `tan`                                          | ✅      | ✅   | ✅     | ✅   | ✅     |
+| `sqrt`                                         | ✅      | ✅   | ✅     | ✅   | ✅     |
 
 The [book](book/) explains the maths behind each function and collects the
 benchmarks (`mdbook serve book`).
@@ -77,6 +77,7 @@ benchmarks (`mdbook serve book`).
 
 | Architecture | ISA             | `f32` lanes | `f64` lanes |
 |--------------|-----------------|-------------|-------------|
+| `x86_64`     | SSE4.1          | 4           | 2           |
 | `x86_64`     | AVX2 + FMA      | 8           | 4           |
 | `x86_64`     | AVX-512         | 16          | 8           |
 | `aarch64`    | NEON            | 4           | 2           |
@@ -90,7 +91,8 @@ Without the `std` feature, runtime detection is unavailable and only
 backends enabled at compile time are used, e.g. on `x86_64`:
 
 ```sh
-RUSTFLAGS="-C target-feature=+avx2,+fma" cargo build --release
+RUSTFLAGS="-C target-feature=+avx2,+fma" cargo build --release   # AVX2
+RUSTFLAGS="-C target-cpu=x86-64-v2" cargo build --release        # SSE4.1
 ```
 
 ## Cargo features

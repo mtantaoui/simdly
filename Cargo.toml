@@ -5,7 +5,7 @@ edition = "2024"
 # 1.89 stabilised the AVX-512 intrinsics.
 rust-version = "1.89"
 authors = ["Mahdi Tantaoui <mohamedalmahdi.tantaoui@gmail.com>"]
-description = "SIMD implementations of mathematical functions for Rust (AVX2, AVX-512, NEON) with documented worst-case ULP bounds."
+description = "SIMD implementations of mathematical functions for Rust (SSE4.1, AVX2, AVX-512, NEON) with documented worst-case ULP bounds."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/mtantaoui/simdly"
 documentation = "https://docs.rs/simdly"

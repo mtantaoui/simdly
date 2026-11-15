@@ -23,6 +23,7 @@
 //!
 //! | Architecture | ISA             | `f32` lanes | `f64` lanes |
 //! |--------------|-----------------|-------------|-------------|
+//! | `x86_64`     | SSE4.1          | 4           | 2           |
 //! | `x86_64`     | AVX2 + FMA      | 8           | 4           |
 //! | `x86_64`     | AVX-512         | 16          | 8           |
 //! | `aarch64`    | NEON            | 4           | 2           |
@@ -31,7 +32,7 @@
 //! On `x86_64` the fastest backend the CPU supports is detected at runtime, so
 //! no flags are needed. On `aarch64` NEON is always used. [`backend()`]
 //! reports the one in use. Without `std`, only backends enabled at compile
-//! time (`-C target-feature=+avx2,+fma`) are used.
+//! time (`-C target-feature=+avx2,+fma`, or `+sse4.1`) are used.
 //!
 //! ## Cargo features
 //!
