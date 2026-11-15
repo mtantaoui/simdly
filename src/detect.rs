@@ -77,6 +77,20 @@ cfg_x86! {
         }
     }
 
+    /// SSE4.1, required by the SSE4.1 backend.
+    #[allow(dead_code, reason = "the SSE4.1 backend is wired in by the next commit")]
+    #[inline(always)]
+    pub(crate) fn has_sse41() -> bool {
+        #[cfg(feature = "std")]
+        {
+            std::is_x86_feature_detected!("sse4.1")
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            cfg!(target_feature = "sse4.1")
+        }
+    }
+
     /// AVX-512F, required by the AVX-512 backend.
     #[inline(always)]
     pub(crate) fn has_avx512f() -> bool {
