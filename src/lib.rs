@@ -1,23 +1,48 @@
 //! # simdly
 //!
-//! SIMD implementations of mathematical functions for `f32` and `f64`, with a
-//! documented worst-case ULP bound for every function.
+//! Element-wise maths on `f32` and `f64` slices with SIMD instructions, and a
+//! documented worst-case error, in ULPs, for every function.
 //!
 //! ## Example
 //!
-//! ```
-//! use simdly::SliceExt;
+// The example needs `alloc` (`Vec` results); without it, it is not run.
+#![cfg_attr(feature = "alloc", doc = "```")]
+#![cfg_attr(not(feature = "alloc"), doc = "```ignore")]
+//! use simdly::{SliceExt, SliceMath};
 //!
-//! let mut a = [1.0_f32, 2.0, 3.0];
-//! a.add_assign(&[4.0, 5.0, 6.0]);
-//! assert_eq!(a, [5.0, 7.0, 9.0]);
+//! let x = [0.0_f32, 0.5, 1.0, 2.0];
+//!
+//! let y = x.sin();                   // a new Vec<f32>
+//! let z = x.add(&y);                 // element-wise x + sin(x)
+//! let small = z.less_scalar(1.0);    // Vec<bool>
+//! assert_eq!(small, [true, true, false, false]);
+//!
+//! let mut w = x;
+//! w.exp_in_place();                  // in place: no allocation, no `alloc`
 //! ```
 //!
-//! With the `alloc` feature (on by default), `add` and friends return a new
-//! `Vec` instead; `add_scalar`, `sub_scalar`, … take one value as the right
-//! operand of every element. Math functions are in [`SliceMath`]: `abs`, `acos`,
-//! `asin`, `atan`, `atan2`, `cbrt`, `ceil`, `cos`, `erf`, `exp`, `gelu`, `floor`, `trunc`, `round`, `round_ties_even`, `neg`, `recip`, `sign`, `clamp`, `fmod`, `remainder`, `hypot`, `hypot3`, `hypot4`, `ln`, `log1p`, `log_sigmoid`, `powf`, `powf_scalar`, `powi`, `sigmoid`, `sin`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `softplus`, `sqrt`, `tan`, …, each with an `_in_place`
-//! variant.
+//! Arithmetic and comparisons are in [`SliceExt`], the math functions in
+//! [`SliceMath`]. Each function returns a new `Vec` (with the `alloc`
+//! feature, on by default) and has an in-place variant (`_assign` for
+//! arithmetic, `_in_place` for math).
+//!
+//! ## Functions
+//!
+//! | Category                     | Functions                                                                 |
+//! |------------------------------|---------------------------------------------------------------------------|
+//! | Arithmetic                   | `add` `sub` `mul` `div`, and with one value: `add_scalar` …               |
+//! | Comparisons                  | `less` `less_equal` `greater` `greater_equal` `equal` `not_equal`, `_scalar` |
+//! | Rounding and sign            | `abs` `ceil` `floor` `trunc` `round` `round_ties_even` `neg` `sign` `clamp` |
+//! | Powers and roots             | `sqrt` `cbrt` `recip` `powf` `powf_scalar` `powi`                         |
+//! | Norms                        | `hypot` `hypot3` `hypot4`                                                 |
+//! | Exponential and logarithms   | `exp` `ln` `log1p`                                                        |
+//! | Trigonometric                | `sin` `cos` `tan` `asin` `acos` `atan` `atan2`                            |
+//! | Hyperbolic                   | `sinh` `cosh` `tanh` `asinh` `acosh` `atanh`                              |
+//! | Remainders                   | `fmod` `remainder`, and with one divisor: `fmod_scalar` `remainder_scalar` |
+//! | Special and activation       | `erf` `gelu` `sigmoid` `log_sigmoid` `softplus`                           |
+//!
+//! Each function's page in [`SliceMath`] gives its error bound and special
+//! values.
 //!
 //! ## Backends
 //!
