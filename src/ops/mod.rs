@@ -419,6 +419,7 @@ mod tests {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     #[test]
+    #[cfg_attr(panic = "abort", ignore = "needs panics to unwind")]
     fn length_mismatch_panics() {
         let panics = |f: &mut dyn FnMut()| catch_unwind(AssertUnwindSafe(f)).is_err();
         let (a, b) = ([1.0_f32; 9], [1.0_f32; 8]);

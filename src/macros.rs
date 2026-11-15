@@ -8,11 +8,12 @@
 //! |--------------|----------------------------------------|---------------------------|
 //! | `cfg_x86!`   | `x86_64` with SSE2 (not soft-float)    | SSE4.1, AVX2, AVX-512 (runtime-selected) |
 //! | `cfg_neon!`  | `aarch64` + `neon`                     | NEON                      |
-//! | `cfg_simd!`  | either of the above                    |                           |
+//! | `cfg_wasm!`  | `wasm32` + `simd128`                   | wasm                      |
+//! | `cfg_simd!`  | `cfg_x86!` or `cfg_neon!`              |                           |
 //!
 //! The scalar backend is always compiled, as the fallback.
 //!
-//! `cfg_x86!` and `cfg_neon!` take items, or an expression:
+//! `cfg_x86!`, `cfg_neon!` and `cfg_wasm!` take items, or an expression:
 //!
 //! ```rust,ignore
 //! cfg_x86! {
@@ -55,6 +56,22 @@ macro_rules! cfg_neon {
     ($($item:item)*) => {
         $(
             #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+            $item
+        )*
+    };
+}
+
+macro_rules! cfg_wasm {
+    (if { $($then:tt)* } else { $($else:tt)* }) => {{
+        #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+        let value = { $($then)* };
+        #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+        let value = { $($else)* };
+        value
+    }};
+    ($($item:item)*) => {
+        $(
+            #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
             $item
         )*
     };

@@ -133,7 +133,9 @@ pub(crate) fn assert_same<T: TestFloat>(got: &[T], want: &[T], what: &str) {
 /// `c` in `around`, and the special values.
 pub(crate) fn samples<T: TestFloat>(n: u64, max: f64, around: &[f64]) -> Vec<T> {
     let top = T::from_f64(max).bits();
-    let mut bits: Vec<u64> = (0..=top).step_by((top / n) as usize).collect();
+    // In `u64`: for `f64` the step does not fit a 32-bit `usize` (wasm32).
+    let step = top / n;
+    let mut bits: Vec<u64> = (0..=top / step).map(|i| i * step).collect();
     for &c in around {
         let c = T::from_f64(c).bits();
         bits.extend((c - 2000)..=(c + 2000));

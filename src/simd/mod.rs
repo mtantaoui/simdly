@@ -13,6 +13,10 @@ cfg_neon! {
     pub(crate) mod neon;
 }
 
+cfg_wasm! {
+    pub(crate) mod wasm;
+}
+
 /// A SIMD register holding [`LANES`](Self::LANES) values of type `Scalar`.
 ///
 /// A value proves the CPU supports the type's ISA: constructors are `unsafe`

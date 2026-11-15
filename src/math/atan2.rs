@@ -253,6 +253,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(panic = "abort", ignore = "needs panics to unwind")]
     #[should_panic(expected = "length mismatch")]
     fn atan2_length_mismatch_panics() {
         let mut y = [1.0_f32; 3];

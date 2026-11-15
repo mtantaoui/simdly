@@ -125,6 +125,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(panic = "abort", ignore = "needs panics to unwind")]
     #[should_panic(expected = "min > max")]
     fn clamp_panics_on_reversed_bounds() {
         use crate::SliceMath;
@@ -132,6 +133,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(panic = "abort", ignore = "needs panics to unwind")]
     #[should_panic(expected = "NaN")]
     fn clamp_panics_on_nan_bound() {
         use crate::SliceMath;
