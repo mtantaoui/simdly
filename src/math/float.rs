@@ -22,8 +22,9 @@ pub(crate) trait Float: Arith + Neg<Output = Self> + Compare + Abs + Floor + Sqr
     /// `c` in every lane; `self` is only the proof of the ISA.
     fn constant(self, c: Self::Elem) -> Self;
 
-    /// `self · b + c`: fused (one rounding) on SIMD backends, two roundings
-    /// on the scalar one, as `core` has no fused multiply-add.
+    /// `self · b + c`: fused (one rounding) on AVX2, AVX-512 and NEON; two
+    /// roundings on the scalar backend, as `core` has no fused multiply-add,
+    /// and on SSE4.1, which has none either.
     fn mul_add(self, b: Self, c: Self) -> Self;
 
     /// Lane-wise `if mask { a } else { b }`.
@@ -34,8 +35,8 @@ pub(crate) trait Float: Arith + Neg<Output = Self> + Compare + Abs + Floor + Sqr
 
     /// `c − self · b`, **exactly** whenever the result is a float, as for
     /// the remainder of a division (`c = num`, `b = den`, `self ≈ num/den`):
-    /// a fused multiply-add on SIMD backends, Dekker's exact product on the
-    /// scalar one.
+    /// a fused multiply-add where [`mul_add`](Self::mul_add) is fused,
+    /// Dekker's exact product ([`dekker`]) on the scalar and SSE4.1 backends.
     fn residual(self, b: Self, c: Self) -> Self;
 
     /// Lanes whose sign bit is set: negative numbers, `-0.0` and `-NaN`.
@@ -168,16 +169,9 @@ macro_rules! float_scalar {
                     $T::from_bits(self.to_bits() & mask)
                 }
 
-                /// Dekker: `self · b = p + e` exactly, from halves of each
-                /// factor whose products are exact. `c − p` is exact when
-                /// the residual is small (Sterbenz).
                 #[inline(always)]
                 fn residual(self, b: $T, c: $T) -> $T {
-                    let p = self * b;
-                    let (ah, al) = split(self);
-                    let (bh, bl) = split(b);
-                    let e = ((ah * bh - p) + ah * bl + al * bh) + al * bl;
-                    (c - p) - e
+                    dekker(self, b, c)
                 }
 
                 #[inline(always)]
@@ -213,10 +207,23 @@ macro_rules! float_scalar {
     };
 }
 
+/// [`Float::residual`] without a fused multiply-add: `c − a·b` with
+/// `a · b = p + e` exactly (Dekker), from halves of each factor whose
+/// products are exact. `c − p` is exact when the residual is small
+/// (Sterbenz).
+#[inline(always)]
+fn dekker<V: Float>(a: V, b: V, c: V) -> V {
+    let p = a * b;
+    let (ah, al) = split(a);
+    let (bh, bl) = split(b);
+    let e = ((ah * bh - p) + ah * bl + al * bh) + al * bl;
+    (c - p) - e
+}
+
 /// `v = hi + lo`, each with half of `v`'s significand bits.
 #[inline(always)]
-fn split<T: Element + Arith>(v: T) -> (T, T) {
-    let t = v * T::SPLIT;
+fn split<V: Float>(v: V) -> (V, V) {
+    let t = v * v.constant(V::Elem::SPLIT);
     let hi = t - (t - v);
     (hi, v - hi)
 }
@@ -226,6 +233,11 @@ float_scalar!(f32: u32, 23, 127, f64: u64, 52, 1023);
 cfg_x86! {
     mod x86 {
         use core::arch::x86_64::{
+            __m128i, _mm_and_si128, _mm_blendv_pd, _mm_blendv_ps, _mm_castpd_si128,
+            _mm_castps_si128, _mm_castsi128_pd, _mm_castsi128_ps, _mm_cmpgt_epi32, _mm_cvtpd_ps,
+            _mm_cvtps_pd, _mm_movehl_ps, _mm_movelh_ps, _mm_movemask_epi8, _mm_or_si128,
+            _mm_set1_epi32, _mm_set1_epi64x, _mm_setzero_si128, _mm_shuffle_epi32, _mm_slli_epi32,
+            _mm_slli_epi64, _mm_srai_epi32, _mm_srli_epi32, _mm_srli_epi64,
             __m256i, __mmask8, __mmask16, _mm256_and_si256, _mm256_blendv_pd, _mm256_blendv_ps,
             _mm256_castpd_si256, _mm256_castps_si256, _mm256_castsi256_pd, _mm256_castsi256_ps,
             _mm256_cmpgt_epi32, _mm256_cmpgt_epi64, _mm256_fmadd_pd, _mm256_fmadd_ps,
@@ -247,14 +259,41 @@ cfg_x86! {
         use crate::simd::SimdVector;
         use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
         use crate::simd::avx512::{f32x16::F32x16, f64x8::F64x8};
+        use crate::simd::sse::{f32x4::F32x4, f64x2::F64x2};
 
         /// `impl Float` for an x86 register. `$and` takes and returns the raw
         /// register, so it can cast through the integer one.
         macro_rules! float_x86 {
+            (@fused $V:ident ($fmadd:ident, $fnmadd:ident)) => {
+                #[inline(always)]
+                fn mul_add(self, b: Self, c: Self) -> Self {
+                    // SAFETY: a register of this type exists, so its ISA is
+                    // available; AVX2 registers also need FMA, which their
+                    // constructors require.
+                    unsafe { $V::from_raw($fmadd(self.raw(), b.raw(), c.raw())) }
+                }
+
+                #[inline(always)]
+                fn residual(self, b: Self, c: Self) -> Self {
+                    // SAFETY: as for `mul_add`.
+                    unsafe { $V::from_raw($fnmadd(self.raw(), b.raw(), c.raw())) }
+                }
+            };
+            // No FMA (SSE4.1): two roundings, and Dekker's exact product.
+            (@unfused $V:ident) => {
+                #[inline(always)]
+                fn mul_add(self, b: Self, c: Self) -> Self {
+                    self * b + c
+                }
+
+                #[inline(always)]
+                fn residual(self, b: Self, c: Self) -> Self {
+                    super::dekker(self, b, c)
+                }
+            };
             (
                 $V:ident: $T:ident, $Bits:ident, $Mask:ty;
-                fmadd: $fmadd:ident,
-                fnmadd: $fnmadd:ident,
+                fma: $fma:ident $(($fmadd:ident, $fnmadd:ident))?,
                 select: |$m:ident, $a:ident, $b:ident| $select:expr,
                 and: |$v:ident, $bits:ident| $and:expr,
                 sign: |$s:ident| $sign:expr,
@@ -272,13 +311,7 @@ cfg_x86! {
                         unsafe { <$V as SimdVector>::splat(c) }
                     }
 
-                    #[inline(always)]
-                    fn mul_add(self, b: Self, c: Self) -> Self {
-                        // SAFETY: a register of this type exists, so its ISA
-                        // is available; AVX2 registers also need FMA, which
-                        // their constructors require.
-                        unsafe { $V::from_raw($fmadd(self.raw(), b.raw(), c.raw())) }
-                    }
+                    float_x86!(@$fma $V $(($fmadd, $fnmadd))?);
 
                     #[inline(always)]
                     fn select($m: $Mask, a: Self, b: Self) -> Self {
@@ -294,12 +327,6 @@ cfg_x86! {
                         // SAFETY: a register of this type exists, so its ISA
                         // is available.
                         unsafe { $V::from_raw($and) }
-                    }
-
-                    #[inline(always)]
-                    fn residual(self, b: Self, c: Self) -> Self {
-                        // SAFETY: as for `mul_add`.
-                        unsafe { $V::from_raw($fnmadd(self.raw(), b.raw(), c.raw())) }
                     }
 
                     #[inline(always)]
@@ -365,8 +392,7 @@ cfg_x86! {
         }
 
         float_x86!(F32x8: f32, u32, __m256i;
-            fmadd: _mm256_fmadd_ps,
-            fnmadd: _mm256_fnmadd_ps,
+            fma: fused(_mm256_fmadd_ps, _mm256_fnmadd_ps),
             select: |m, a, b| _mm256_blendv_ps(b, a, _mm256_castsi256_ps(m)),
             and: |v, bits| _mm256_castsi256_ps(_mm256_and_si256(
                 _mm256_castps_si256(v),
@@ -379,8 +405,7 @@ cfg_x86! {
         );
 
         float_x86!(F64x4: f64, u64, __m256i;
-            fmadd: _mm256_fmadd_pd,
-            fnmadd: _mm256_fnmadd_pd,
+            fma: fused(_mm256_fmadd_pd, _mm256_fnmadd_pd),
             select: |m, a, b| _mm256_blendv_pd(b, a, _mm256_castsi256_pd(m)),
             and: |v, bits| _mm256_castsi256_pd(_mm256_and_si256(
                 _mm256_castpd_si256(v),
@@ -393,8 +418,7 @@ cfg_x86! {
         );
 
         float_x86!(F32x16: f32, u32, __mmask16;
-            fmadd: _mm512_fmadd_ps,
-            fnmadd: _mm512_fnmadd_ps,
+            fma: fused(_mm512_fmadd_ps, _mm512_fnmadd_ps),
             select: |m, a, b| _mm512_mask_blend_ps(m, b, a),
             and: |v, bits| _mm512_castsi512_ps(_mm512_and_si512(
                 _mm512_castps_si512(v),
@@ -407,8 +431,7 @@ cfg_x86! {
         );
 
         float_x86!(F64x8: f64, u64, __mmask8;
-            fmadd: _mm512_fmadd_pd,
-            fnmadd: _mm512_fnmadd_pd,
+            fma: fused(_mm512_fmadd_pd, _mm512_fnmadd_pd),
             select: |m, a, b| _mm512_mask_blend_pd(m, b, a),
             and: |v, bits| _mm512_castsi512_pd(_mm512_and_si512(
                 _mm512_castpd_si512(v),
@@ -418,6 +441,34 @@ cfg_x86! {
             any: |k| k != 0,
             bits: 52, 1023, i64, _mm512_castpd_si512, _mm512_castsi512_pd,
                 _mm512_set1_epi64, _mm512_and_si512, _mm512_or_si512, _mm512_srli_epi64, _mm512_slli_epi64,
+        );
+
+        float_x86!(F32x4: f32, u32, __m128i;
+            fma: unfused,
+            select: |m, a, b| _mm_blendv_ps(b, a, _mm_castsi128_ps(m)),
+            and: |v, bits| _mm_castsi128_ps(_mm_and_si128(
+                _mm_castps_si128(v),
+                _mm_set1_epi32(bits as i32),
+            )),
+            sign: |v| _mm_cmpgt_epi32(_mm_setzero_si128(), _mm_castps_si128(v)),
+            any: |k| _mm_movemask_epi8(k) != 0,
+            bits: 23, 127, i32, _mm_castps_si128, _mm_castsi128_ps,
+                _mm_set1_epi32, _mm_and_si128, _mm_or_si128, _mm_srli_epi32, _mm_slli_epi32,
+        );
+
+        // `_mm_cmpgt_epi64` is SSE4.2: the sign of each 64-bit lane is its
+        // high half's, spread by an arithmetic shift and copied to the low half.
+        float_x86!(F64x2: f64, u64, __m128i;
+            fma: unfused,
+            select: |m, a, b| _mm_blendv_pd(b, a, _mm_castsi128_pd(m)),
+            and: |v, bits| _mm_castsi128_pd(_mm_and_si128(
+                _mm_castpd_si128(v),
+                _mm_set1_epi64x(bits as i64),
+            )),
+            sign: |v| _mm_shuffle_epi32::<0b11_11_01_01>(_mm_srai_epi32::<31>(_mm_castpd_si128(v))),
+            any: |k| _mm_movemask_epi8(k) != 0,
+            bits: 52, 1023, i64, _mm_castpd_si128, _mm_castsi128_pd,
+                _mm_set1_epi64x, _mm_and_si128, _mm_or_si128, _mm_srli_epi64, _mm_slli_epi64,
         );
 
         impl Widen for F32x8 {
@@ -434,6 +485,21 @@ cfg_x86! {
                         _mm256_castps128_ps256(_mm256_cvtpd_ps(lo)),
                         _mm256_cvtpd_ps(hi),
                     ))
+                }
+            }
+        }
+
+        impl Widen for F32x4 {
+            #[inline(always)]
+            fn via_f64<F: WideFn>(self) -> Self {
+                let v = self.raw();
+                // SAFETY: an F32x4 exists, so SSE4.1 is available: the F64x2
+                // halves may exist too.
+                unsafe {
+                    let lo = F64x2::from_raw(_mm_cvtps_pd(v));
+                    let hi = F64x2::from_raw(_mm_cvtps_pd(_mm_movehl_ps(v, v)));
+                    let (lo, hi) = (F::call(lo).raw(), F::call(hi).raw());
+                    F32x4::from_raw(_mm_movelh_ps(_mm_cvtpd_ps(lo), _mm_cvtpd_ps(hi)))
                 }
             }
         }

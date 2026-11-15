@@ -6,7 +6,7 @@
 //!
 //! | Macro        | Active when                            | Backends compiled         |
 //! |--------------|----------------------------------------|---------------------------|
-//! | `cfg_x86!`   | `x86_64` with SSE2 (not soft-float)    | AVX2, AVX-512 (runtime-selected) |
+//! | `cfg_x86!`   | `x86_64` with SSE2 (not soft-float)    | SSE4.1, AVX2, AVX-512 (runtime-selected) |
 //! | `cfg_neon!`  | `aarch64` + `neon`                     | NEON                      |
 //! | `cfg_simd!`  | either of the above                    |                           |
 //!
@@ -72,7 +72,8 @@ macro_rules! cfg_simd {
     };
 }
 
-/// Calls the fastest available backend: AVX-512, AVX2, NEON, then scalar.
+/// Calls the fastest available backend: AVX-512, AVX2, SSE4.1, NEON, then
+/// scalar.
 ///
 /// Every arm but `scalar` is optional, and an arm is only compiled on its
 /// architecture, so it may name items that only exist there:
@@ -94,6 +95,7 @@ macro_rules! dispatch {
     (
         $(avx512 => $avx512:expr,)?
         $(avx2 => $avx2:expr,)?
+        $(sse41 => $sse41:expr,)?
         $(neon => $neon:expr,)?
         scalar => $scalar:expr $(,)?
     ) => {
@@ -114,6 +116,14 @@ macro_rules! dispatch {
                     if $crate::detect::Backend::Avx2.is_available() {
                         // SAFETY: AVX2 and FMA were just detected.
                         break 'dispatch unsafe { $avx2 };
+                    }
+                )?
+                $(
+                    #[cfg(all(target_arch = "x86_64", target_feature = "sse2"))]
+                    #[allow(unused_unsafe, reason = "safe when the features are enabled at compile time")]
+                    if $crate::detect::Backend::Sse41.is_available() {
+                        // SAFETY: SSE4.1 was just detected.
+                        break 'dispatch unsafe { $sse41 };
                     }
                 )?
                 $(

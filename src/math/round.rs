@@ -80,13 +80,14 @@ scalar!(f32: 8_388_608.0, f64: 4_503_599_627_370_496.0); // 2^23, 2^52
 cfg_x86! {
     mod x86 {
         use core::arch::x86_64::{
-            _MM_FROUND_NO_EXC, _MM_FROUND_TO_NEAREST_INT, _MM_FROUND_TO_ZERO, _mm256_round_pd,
+            _MM_FROUND_NO_EXC, _MM_FROUND_TO_NEAREST_INT, _MM_FROUND_TO_ZERO, _mm_round_pd, _mm_round_ps, _mm256_round_pd,
             _mm256_round_ps, _mm512_roundscale_pd, _mm512_roundscale_ps,
         };
 
         use super::{RoundTiesEven, Trunc};
         use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
         use crate::simd::avx512::{f32x16::F32x16, f64x8::F64x8};
+        use crate::simd::sse::{f32x4::F32x4, f64x2::F64x2};
 
         /// Toward zero, no precision exception.
         const ZERO: i32 = _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC;
@@ -120,7 +121,9 @@ cfg_x86! {
             F32x8: _mm256_round_ps;
             F64x4: _mm256_round_pd;
             F32x16: _mm512_roundscale_ps;
-            F64x8: _mm512_roundscale_pd
+            F64x8: _mm512_roundscale_pd;
+            F32x4: _mm_round_ps;
+            F64x2: _mm_round_pd
         );
     }
 }

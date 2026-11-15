@@ -12,6 +12,8 @@ use core::fmt;
 pub enum Backend {
     /// Portable scalar code, available everywhere.
     Scalar,
+    /// `x86_64` SSE4.1, for CPUs without AVX2.
+    Sse41,
     /// `x86_64` AVX2 + FMA.
     Avx2,
     /// `x86_64` AVX-512F.
@@ -25,6 +27,7 @@ impl Backend {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Scalar => "scalar",
+            Self::Sse41 => "sse41",
             Self::Avx2 => "avx2",
             Self::Avx512 => "avx512",
             Self::Neon => "neon",
@@ -36,6 +39,7 @@ impl Backend {
     pub fn is_available(self) -> bool {
         match self {
             Self::Scalar => true,
+            Self::Sse41 => cfg_x86!(if { has_sse41() } else { false }),
             Self::Avx2 => cfg_x86!(if { has_avx2_fma() } else { false }),
             Self::Avx512 => cfg_x86!(if { has_avx512f() } else { false }),
             Self::Neon => cfg_neon!(if { true } else { false }),
@@ -58,6 +62,7 @@ pub fn backend() -> Backend {
     dispatch! {
         avx512 => Backend::Avx512,
         avx2 => Backend::Avx2,
+        sse41 => Backend::Sse41,
         neon => Backend::Neon,
         scalar => Backend::Scalar,
     }
@@ -78,7 +83,6 @@ cfg_x86! {
     }
 
     /// SSE4.1, required by the SSE4.1 backend.
-    #[allow(dead_code, reason = "the SSE4.1 backend is wired in by the next commit")]
     #[inline(always)]
     pub(crate) fn has_sse41() -> bool {
         #[cfg(feature = "std")]
@@ -124,6 +128,11 @@ mod tests {
         fn on_avx2() -> Backend {
             Backend::Avx2
         }
+
+        #[target_feature(enable = "sse4.1")]
+        fn on_sse41() -> Backend {
+            Backend::Sse41
+        }
     }
 
     cfg_neon! {
@@ -137,6 +146,7 @@ mod tests {
         let got = dispatch! {
             avx512 => on_avx512(),
             avx2 => on_avx2(),
+            sse41 => on_sse41(),
             neon => on_neon(),
             scalar => Backend::Scalar,
         };
@@ -167,6 +177,7 @@ mod tests {
         for name in required.split(',').map(str::trim).filter(|s| !s.is_empty()) {
             let backend = match name {
                 "scalar" => Backend::Scalar,
+                "sse41" => Backend::Sse41,
                 "avx2" => Backend::Avx2,
                 "avx512" => Backend::Avx512,
                 "neon" => Backend::Neon,

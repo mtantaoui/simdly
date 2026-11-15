@@ -703,11 +703,12 @@ mod tests {
         }
     }
 
-    cfg_neon! {
-        /// Lengths 0..=40 cover the unrolled loop (16 `f32` / 8 `f64` per
+    cfg_simd! {
+        /// For a 128-bit register type (SSE4.1, NEON), when `$available`:
+        /// lengths 0..=40 cover the unrolled loop (16 `f32` / 8 `f64` per
         /// iteration), the single registers after it and the tail.
-        macro_rules! neon_driver_test {
-            ($name:ident, $T:ty, $V:ty) => {
+        macro_rules! simd128_driver_test {
+            ($name:ident, $T:ty, $V:ty, $available:expr) => {
                 #[test]
                 fn $name() {
                     use super::*;
@@ -718,7 +719,7 @@ mod tests {
                     impl UnaryFn<$V> for Affine {
                         #[inline(always)]
                         fn call(v: $V) -> $V {
-                            // SAFETY: a register exists, so NEON is available.
+                            // SAFETY: a register exists, so its ISA is available.
                             v * unsafe { <$V>::splat(1.5) } + unsafe { <$V>::splat(0.25) }
                         }
                     }
@@ -730,6 +731,9 @@ mod tests {
                         }
                     }
 
+                    if !$available {
+                        return;
+                    }
                     for len in 0..=40 {
                         let a: Vec<$T> = (0..len).map(|i| i as $T * 0.75 - 9.0).collect();
                         let b: Vec<$T> = (0..len).map(|i| i as $T * -0.5 + 3.0).collect();
@@ -740,7 +744,7 @@ mod tests {
                         let (mut out_u, mut out_b) = (std::vec![0.0; len], std::vec![0.0; len]);
                         let (mut in_u, mut in_b) = (a.clone(), a.clone());
                         let (mut out_s, mut in_s) = (Vec::with_capacity(len), a.clone());
-                        // SAFETY: NEON is enabled at compile time, and
+                        // SAFETY: the ISA was checked above, and
                         // `binary_scalar_uninit` initialises `out_s[..len]`.
                         unsafe {
                             unary::<$V, Affine>(&a, &mut out_u);
@@ -762,7 +766,25 @@ mod tests {
             };
         }
 
-        neon_driver_test!(neon_f32_matches_scalar, f32, crate::simd::neon::f32x4::F32x4);
-        neon_driver_test!(neon_f64_matches_scalar, f64, crate::simd::neon::f64x2::F64x2);
+    }
+
+    cfg_x86! {
+        simd128_driver_test!(
+            sse41_f32_matches_scalar,
+            f32,
+            crate::simd::sse::f32x4::F32x4,
+            crate::detect::has_sse41()
+        );
+        simd128_driver_test!(
+            sse41_f64_matches_scalar,
+            f64,
+            crate::simd::sse::f64x2::F64x2,
+            crate::detect::has_sse41()
+        );
+    }
+
+    cfg_neon! {
+        simd128_driver_test!(neon_f32_matches_scalar, f32, crate::simd::neon::f32x4::F32x4, true);
+        simd128_driver_test!(neon_f64_matches_scalar, f64, crate::simd::neon::f64x2::F64x2, true);
     }
 }

@@ -30,7 +30,7 @@ ceil_float!(f32, f64);
 
 cfg_x86! {
     mod x86 {
-        use core::arch::x86_64::{
+        use core::arch::x86_64::{_mm_ceil_ps, _mm_ceil_pd,
             _MM_FROUND_NO_EXC, _MM_FROUND_TO_POS_INF, _mm256_ceil_pd, _mm256_ceil_ps,
             _mm512_roundscale_pd, _mm512_roundscale_ps,
         };
@@ -38,6 +38,7 @@ cfg_x86! {
         use super::Ceil;
         use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
         use crate::simd::avx512::{f32x16::F32x16, f64x8::F64x8};
+        use crate::simd::sse::{f32x4::F32x4, f64x2::F64x2};
 
         /// Round up, no precision exception.
         const UP: i32 = _MM_FROUND_TO_POS_INF | _MM_FROUND_NO_EXC;
@@ -71,6 +72,22 @@ cfg_x86! {
             fn ceil(self) -> Self {
                 // SAFETY: an F64x8 exists, so AVX-512F is available.
                 unsafe { F64x8::from_raw(_mm512_roundscale_pd::<UP>(self.raw())) }
+            }
+        }
+
+        impl Ceil for F32x4 {
+            #[inline(always)]
+            fn ceil(self) -> Self {
+                // SAFETY: an F32x4 exists, so SSE4.1 is available.
+                unsafe { F32x4::from_raw(_mm_ceil_ps(self.raw())) }
+            }
+        }
+
+        impl Ceil for F64x2 {
+            #[inline(always)]
+            fn ceil(self) -> Self {
+                // SAFETY: an F64x2 exists, so SSE4.1 is available.
+                unsafe { F64x2::from_raw(_mm_ceil_pd(self.raw())) }
             }
         }
     }

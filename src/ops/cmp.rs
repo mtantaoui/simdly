@@ -292,6 +292,9 @@ cfg_simd! {
 cfg_x86! {
     mod x86 {
         use core::arch::x86_64::{
+            __m128i, _mm_castpd_si128, _mm_castps_si128, _mm_cmpeq_pd, _mm_cmpeq_ps, _mm_cmpge_pd,
+            _mm_cmpge_ps, _mm_cmpgt_pd, _mm_cmpgt_ps, _mm_cmple_pd, _mm_cmple_ps, _mm_cmplt_pd,
+            _mm_cmplt_ps, _mm_cmpneq_pd, _mm_cmpneq_ps,
             __m256i, __mmask8, __mmask16, _CMP_EQ_OQ, _CMP_GE_OQ, _CMP_GT_OQ, _CMP_LE_OQ,
             _CMP_LT_OQ, _CMP_NEQ_UQ, _mm512_cmp_pd_mask, _mm512_cmp_ps_mask,
             _mm512_mask_cvtepi32_storeu_epi8, _mm512_mask_cvtepi64_storeu_epi8,
@@ -307,6 +310,7 @@ cfg_x86! {
         use crate::simd::SimdVector;
         pub(super) use crate::simd::avx2::{f32x8::F32x8, f64x4::F64x4};
         pub(super) use crate::simd::avx512::{f32x16::F32x16, f64x8::F64x8};
+        use crate::simd::sse::{f32x4::F32x4, f64x2::F64x2};
 
         /// `impl Compare` for a register: AVX2 compares into a vector of
         /// all-ones / zero lanes (cast to integers), AVX-512 into a bit mask.
@@ -362,6 +366,36 @@ cfg_x86! {
             [F64x4, _mm256_cmp_pd, _mm256_castpd_si256]
             [F32x16, _mm512_cmp_ps_mask => __mmask16]
             [F64x8, _mm512_cmp_pd_mask => __mmask8]
+        );
+
+        /// `impl Compare` for an SSE register: one intrinsic per comparison.
+        /// They match the AVX predicates above: ordered, except `!=`.
+        macro_rules! compare_sse {
+            ($($V:ty, $cast:ident: $lt:ident, $le:ident, $gt:ident, $ge:ident, $eq:ident, $ne:ident);* $(;)?) => {
+                $(
+                    compare_sse!(@ $V, $cast; lt: $lt, le: $le, gt: $gt, ge: $ge, eq: $eq, ne: $ne);
+                )*
+            };
+            (@ $V:ty, $cast:ident; $($method:ident: $cmp:ident),*) => {
+                impl Compare for $V {
+                    type Mask = __m128i;
+                    $(
+                        #[inline(always)]
+                        fn $method(self, rhs: Self) -> __m128i {
+                            // SAFETY: a register of this type exists, so its ISA
+                            // is available.
+                            unsafe { $cast($cmp(self.raw(), rhs.raw())) }
+                        }
+                    )*
+                }
+            };
+        }
+
+        compare_sse!(
+            F32x4, _mm_castps_si128: _mm_cmplt_ps, _mm_cmple_ps, _mm_cmpgt_ps, _mm_cmpge_ps,
+                _mm_cmpeq_ps, _mm_cmpneq_ps;
+            F64x2, _mm_castpd_si128: _mm_cmplt_pd, _mm_cmple_pd, _mm_cmpgt_pd, _mm_cmpge_pd,
+                _mm_cmpeq_pd, _mm_cmpneq_pd;
         );
 
         /// One 32-byte store of `bool`s per step.
